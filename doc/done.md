@@ -1177,6 +1177,71 @@
 - AsyncLocal ルーティング writer を一度だけ挿し、「この実行の論理コールツリーからの書き込み」だけを capture、他スレッドは元の writer へ素通しする方式へ変更 (lock 不要)
 - 検証: ローカル全ゲート green (666/666)。CI は verbosity minimal 化 (失敗詳細の可視化) 済みで、以後の再発時はログに assert が出る
 
+### T210: [IL] 紙の演習 — lowering 例で IL の抽象度を決定 ✓ (2026-07-18)
+- `doc/il-lowering-examples.md` を新設。switch 式パターン / for 変数捕捉 closure / struct 配列更新 / 文字列補間の 4 構文で IL 形と両 backend 出力を手書きし、抽象度 8 決定を確定 (パターン・式位置制御フロー・ループ構文は IL に無い、IIFE 廃止で statement 化、演算ノードは型解決済み単型、capture は変数単位、値型は place/copy 地点列挙、runtime 表面は intrinsic)
+- 演習の実測で現行 transpiler の意味論バグ 2 件を発見・起票: T221 (for 変数捕捉 closure が C# `3 3 3` / 現行 `0 1 2`)、T222 (派生インスタンスへの `is Base` が C# `true` / 現行 `false`)。除算/剰余は既に idiv/irem 補正済みで il-design の「未整理」が stale と判明 → 修正
+- 現行 emitter は bound tree (IOperation) でなく syntax tree + SemanticModel 走査と確認 → il-design.md の記述を実態へ修正し、M1 でも syntax 走査を維持する判断を明記
+- 検証: probe を transpile + Lua 5.5 実行、同一プログラムを実 .NET (net10.0) で実行して両挙動を突き合わせ (バグ 2 件はこの差分)。idiv/irem は -7/2=-3, -7%2=-1 で C# 一致を確認
+- よかったこと: コードを書く前の紙の演習で P0 バグ 2 件と設計判断 8 件が確定。IL 正本化の価値仮説 (ギャップの場当たり埋めが起きている) が実証された
+- 判断: IL builder の入力は IOperation へ移行せず syntax + SemanticModel を維持 — IL 化の価値は IL 側にあり、現行走査コードは資産。IIFE 廃止は意味論でなく性能・可読性判断 (closure 割当除去)
+- 残課題: T211 (仕様 v0)、バグ T221/T222 の修正時期 (M1 先行か畳むか)
+
+### T211: [IL] 意味論仕様 v0 ✓ (2026-07-18)
+- `doc/il-spec.md` を新設。il-design §2 ギャップ表の各行を「IL の条項 + backend の義務」へ分解し、意味論の正本を規範化: 厳密左→右評価・f32 再結合/縮約禁止 (§4 §6)、i32 wrap + C# 除算規則 + overflow fault (§5)、capture は変数単位 + ループ脱糖 (§7)、fault の決定性 (§12)、値型 copy 地点の列挙 (§10)、intrinsic の規範 = TinySystem dotnet facade + known-differences (§13)
+- 合格基準「本文が Lua にも C にも言及せず読める」を満たし、backend 義務は付録 A/B に分離。il-design §8 の未決 6 件中 3 件 (具体形 / 例外 / interop 境界) を決着、残 3 件 + 新規 3 件を il-spec 付録 C に同期
+- 検証: 文書のみの変更。規範の根拠事実は T210 の実測 (probe 2 本の Lua/.NET 突き合わせ) に依拠
+- 判断: string を UTF-8 バイト列で規範化 (出荷ターゲット表現を正に置き、.NET 実行側を既知差とする — 逆だと release backend が UTF-16 を背負う)。f32→i32 変換不能と INT_MIN/-1 は fault として決定的に定義 (C# 側が unspecified / 例外なので矛盾しない)。数学関数の規範は「同一プラットフォーム内一致」に留め、プラットフォーム間ビット一致は要求しない (spike の libm 排除方針と整合)
+- 残課題: gpt-5.6 second opinion review、M2 (T217) でシリアライズ形式と luo 向け入力契約
+
+### T211 補遺: gpt-5.6 反証レビューの反映 ✓ (2026-07-18)
+- 反証限定・load-bearing 6 決定に絞った second opinion (Codex 14分)。反証 4 / 生存 2 (fault 決定性、capture 脱糖)
+- 採用 4 件: (1) string 規範を「任意の octet 列」へ修正 + 孤立 surrogate literal の診断化 (UTF-8 不変条件は byte slicing で破綻するため)、(2) 非網羅 switch 式の no-match を fault 種別に追加 (temp 未代入の穴。例外サブセット外なので fault が C# 実挙動と等価)、(3) f32 リテラルは IL が bit 値保持・backend は 16 進浮動小数表記 + excess precision 排除 (10 進→double→f32 の二重丸めで 1 bit ずれる反例)、(4) interface への type test は診断化で決着 (T223 起票)
+- 検証: 文書のみの変更。反例は Codex 提示の C# 仕様条項 (§8.2.5 / §12.12 / §6.4.5.4 / §12.15.12.1) と Lua 5.5 luaconf.h 参照
+- よかったこと: 反証限定 + 対象 6 決定の明示でニトピックゼロ、全指摘が本質だった。レビュー前に自前で付録 C へ落としていた interface 項も具体的な偽陰性反例で決断まで進んだ
+
+### T211 補遺2: relaxed-fp 出荷オプションの追加 ✓ (2026-07-18)
+- il-spec §6 に fp モードを定義: strict (既定、digest 一致ゲート適用) と relaxed-fp (出荷ビルド単位の明示 opt-in。縮約/再結合/中間精度昇格を許可)
+- 判断: relaxed でも NaN/Inf/−0 の意味論は維持 (finite-math 系は不許可 — 精度は緩めても制御フローの意味は壊さない)。既定を緩めない理由は dev/release 対称性 (digest ゲート) がこの設計の商品価値であるため。Cortex-M7 は SIMD なしで fast-math の旨味は実質 fma 縮約のみ、strict のコストは spike (T212、-ffp-contract=off で測る) が定量化する
+- 検証: 文書のみの変更
+
+### T222: `is` / switch 型判定の継承対応 ✓ (2026-07-18)
+- EmitTypeCheck の `getmetatable(x) == T` 完全一致を `__tcs_is(x, T)` (metatable chain 走査) へ置換。chunk-local helper (idiv と同方式、--no-runtime でも動く) + TinySystem.instanceof + module mode の _G 配線
+- il-spec §9 の規範 (T またはその派生、null は偽) に準拠。多段継承・無関係型・null・designation 束縛・switch arm 順を semantic テスト 5 本で固定
+- 検証: InheritanceTypeTestTests 5/5 green (Red 4 件を確認してから実装)、コミット時 pre-commit で全ゲート
+- 判断: Operators.cs の overload dispatch (getmetatable 完全一致) は今回のスコープ外 — 派生型を base 引数の演算子に流す挙動は別途需要が出た時に判断
+
+### T221: for 変数を捕捉する closure の意味論修正 ✓ (2026-07-18)
+- TryEmitSimpleFor に捕捉ガードを追加: body 内の lambda が制御変数名を参照するなら numeric for を諦めて while 脱糖へ fallback (local 1 個 = 全 closure が同一 upvalue 共有、C# `3 3 3` と一致)。名前一致の過剰判定は fallback が常に正しいので許容
+- foreach の反復変数が反復ごと (C# 5+ 準拠、Lua generic for と自然に一致) であることもテストでロック
+- 検証: ForLoopTests 19/19 green (Red 1 件確認後に実装)、コミット時 pre-commit で全ゲート
+- 判断: M1 に畳まず先行修正 — M1 は挙動不変が完了条件のため、意味論変更を分離してから内部再編に入る
+
+### T214a: [M1] IL 核 — method body の syntax→IL→Lua 経路 ✓ (2026-07-18)
+- IL ノード定義 (Il.cs: place/単型演算/構造化制御フロー、il-spec 準拠)、syntax→IL builder (IlBuild 2 ファイル、全 SemanticModel 問い合わせを集約)、IL→Lua emitter (IlEmit、Roslyn 非依存 — IL が意味を運ぶことの構造的証明)。未対応構文は method 粒度で legacy visitor へ fallback するストラングラー構成
+- 対応範囲: statements 全種 (if/while/for numeric+脱糖/foreach/repeat/break/continue/return/代入/複合代入/increment)、式コア (算術 idiv/irem/fmod・比較・論理・bitwise・null 安全 concat・補間・ternary・List 生成/操作・Dict 読み・new・要素アクセス +1・facade/Math/String/Console 呼び出し)
+- 計測: TranspileResult.IlBodies/LegacyBodies、TCS_IL=off で IL 経路無効化 (退行診断)。samples 実測 21/31 bodies (67%) が IL 経由
+- 検証: 全テスト 671 green + IlPipelineTests 5 本 (IL 経由の確認・fallback 分離・意味論)。挙動不変は corpus semantic + differential + conformance sweep が担保
+- 判断: builder は legacy と同じ helper (VisitLiteral/CompoundOperator/IsListType 等) を共有し出力一致を構成的に保証。診断を出し得る経路 (WarnUnsupported) は必ず fallback。IIFE 廃止等の出力改善は legacy 削除後に IL 上で行う (T214c 以降) — 移行中の差分を挙動不変だけに絞るため
+- 残課題: T214b (lambda/pattern/?./custom property 等)、T214c (legacy 削除)
+
+### T214b: [M1] 残構文の IL 化 — samples 100% ✓ (2026-07-18)
+- 追加対応: lambda/closure (式/block body、pattern locals)、pattern 全種 (is 式/switch 式/switch 文、recursive/relational/binary/not)、型 test ノード (IlIsType/IlIsLuaType)、conditional access (?. ネスト込み)、?? (bool 厳密判定 IIFE)、??=、custom property accessor (get_/set_、compound、increment、副作用 receiver temp)、副作用 lvalue の temp 化、Dict 操作 (Add 代入形/TryGetValue/Remove/ContainsKey/Clear)、object initializer、ref-type option table、配列生成、with 式、分解代入 (宣言/tuple)、out 引数 multi-return、base 呼び出し、GetValueOrDefault、out var / is-pattern designation の前宣言
+- IL ノード追加: IlIife (式位置逐次実行)、IlClosure、IlWith、IlDo、IlMultiAssign、IlForPairs、IlIsType/IlIsLuaType、IlTable NameKey。inline render (IIFE 内 1 行化) を emitter に追加
+- 検証: 全テスト 676 green (fallback 例を method group 参照へ差し替え)。samples 実測 31/31 bodies (100%) が IL 経由 (T214a 時点 67%)
+- 判断: IIFE 形は legacy と同形を維持 (M1 は挙動不変が契約)。statement 化 (examples 決定 2) は M1 完了後に IL 上で行う
+- 残課題: T214c — ctor/accessor/operator/top-level 文の body も IL 経由へ、fallback は診断 method のみに
+
+### T214c: [M1] ctor / accessor / operator / top-level 文の IL 経由化 — M1 完 ✓ (2026-07-18)
+- TryEmitStatsViaIl / TryEmitReturnViaIl / TryEmitExprStatViaIl の共通フックを追加し、method body 以外の 4 emit 地点 (constructor body、custom property accessor body/expression body、operator body、top-level 文) を IL 経由化。origin を SyntaxNode? に統一
+- samples 実測 37/37 bodies (100%、ctor/accessor 込み) が IL 経由、legacy 0。M1 の完了条件 (全テスト green・増分コンパイル session 両立・fuzz/differential/conformance ゲート不変) を充足
+- 検証: 全テスト 676 green、deep fuzz 100 seeds 全一致 (生成プログラムの IL 経路を実 .NET と行単位比較)、コミット時 pre-commit 全ゲート
+- 判断: legacy visitor のコード削除は見送り — fallback は診断構文・method group 参照等の残構文が使い、挙動不変の保険としても機能する。縮退は T224 (P2)、IIFE statement 化は T225 (P2) として M1 契約から分離
+- 残課題: T224/T225、M2 (T217) で luo 向け入力契約 (program 構造の IL 化を含む)
+
+### IL 経路への continue scope 修正の写像 ✓ (2026-07-18)
+- origin 側 19d35c4 (一般 for lowering の continue goto が local スコープへ飛ぶ問題の legacy 修正) を rebase で取り込み、IL emitter (IlWhile) にも同条件 (incrementor あり + 直下 continue) の do..end 囲いを写像。IlWhile に ScopeBody を追加
+- 検証: 回帰テスト Continue_GeneralFor_LocalDeclaredAfterContinue が IL 経路で Red → 修正後 green、全テスト 677 green
+
 ### T230: SessionExports に補完/hover クエリ API を追加 ✓ (2026-07-18)
 - lub web playground の C# 補完・hover (lub docs/playground-dx.md §3) 向けに `SessionExports.Complete/Hover(epoch, path, content, offset)` を追加。エディタの現在バッファを受け取り、`IncrementalCompilationSession.ForkWithContent` (ReplaceSyntaxTree による speculative fork、session の texts/trees/revision/artifacts 不変) へ `SemanticQueries` が SemanticModel 直叩きでクエリする
 - 補完は member access 文脈 (instance / 型 receiver の static / namespace) とスコープ補完を判別し、`TinyCsComplianceFacts.TryGetUnsupportedApi` で allowlist フィルタ (「補完に出る = tcs で書ける」)。overload は名前単位 1 件、上限 200 件。hover は識別子限定でシグネチャ + /// summary を返す

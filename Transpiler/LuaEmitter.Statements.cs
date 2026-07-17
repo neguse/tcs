@@ -108,33 +108,16 @@ public partial class LuaEmitter
         }
     }
 
+    // is-pattern designation も out var と同じく statement 前で宣言し、
+    // 式内 (ternary / 複合条件) の束縛は IIFE 内代入で行う。
+    // elseif には前置文を置けないため、if-elseif 連鎖の条件分は
+    // chain 全体を root の前でまとめて宣言する。名前収集は IL builder と
+    // 共有 (CollectPreDeclNames)。
     private bool EmitOutVarDeclarations(StatementSyntax stmt)
     {
-        // is-pattern designation も out var と同じく statement 前で宣言し、
-        // 式内 (ternary / 複合条件) の束縛は IIFE 内代入で行う。
-        // elseif には前置文を置けないため、if-elseif 連鎖の条件分は
-        // chain 全体を root の前でまとめて宣言する。
-        var patternScopes = new List<SyntaxNode> { stmt };
-        var chain = stmt as IfStatementSyntax;
-        while (chain?.Else?.Statement is IfStatementSyntax elseIf)
-        {
-            patternScopes.Add(elseIf.Condition);
-            chain = elseIf;
-        }
-
-        var names = stmt.DescendantNodes()
-            .OfType<ArgumentSyntax>()
-            .Where(arg => arg.Ancestors().OfType<StatementSyntax>().FirstOrDefault() == stmt)
-            .Select(TryGetOutArgumentName)
-            .Where(name => !string.IsNullOrEmpty(name))
-            .Select(name => name!)
-            .Concat(patternScopes.SelectMany(IsPatternDesignationNames))
-            .Distinct()
-            .ToList();
-
+        var names = CollectPreDeclNames(stmt);
         foreach (var name in names)
             AppendLine($"local {name}");
-
         return names.Count > 0;
     }
 
@@ -385,6 +368,13 @@ public partial class LuaEmitter
         if (!IsLoopInvariantBound(model, forStmt, cond.Right)) return false;
         if (IsAssignedWithin(forStmt.Statement, varName)) return false;
 
+        // C# の for 制御変数はループ全体で 1 個で closure は全反復で共有する
+        // (il-spec §7)。Lua numeric for は反復ごとに新しい変数のため、body 内の
+        // lambda が制御変数を参照するなら while lowering へ fallback する。
+        // 名前一致の過剰判定 (lambda 引数の shadowing 等) は fallback 側が
+        // 常に正しいので許容する。
+        if (IsCapturedByLambdaWithin(forStmt.Statement, varName)) return false;
+
         var end = VisitExpression(model, cond.Right);
         var limit = cond.Kind() switch
         {
@@ -425,6 +415,11 @@ public partial class LuaEmitter
                 or CompilationUnitSyntax) ?? forStmt;
         return !IsAssignedWithin(scope, id.Identifier.ValueText);
     }
+
+    private static bool IsCapturedByLambdaWithin(SyntaxNode scope, string name) =>
+        scope.DescendantNodes().OfType<AnonymousFunctionExpressionSyntax>()
+            .Any(fn => fn.DescendantNodes().OfType<IdentifierNameSyntax>()
+                .Any(id => id.Identifier.ValueText == name));
 
     private static bool IsAssignedWithin(SyntaxNode scope, string name) =>
         scope.DescendantNodes().Any(n => n switch

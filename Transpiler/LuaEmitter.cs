@@ -50,6 +50,18 @@ public partial class LuaEmitter
             AppendLine("local function __tcs_irem(a, b)");
             AppendLine("  return a - __tcs_idiv(a, b) * b");
             AppendLine("end");
+            // C# の `is T` は「T またはその派生」(il-spec §9)。継承は
+            // instance の metatable = class table、class table の
+            // metatable.__index = base で表現しているため chain を辿る。
+            AppendLine("local function __tcs_is(x, T)");
+            AppendLine("  local mt = getmetatable(x)");
+            AppendLine("  while mt do");
+            AppendLine("    if mt == T then return true end");
+            AppendLine("    local link = getmetatable(mt)");
+            AppendLine("    mt = link and link.__index");
+            AppendLine("  end");
+            AppendLine("  return false");
+            AppendLine("end");
             _headerEmitted = true;
         }
         var root = tree.GetCompilationUnitRoot();
@@ -122,8 +134,12 @@ public partial class LuaEmitter
     }
 
     private void VisitGlobalStatement(SemanticModel model,
-        GlobalStatementSyntax global) =>
+        GlobalStatementSyntax global)
+    {
+        if (TryEmitStatsViaIl(model, [global.Statement])) return;
+        LegacyBodies++;
         VisitStatement(model, global.Statement);
+    }
 
     private void VisitClass(SemanticModel model, ClassDeclarationSyntax cls)
     {
@@ -323,12 +339,20 @@ public partial class LuaEmitter
 
         if (ctor?.Body != null)
         {
-            foreach (var stmt in ctor.Body.Statements)
-                VisitStatement(model, stmt);
+            if (!TryEmitStatsViaIl(model, ctor.Body.Statements))
+            {
+                LegacyBodies++;
+                foreach (var stmt in ctor.Body.Statements)
+                    VisitStatement(model, stmt);
+            }
         }
         else if (ctor?.ExpressionBody != null)
         {
-            AppendLine(VisitExpression(model, ctor.ExpressionBody.Expression));
+            if (!TryEmitExprStatViaIl(model, ctor.ExpressionBody.Expression))
+            {
+                LegacyBodies++;
+                AppendLine(VisitExpression(model, ctor.ExpressionBody.Expression));
+            }
         }
 
         AppendLine("return self");
@@ -352,12 +376,26 @@ public partial class LuaEmitter
             AppendLine($"function {className}{separator}{prefix}{propName}({extraParam})");
             _indent++;
             if (accessor.Body != null)
-                foreach (var s in accessor.Body.Statements) VisitStatement(model, s);
+            {
+                if (!TryEmitStatsViaIl(model, accessor.Body.Statements))
+                {
+                    LegacyBodies++;
+                    foreach (var s in accessor.Body.Statements)
+                        VisitStatement(model, s);
+                }
+            }
             else if (accessor.ExpressionBody != null)
             {
-                var expr = VisitExpression(model, accessor.ExpressionBody.Expression);
-                AppendLine(accessor.IsKind(SyntaxKind.GetAccessorDeclaration)
-                    ? $"return {expr}" : expr);
+                var viaIl = accessor.IsKind(SyntaxKind.GetAccessorDeclaration)
+                    ? TryEmitReturnViaIl(model, accessor.ExpressionBody.Expression)
+                    : TryEmitExprStatViaIl(model, accessor.ExpressionBody.Expression);
+                if (!viaIl)
+                {
+                    LegacyBodies++;
+                    var expr = VisitExpression(model, accessor.ExpressionBody.Expression);
+                    AppendLine(accessor.IsKind(SyntaxKind.GetAccessorDeclaration)
+                        ? $"return {expr}" : expr);
+                }
             }
             _indent--;
             AppendLine("end");
@@ -479,6 +517,13 @@ public partial class LuaEmitter
     // fast path 内では安定する。
     public List<(string Key, int Start, int Length)> MethodRanges { get; } = [];
 
+    // M1 ストラングラー計測: method body の IL 経由 / legacy fallback 数。
+    // TCS_IL=off で IL 経路を無効化できる (退行診断用)。
+    public int IlBodies { get; private set; }
+    public int LegacyBodies { get; private set; }
+    private static readonly bool IlDisabled =
+        Environment.GetEnvironmentVariable("TCS_IL") == "off";
+
     public static string MethodKey(string className, MethodDeclarationSyntax method) =>
         $"{className}.{method.Identifier.ValueText}(" +
         string.Join(",", method.ParameterList.Parameters.Select(p => p.Type?.ToString())) + ")";
@@ -512,10 +557,33 @@ public partial class LuaEmitter
         EmitParameterDefaults(model, method.ParameterList);
 
         if (method.Body != null)
-            foreach (var stmt in method.Body.Statements)
-                VisitStatement(model, stmt);
+        {
+            if (!IlDisabled && TryBuildIlBody(model, method) is { } ilBody)
+            {
+                IlBodies++;
+                EmitIlBlock(ilBody);
+            }
+            else
+            {
+                LegacyBodies++;
+                foreach (var stmt in method.Body.Statements)
+                    VisitStatement(model, stmt);
+            }
+        }
         else if (method.ExpressionBody != null)
-            AppendLine($"return {VisitExpression(model, method.ExpressionBody.Expression)}");
+        {
+            if (!IlDisabled
+                && BuildExpr(model, method.ExpressionBody.Expression) is { } ilExpr)
+            {
+                IlBodies++;
+                AppendLine($"return {RenderIl(ilExpr)}");
+            }
+            else
+            {
+                LegacyBodies++;
+                AppendLine($"return {VisitExpression(model, method.ExpressionBody.Expression)}");
+            }
+        }
 
         _indent--;
         AppendLine("end");
