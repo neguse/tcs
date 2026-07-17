@@ -131,6 +131,36 @@ public class SemanticQueriesTests
     }
 
     [Fact]
+    public void HoverOnUnresolvedIdentifierReturnsNull()
+    {
+        // 未解決識別子で親式 (BinaryExpression) の operator symbol 等を
+        // 拾わないこと (PR #1 レビュー指摘)
+        var session = Open(GameSource);
+        var content = GameSource.Replace(
+            "Health = Health - amount;", "Health = undefinedA + 1;");
+        var fork = session.ForkWithContent("game/Player.cs", content);
+        Assert.NotNull(fork);
+        var offset = content.IndexOf("undefinedA", StringComparison.Ordinal) + 2;
+        var info = SemanticQueries.Hover(
+            fork.Value.Compilation, fork.Value.Tree, offset);
+        Assert.Null(info);
+    }
+
+    [Fact]
+    public void HoverOnDeclarationShowsSymbol()
+    {
+        var session = Open(GameSource);
+        var fork = session.ForkWithContent("game/Player.cs", GameSource);
+        Assert.NotNull(fork);
+        // メソッド宣言の識別子 (walk なしで GetDeclaredSymbol が引けること)
+        var offset = GameSource.IndexOf("Damage", StringComparison.Ordinal) + 1;
+        var info = SemanticQueries.Hover(
+            fork.Value.Compilation, fork.Value.Tree, offset);
+        Assert.NotNull(info);
+        Assert.Contains("Damage", info.Display);
+    }
+
+    [Fact]
     public void HoverOnNonIdentifierReturnsNull()
     {
         var session = Open(GameSource);

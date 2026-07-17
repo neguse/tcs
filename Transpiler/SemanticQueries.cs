@@ -115,14 +115,15 @@ public static class SemanticQueries
         if (!token.IsKind(SyntaxKind.IdentifierToken))
             return null;
 
-        // 識別子直近の宣言/参照シンボルだけを対象にする (式全体の hover はしない)
-        ISymbol? sym = null;
-        var depth = 0;
-        for (var n = token.Parent; n != null && sym == null && depth < 3;
-             n = n.Parent, depth++)
-        {
-            sym = model.GetDeclaredSymbol(n) ?? model.GetSymbolInfo(n).Symbol;
-        }
+        // 識別子の参照 (SimpleName) か宣言ノードだけを対象にする。親式への
+        // walk はしない — BinaryExpression 等の GetSymbolInfo が user-defined
+        // operator method を拾い、未解決識別子の hover に無関係なシンボルが
+        // 出るため (PR #1 レビュー指摘)。
+        ISymbol? sym = token.Parent is SimpleNameSyntax name
+            ? model.GetSymbolInfo(name).Symbol
+            : token.Parent != null
+                ? model.GetDeclaredSymbol(token.Parent)
+                : null;
         if (sym == null)
             return null;
 

@@ -1183,4 +1183,5 @@
 - 検証: SemanticQueriesTests 9 件 (instance/static/allowlist/List/scope/hover/doc/fork 不変/speculative 内容) green、run-tests.sh 全ゲート exit 0 (685/685 + skip 1)
 - よかったこと: fork が Roslyn の immutable Compilation そのままなので session 不変が構造的に保証される。allowlist が ISymbol 判定 (TryGetUnsupportedApi) として既に公開されていたため補完フィルタは 1 行
 - 判断: Microsoft.CodeAnalysis.Features は wasm バンドル肥大のため不使用 (SemanticModel の Lookup* で必要十分)。fork/SemanticModel はキャッシュしない (wasm ホストのメモリ膨張防止、tcs-main の指摘)。doc は source symbol の <summary> のみ (metadata 参照は XML doc を積んでいない)
-- 残課題: wasm 上の実レイテンシ計測は lub 側 (playground 統合) で行い、自動発火可否を判断する
+- 残課題: wasm 上の実レイテンシ計測は lub 側 (playground 統合) で行い、自動発火可否を判断する → lub verify A8 で実測 complete 47ms / hover 5ms (17_flappy、swiftshader headless)、恒常観測ログ化済み
+- レビュー反映 (PR #1): hover の対象を SimpleName 参照 / 宣言ノードに限定し、親式 walk による user-defined operator の誤 hover を排除
