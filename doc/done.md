@@ -1176,3 +1176,11 @@
 - CI (2 vCPU) で FileSizeGate / FuzzSweep が不定に失敗。原因は SpecDotnetExecutor がグローバル Console.Out を StringWriter へ差し替えて capture する実装で、並列テストの出力 (FileSizeGate の 600 行超 warning 等) が (1) fuzz の期待出力へ混入、(2) dispose 済み writer への書き込み例外、の 2 形態で他テストを壊していた
 - AsyncLocal ルーティング writer を一度だけ挿し、「この実行の論理コールツリーからの書き込み」だけを capture、他スレッドは元の writer へ素通しする方式へ変更 (lock 不要)
 - 検証: ローカル全ゲート green (666/666)。CI は verbosity minimal 化 (失敗詳細の可視化) 済みで、以後の再発時はログに assert が出る
+
+### T230: SessionExports に補完/hover クエリ API を追加 ✓ (2026-07-18)
+- lub web playground の C# 補完・hover (lub docs/playground-dx.md §3) 向けに `SessionExports.Complete/Hover(epoch, path, content, offset)` を追加。エディタの現在バッファを受け取り、`IncrementalCompilationSession.ForkWithContent` (ReplaceSyntaxTree による speculative fork、session の texts/trees/revision/artifacts 不変) へ `SemanticQueries` が SemanticModel 直叩きでクエリする
+- 補完は member access 文脈 (instance / 型 receiver の static / namespace) とスコープ補完を判別し、`TinyCsComplianceFacts.TryGetUnsupportedApi` で allowlist フィルタ (「補完に出る = tcs で書ける」)。overload は名前単位 1 件、上限 200 件。hover は識別子限定でシグネチャ + /// summary を返す
+- 検証: SemanticQueriesTests 9 件 (instance/static/allowlist/List/scope/hover/doc/fork 不変/speculative 内容) green、run-tests.sh 全ゲート exit 0 (685/685 + skip 1)
+- よかったこと: fork が Roslyn の immutable Compilation そのままなので session 不変が構造的に保証される。allowlist が ISymbol 判定 (TryGetUnsupportedApi) として既に公開されていたため補完フィルタは 1 行
+- 判断: Microsoft.CodeAnalysis.Features は wasm バンドル肥大のため不使用 (SemanticModel の Lookup* で必要十分)。fork/SemanticModel はキャッシュしない (wasm ホストのメモリ膨張防止、tcs-main の指摘)。doc は source symbol の <summary> のみ (metadata 参照は XML doc を積んでいない)
+- 残課題: wasm 上の実レイテンシ計測は lub 側 (playground 統合) で行い、自動発火可否を判断する
