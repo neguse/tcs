@@ -132,8 +132,12 @@ Lua を出力せず、C# compile error と TinyC# 準拠診断だけを返す。
 TinyC#固有の例外はenumと数値整数 (`char`を除く) の変換・等値比較、および
 互換public fieldによるinterface property facadeだけで、同じC#エラーIDの
 通常の型不一致は失敗する。
-host の wire format (lowerCamel / snake_case) を使うコードは
-`--no-naming-check` で C# naming convention warning だけを抑制できる。
+Lua 出力のメンバ名は C# 名から規則で写す (`BeginPass` → `begin_pass`、enum
+メンバ `DontCare` → `DONT_CARE`、`--ref` 型の static アクセスは
+`Lub.Gfx` → `lub.gfx`)。host の wire format が snake_case なら C# 側は通常の
+naming convention で書ける (規則は `doc/support-matrix.md` の
+「Lua 出力の名前規則」)。`--no-naming-check` は naming convention warning
+だけを抑制する。
 
 ```bash
 dotnet run --project Transpiler -- check samples/hello.cs

@@ -51,7 +51,7 @@ public class IlPipelineTests
                     return $"{total}|{s}|{neg / 2}|{neg % 2}";
                 }
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("15|1245|-3|-1", result);
     }
 
@@ -120,7 +120,7 @@ public class IlPipelineTests
                     return $"{xs.Count}:{d}:{xs[0]}";
                 }
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("3:13:1", result);
     }
 }

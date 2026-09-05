@@ -140,12 +140,22 @@ public partial class LuaEmitter
                 return BuildForInto(model, forStmt, acc);
             case ForEachStatementSyntax foreachStmt:
             {
+                var varName = foreachStmt.Identifier.ValueText;
+                if (TryGetEnumerateRunesReceiver(model, foreachStmt.Expression)
+                    is { } runesRecv)
+                {
+                    var str = BuildExpr(model, runesRecv);
+                    var runesBody = BuildBlock(model, foreachStmt.Statement);
+                    if (str == null || runesBody == null) return false;
+                    acc.Add(new IlForeachRunes(varName, str, runesBody)
+                        { Origin = stmt });
+                    return true;
+                }
                 var coll = BuildExpr(model, foreachStmt.Expression);
                 var body = BuildBlock(model, foreachStmt.Statement);
                 if (coll == null || body == null) return false;
                 var typeName = model.GetTypeInfo(foreachStmt.Expression).Type
                     ?.OriginalDefinition.ToDisplayString() ?? "";
-                var varName = foreachStmt.Identifier.ValueText;
                 acc.Add(typeName.StartsWith(
                         "System.Collections.Generic.Dictionary")
                     ? new IlForeachDict(varName, coll, body) { Origin = stmt }

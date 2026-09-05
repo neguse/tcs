@@ -16,7 +16,7 @@ public class BclAllowlistExtensionTests
                     Math.Round(2.5) + ":" + Math.Round(3.5) + ":" +
                     Math.Round(2.4) + ":" + Math.Round(-2.5) + ":" + Math.Round(-2.6);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("2:4:2:-2:-3", result);
     }
 
@@ -29,7 +29,7 @@ public class BclAllowlistExtensionTests
             {
                 public static double Test() => Math.Round(3.14159, 2);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("3.14", result);
     }
 
@@ -43,7 +43,7 @@ public class BclAllowlistExtensionTests
                 public static string Test() =>
                     Math.Sign(-12.5) + ":" + Math.Sign(0) + ":" + Math.Sign(3);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("-1:0:1", result);
     }
 
@@ -56,7 +56,7 @@ public class BclAllowlistExtensionTests
             {
                 public static bool Test() => Math.Abs(Math.Tan(Math.PI / 4) - 1.0) < 1e-9;
             }
-            """, "tostring(T.Test())");
+            """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
 
@@ -71,7 +71,7 @@ public class BclAllowlistExtensionTests
                     Math.Abs(Math.Log(Math.Exp(1.0)) - 1.0) < 1e-9
                     && Math.Abs(Math.Log(8.0, 2.0) - 3.0) < 1e-9;
             }
-            """, "tostring(T.Test())");
+            """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
 
@@ -84,7 +84,7 @@ public class BclAllowlistExtensionTests
             {
                 public static bool Test() => Math.Abs(Math.Exp(1.0) - 2.718281828) < 1e-6;
             }
-            """, "tostring(T.Test())");
+            """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
 
@@ -100,7 +100,7 @@ public class BclAllowlistExtensionTests
                     return $"{string.IsNullOrEmpty(missing)}:{string.IsNullOrEmpty("")}:{string.IsNullOrEmpty("x")}";
                 }
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("true:true:false", result);
     }
 
@@ -152,7 +152,7 @@ public class BclAllowlistExtensionTests
                     && TinySystem.String.IsNullOrEmpty("")
                     && !TinySystem.String.IsNullOrEmpty("x");
             }
-            """, "tostring(T.Test())");
+            """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
 }

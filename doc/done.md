@@ -1250,3 +1250,15 @@
 - 判断: Microsoft.CodeAnalysis.Features は wasm バンドル肥大のため不使用 (SemanticModel の Lookup* で必要十分)。fork/SemanticModel はキャッシュしない (wasm ホストのメモリ膨張防止、tcs-main の指摘)。doc は source symbol の <summary> のみ (metadata 参照は XML doc を積んでいない)
 - 残課題: wasm 上の実レイテンシ計測は lub 側 (playground 統合) で行い、自動発火可否を判断する → lub verify A8 で実測 complete 47ms / hover 5ms (17_flappy、swiftshader headless)、恒常観測ログ化済み
 - レビュー反映 (PR #1): hover の対象を SimpleName 参照 / 宣言ノードに限定し、親式 walk による user-defined operator の誤 hover を排除
+
+### T231: Lua 出力の名前規則 (snake_case 写像) ✓ (2026-09-05)
+- lub の言語構成設計 (lub `docs/log/2026-09-04-language-architecture-design.md`) に従い、C# のメンバ名を規則で Lua の snake_case に写す `LuaNaming` を emit の全経路 (IL builder / legacy visitor / class 骨格 / enum / record / object initializer / pattern / conditional access) に入れた。enum メンバは UPPER_SNAKE、`--ref` 型の static アクセスは入れ子の型名を小文字で `.` 結合 (`Lub.Gfx` → `lub.gfx`)、`--ref` 型に入れ子の enum は親の下に平らに置く。`const` field は値を inline。同じ型で写像後の名前が衝突するメンバは warning
+- 検証: LuaNamingTests 27 件 green、既存テストの Lua 式を写像後の名前へ書き換えて全テスト 720 green、run-tests.sh 全ゲート exit 0
+- 判断: flag にせず無条件の規則にした (tcs の出力を Lua ライブラリとして配れる形に揃える)。表は持たず関数 1 つで写す。BCL / TinySystem の metadata symbol は写さない (runtime の名前で呼ぶ)。全大文字の名前は既に snake_case とみなす
+- 残課題: lub 側の stub / サンプルの PascalCase 化と `--no-naming-check` の撤去 (lub 側で実施)
+
+### T232: host 連携 BCL (Environment / Parse / EnumerateRunes / string indexer) ✓ (2026-09-05)
+- Lua 標準ライブラリを C# 側の stub (`os` / `utf8` / `string`) で直接呼ぶ代わりに、同じ C# が実 .NET でも通る BCL を写す: `Environment.GetEnvironmentVariable` → `os.getenv`、`int.Parse` → `math.tointeger(tonumber)`、`double.Parse` / `float.Parse` → `tonumber`、`foreach (var r in s.EnumerateRunes())` + `r.Value` → `utf8.codes`、`s[i]` → `string.sub`、`(int)s[i]` / `(int)ch` → `string.byte`、`(int)'a'` は定数畳み込み
+- 検証: HostBclExtensionTests 5 件 green (allowlist 側の非警告も確認)、全テスト green
+- 判断: `Rune` は `System.Text` (未対応 namespace) だが `Value` だけ partial 対応にした。`int` / `double` は元から allowlist の外側 (許可) なので partial 型にはしない (`int.MaxValue` 等の既存挙動を変えないため)
+

@@ -11,7 +11,7 @@ public class MathSemanticTests
             {
                 public static int Test() => Math.Min(3, 7);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("3", result);
     }
 
@@ -24,7 +24,7 @@ public class MathSemanticTests
             {
                 public static int Test() => Math.Max(3, 7);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("7", result);
     }
 
@@ -37,7 +37,7 @@ public class MathSemanticTests
             {
                 public static int Test() => Math.Abs(-42);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("42", result);
     }
 
@@ -50,7 +50,7 @@ public class MathSemanticTests
             {
                 public static double Test() => Math.Floor(3.7);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("3", result);
     }
 
@@ -63,7 +63,7 @@ public class MathSemanticTests
             {
                 public static double Test() => Math.Ceiling(3.2);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("4", result);
     }
 
@@ -76,7 +76,7 @@ public class MathSemanticTests
             {
                 public static double Test() => Math.Sin(0);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("0.0", result);
     }
 
@@ -89,7 +89,7 @@ public class MathSemanticTests
             {
                 public static double Test() => Math.Cos(0);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("1.0", result);
     }
 
@@ -102,7 +102,7 @@ public class MathSemanticTests
             {
                 public static double Test() => Math.Atan2(0, 1);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("0.0", result);
     }
 
@@ -115,7 +115,7 @@ public class MathSemanticTests
             {
                 public static bool Test() => Math.PI > 3.14 && Math.PI < 3.15;
             }
-            """, "tostring(T.Test())");
+            """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
 
@@ -128,7 +128,7 @@ public class MathSemanticTests
             {
                 public static double Test() => Math.Pow(2, 5);
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("32.0", result);
     }
 }

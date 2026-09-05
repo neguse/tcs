@@ -146,7 +146,7 @@ internal sealed class SpecLuaExecutor
                     parts.Insert(0, type.Identifier.ValueText);
                 node = node.Parent;
             }
-            return string.Join(".", parts) + ".Main()";
+            return string.Join(".", parts) + ".main()";
         }
         return "";
     }

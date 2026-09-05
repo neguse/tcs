@@ -14,7 +14,7 @@ public class RandomSemanticTests
                     return f >= 0.0 && f < 1.0;
                 }
             }
-            """, "tostring(T.Test())");
+            """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
 
@@ -30,7 +30,7 @@ public class RandomSemanticTests
                     return n >= 0 && n < 10;
                 }
             }
-            """, "tostring(T.Test())");
+            """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
 
@@ -46,7 +46,7 @@ public class RandomSemanticTests
                     return n >= 5 && n <= 10;
                 }
             }
-            """, "tostring(T.Test())");
+            """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
 }

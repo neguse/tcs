@@ -21,7 +21,7 @@ public class TypePatternTests
                     return $"{a}|{b}";
                 }
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("false|7", result);
     }
 
@@ -44,7 +44,7 @@ public class TypePatternTests
                     return $"{a}|{c}|{d}";
                 }
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("f|nil|ok", result);
     }
 
@@ -63,7 +63,7 @@ public class TypePatternTests
                 public static string Test() =>
                     $"{Classify(5)}|{Classify(null)}";
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("5|-1", result);
     }
 
@@ -83,7 +83,7 @@ public class TypePatternTests
                     return $"{a}|{b}";
                 }
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("7|-1", result);
     }
 
@@ -107,7 +107,7 @@ public class TypePatternTests
                 public static string Test() =>
                     Classify(new Circle { R = 9 }) + "|" + Classify(new Shape());
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("big:9|other", result);
     }
 
@@ -136,7 +136,7 @@ public class TypePatternTests
                     return shapes.Count(o => o is Circle c && c.R > 2);
                 }
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("1", result);
     }
 
@@ -157,7 +157,7 @@ public class TypePatternTests
                     return $"{a}|{b}";
                 }
             }
-            """, "T.Test()");
+            """, "T.test()");
         Assert.Equal("circle|none", result);
     }
 }

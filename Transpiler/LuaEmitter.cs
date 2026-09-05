@@ -144,6 +144,7 @@ public partial class LuaEmitter
     private void VisitClass(SemanticModel model, ClassDeclarationSyntax cls)
     {
         SetSource(cls);
+        WarnLuaNameCollisions(cls);
         var name = cls.Identifier.ValueText;
 
         var baseClass = cls.BaseList?.Types
@@ -189,11 +190,11 @@ public partial class LuaEmitter
                     {
                         if (isStatic)
                         {
-                            staticFieldInits.Add((v.Identifier.ValueText, v.Initializer?.Value,
+                            staticFieldInits.Add((N(v.Identifier.ValueText), v.Initializer?.Value,
                                 typeInfo.Type));
                         }
                         else
-                            fieldInits.Add((v.Identifier.ValueText, v.Initializer?.Value,
+                            fieldInits.Add((N(v.Identifier.ValueText), v.Initializer?.Value,
                                 typeInfo.Type));
                     }
                     break;
@@ -201,7 +202,7 @@ public partial class LuaEmitter
                     var propTarget = prop.Modifiers.Any(SyntaxKind.StaticKeyword)
                         ? staticFieldInits
                         : fieldInits;
-                    propTarget.Add((prop.Identifier.ValueText, prop.Initializer?.Value,
+                    propTarget.Add((N(prop.Identifier.ValueText), prop.Initializer?.Value,
                         model.GetTypeInfo(prop.Type).Type));
                     break;
                 case ConstructorDeclarationSyntax c:
@@ -364,7 +365,7 @@ public partial class LuaEmitter
     private void VisitCustomProperty(SemanticModel model, string className,
         PropertyDeclarationSyntax prop)
     {
-        var propName = prop.Identifier.ValueText;
+        var propName = N(prop.Identifier.ValueText);
         // static accessor は self を取らない class function
         var separator = prop.Modifiers.Any(SyntaxKind.StaticKeyword) ? "." : ":";
         foreach (var accessor in prop.AccessorList!.Accessors)
@@ -407,7 +408,7 @@ public partial class LuaEmitter
     private void VisitExpressionBodiedProperty(SemanticModel model,
         string className, PropertyDeclarationSyntax prop)
     {
-        var propName = prop.Identifier.ValueText;
+        var propName = N(prop.Identifier.ValueText);
         var separator = prop.Modifiers.Any(SyntaxKind.StaticKeyword) ? "." : ":";
         _currentType?.DefinitionKeys.Add($"get_{propName}");
         AppendLine($"function {className}{separator}get_{propName}()");
@@ -421,6 +422,7 @@ public partial class LuaEmitter
     private void VisitRecord(SemanticModel model, RecordDeclarationSyntax rec)
     {
         SetSource(rec);
+        WarnLuaNameCollisions(rec);
         var name = rec.Identifier.ValueText;
 
         var info = new EmittedTypeInfo { Name = name, Kind = "record" };
@@ -437,14 +439,17 @@ public partial class LuaEmitter
         // Positional record: parameter list → constructor + properties
         var paramNames = rec.ParameterList?.Parameters
             .Select(p => p.Identifier.ValueText).ToList() ?? [];
-        info.InstanceShape = string.Join("\n", paramNames);
+        // positional parameter は Lua の local としては C# 名のまま、field
+        // としては写像後の名前で持つ
+        var fieldNames = paramNames.Select(N).ToList();
+        info.InstanceShape = string.Join("\n", fieldNames);
         info.DefinitionKeys.Add("new");
 
         AppendLine($"function {name}.new({string.Join(", ", paramNames)})");
         _indent++;
         AppendLine($"local self = setmetatable({{}}, {name})");
-        foreach (var param in paramNames)
-            AppendLine($"self.{param} = {param}");
+        for (var i = 0; i < paramNames.Count; i++)
+            AppendLine($"self.{fieldNames[i]} = {paramNames[i]}");
         AppendLine("return self");
         _indent--;
         AppendLine("end");
@@ -454,7 +459,7 @@ public partial class LuaEmitter
         if (paramNames.Count > 0)
         {
             info.DefinitionKeys.Add("__eq");
-            var eqParts = paramNames.Select(p => $"a.{p} == b.{p}");
+            var eqParts = fieldNames.Select(p => $"a.{p} == b.{p}");
             AppendLine($"function {name}.__eq(a, b)");
             _indent++;
             AppendLine($"return {string.Join(" and ", eqParts)}");
@@ -504,8 +509,9 @@ public partial class LuaEmitter
                 if (constVal.HasValue && constVal.Value is int v)
                     value = v;
             }
-            AppendLine($"{name}.{member.Identifier.ValueText} = {value}");
-            info.DefinitionKeys.Add(member.Identifier.ValueText);
+            var luaMember = LuaNaming.Const(member.Identifier.ValueText);
+            AppendLine($"{name}.{luaMember} = {value}");
+            info.DefinitionKeys.Add(luaMember);
             value++;
         }
         AppendLine();
@@ -544,7 +550,7 @@ public partial class LuaEmitter
         MethodDeclarationSyntax method)
     {
         SetSource(method);
-        var methodName = method.Identifier.ValueText;
+        var methodName = N(method.Identifier.ValueText);
         var isStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword);
         var paramNames = method.ParameterList.Parameters
             .Select(p => p.Identifier.ValueText).ToList();

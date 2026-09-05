@@ -57,7 +57,9 @@ public partial class LuaEmitter
                 } assign)
             {
                 var value = VisitExpression(model, assign.Right);
-                entries.Add($"{name.Identifier.ValueText} = {value}");
+                var key = model.GetSymbolInfo(name).Symbol is { } entrySym
+                    ? N(entrySym) : N(name.Identifier.ValueText);
+                entries.Add($"{key} = {value}");
             }
             else
             {
@@ -80,10 +82,13 @@ public partial class LuaEmitter
                 } assign)
             {
                 var value = VisitExpression(model, assign.Right);
-                stmts.Add(model.GetSymbolInfo(name).Symbol is IPropertySymbol
-                        initProp && IsCustomProperty(initProp)
-                    ? $"__tcs_init:set_{name.Identifier.ValueText}({value})"
-                    : $"__tcs_init.{name.Identifier.ValueText} = {value}");
+                var initSym = model.GetSymbolInfo(name).Symbol;
+                var initName = initSym != null
+                    ? N(initSym) : N(name.Identifier.ValueText);
+                stmts.Add(initSym is IPropertySymbol initProp
+                        && IsCustomProperty(initProp)
+                    ? $"__tcs_init:set_{initName}({value})"
+                    : $"__tcs_init.{initName} = {value}");
             }
             else
             {
@@ -231,7 +236,9 @@ public partial class LuaEmitter
                 && a.Left is IdentifierNameSyntax id)
             {
                 var value = VisitExpression(model, a.Right);
-                overrides.Add($"__tcs_copy.{id.Identifier.ValueText} = {value}");
+                var key = model.GetSymbolInfo(id).Symbol is { } overrideSym
+                    ? N(overrideSym) : N(id.Identifier.ValueText);
+                overrides.Add($"__tcs_copy.{key} = {value}");
             }
         }
         // copy 元は一度だけ評価する (table 走査と metatable 取得で共用)

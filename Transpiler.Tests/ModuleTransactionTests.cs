@@ -85,7 +85,7 @@ public class ModuleTransactionTests
             "public static int Count = 0;",
             "public static int Count = 0;\n    public static int Seed = Compute();\n    public static int Compute() { return 3; }"));
         Assert.True(r2.RequiresRestart);
-        Assert.Contains(r2.RestartReasons, m => m.Contains("impure new static: Vec.Seed"));
+        Assert.Contains(r2.RestartReasons, m => m.Contains("impure new static: Vec.seed"));
 
         // 純粋 (定数) の新規 static は live-safe
         var session3 = Open(("vec.cs", VecCs));
@@ -376,7 +376,7 @@ public class ModuleTransactionTests
                 Vec.BigState = {}
                 for i = 1, 200000 do Vec.BigState[i] = i end
                 local inst = Vec.new()
-                print(inst:Get())
+                print(inst:get())
                 local write = io.open("{{modPath.Replace("\\", "/")}}", "w")
                 write:write({{LuaLongString("SNAP2")}})
                 write:close()
@@ -384,7 +384,7 @@ public class ModuleTransactionTests
                 local old, err = hotswap("entrymod")
                 local elapsed = os.clock() - t0
                 print(old == wrapper, err)
-                print(inst:Get())
+                print(inst:get())
                 print(Vec == reg.types["vec.cs#Vec"])
                 print(#Vec.BigState)
                 print(elapsed < 0.5)
@@ -394,7 +394,7 @@ public class ModuleTransactionTests
                 write:close()
                 local old2, err2 = hotswap("entrymod")
                 print(old2 == nil, err2 ~= nil and string.find(err2, "boom") ~= nil)
-                print(inst:Get())
+                print(inst:get())
                 print(reg.revision)
                 """
                 .Replace(LuaLongString("SNAP2"), LuaLongString(snap2))

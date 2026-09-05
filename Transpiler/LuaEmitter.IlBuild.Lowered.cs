@@ -23,7 +23,8 @@ public partial class LuaEmitter
                 if (recv == null) return null;
                 return ([new IlLocal("__tcs_obj", recv)],
                     new IlField(new IlVar("__tcs_obj"),
-                        ma.Name.Identifier.ValueText));
+                        model.GetSymbolInfo(ma).Symbol is { } lowSym
+                            ? N(lowSym) : N(ma.Name.Identifier.ValueText)));
             }
             case ElementAccessExpressionSyntax ea when HasSideEffectSyntax(ea):
             {
@@ -59,20 +60,20 @@ public partial class LuaEmitter
                 when model.GetSymbolInfo(id).Symbol is IPropertySymbol prop
                     && IsCustomProperty(prop):
                 return prop.IsStatic
-                    ? (new IlVar(prop.ContainingType.Name),
-                        id.Identifier.ValueText, false, true)
-                    : (new IlVar("self"), id.Identifier.ValueText, false, false);
+                    ? (new IlVar(TypeRef(prop.ContainingType)),
+                        N(prop), false, true)
+                    : (new IlVar("self"), N(prop), false, false);
             case MemberAccessExpressionSyntax ma
                 when model.GetSymbolInfo(ma).Symbol is IPropertySymbol prop
                     && IsCustomProperty(prop):
             {
                 if (prop.IsStatic)
-                    return (new IlVar(prop.ContainingType.Name),
-                        ma.Name.Identifier.ValueText, false, true);
+                    return (new IlVar(TypeRef(prop.ContainingType)),
+                        N(prop), false, true);
                 var recv = BuildExpr(model, ma.Expression);
                 return recv == null
                     ? null
-                    : (recv, ma.Name.Identifier.ValueText,
+                    : (recv, N(prop),
                         HasSideEffectSyntax(ma.Expression), false);
             }
             default:
@@ -271,9 +272,9 @@ public partial class LuaEmitter
                 callArgs.Add(built);
             }
         }
-        var methodName = ma.Name.Identifier.ValueText;
+        var methodName = N(method);
         if (method.IsStatic)
-            return new IlCall($"{method.ContainingType.Name}.{methodName}",
+            return new IlCall($"{TypeRef(method.ContainingType)}.{methodName}",
                 [.. callArgs]);
         var recv = BuildExpr(model, ma.Expression);
         return recv == null
@@ -341,12 +342,11 @@ public partial class LuaEmitter
             var value = BuildExpr(model, assign.Right);
             if (value == null) return null;
             var init = new IlVar("__tcs_init");
-            stats.Add(model.GetSymbolInfo(name).Symbol is IPropertySymbol prop
-                    && IsCustomProperty(prop)
-                ? new IlCallStat(new IlInvoke(init,
-                    $"set_{name.Identifier.ValueText}", [value]))
-                : new IlAssign(new IlField(init, name.Identifier.ValueText),
-                    value));
+            var initSym = model.GetSymbolInfo(name).Symbol;
+            var initName = initSym != null ? N(initSym) : N(name.Identifier.ValueText);
+            stats.Add(initSym is IPropertySymbol prop && IsCustomProperty(prop)
+                ? new IlCallStat(new IlInvoke(init, $"set_{initName}", [value]))
+                : new IlAssign(new IlField(init, initName), value));
         }
         stats.Add(new IlReturn(new IlVar("__tcs_init")));
         return new IlIife([.. stats]);
@@ -368,7 +368,8 @@ public partial class LuaEmitter
             var value = BuildExpr(model, assign.Right);
             if (value == null) return null;
             entries.Add(new IlTableEntry(null, value,
-                name.Identifier.ValueText));
+                model.GetSymbolInfo(name).Symbol is { } entrySym
+                    ? N(entrySym) : N(name.Identifier.ValueText)));
         }
         return new IlTable([.. entries]);
     }

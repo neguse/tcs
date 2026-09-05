@@ -86,6 +86,18 @@ public partial class LuaEmitter
                 PopContinueLabel();
                 break;
             }
+            case IlForeachRunes feRunes:
+            {
+                var label = PushContinueLabel();
+                AppendLine($"for _, {feRunes.Var} in utf8.codes({RenderIl(feRunes.Str)}) do");
+                _indent++;
+                EmitIlBlock(feRunes.Body);
+                EmitContinueLabel(label);
+                _indent--;
+                AppendLine("end");
+                PopContinueLabel();
+                break;
+            }
             case IlForeachDict feDict:
             {
                 var label = PushContinueLabel();
