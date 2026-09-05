@@ -61,7 +61,7 @@ public static class Transpiler
     public static TranspileResult TranspileWithDiagnostics(string[] csharpSources,
         string[]? filePaths = null, string[]? referenceSources = null,
         string? entryClass = null, bool checkNaming = true,
-        MetadataReference[]? references = null)
+        MetadataReference[]? references = null, bool module = false)
     {
         var trees = csharpSources.Select((s, i) =>
             CSharpSyntaxTree.ParseText(s, path: filePaths != null && i < filePaths.Length
@@ -189,6 +189,20 @@ public static class Transpiler
             // namespace は Lua 出力で透過 (flatten) なので emitted 名は simple 名
             lua += $"return {entrySymbol.Name}\n";
         }
+        if (module)
+        {
+            // --module: 定義した型 (--ref を除く) の table を返す。raw Lua が
+            // `local lubx = require("lubx")` で lubx.SpriteBatch と引ける形。
+            // global の定義はそのまま (entry 出力と同じ chunk が動く)。
+            var names = emitter.EmittedTypes.Select(t => t.Name)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(n => n, StringComparer.Ordinal);
+            var sb = new System.Text.StringBuilder("return {\n");
+            foreach (var n in names)
+                sb.Append(IsLuaName(n) ? $"  {n} = {n},\n" : $"  [\"{n}\"] = {n},\n");
+            sb.Append("}\n");
+            lua += sb.ToString();
+        }
 
         return new TranspileResult
         {
@@ -199,6 +213,10 @@ public static class Transpiler
             LegacyBodies = emitter.LegacyBodies
         };
     }
+
+    private static bool IsLuaName(string s) =>
+        s.Length > 0 && (char.IsLetter(s[0]) || s[0] == '_')
+        && s.All(c => char.IsLetterOrDigit(c) || c == '_');
 
     private static bool HasTopLevelStatements(SyntaxTree tree) =>
         tree.GetCompilationUnitRoot().Members

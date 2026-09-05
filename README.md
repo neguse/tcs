@@ -111,6 +111,10 @@ dotnet run --project Transpiler -- samples/hello.cs -o out.lua --no-runtime
 (host が module の callback を呼ぶ engine 組み込み向け)。
 指定は metadata 名 (`Game.App`) と一意な simple 名 (`App`) の両方を解決し、
 interface / `--ref` 型 / 曖昧な simple 名はエラーになる。
+`--module` を付けると出力末尾に定義した型 (`--ref` を除く) の table を返す
+`return { Counter = Counter, ... }` を追記し、ライブラリを
+`local m = require("lib")` で読む Lua module として使える (`--entry` /
+`--snapshot` とは併用しない)。
 `--prelude <shim.lua>` は任意のユーザー Lua (host API を tcs stub の形に
 橋渡しする shim など) を出力の先頭に前置する。
 
