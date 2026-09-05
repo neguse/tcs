@@ -161,7 +161,9 @@ public static class TestHelper
     /// <summary>
     /// luaExpr は C# の名前 (T.Test() / p:Level() / p.Hp) で書ける。emit と
     /// 同じ規則 (LuaNaming) で Lua 側の名前に写す。runtime table の member と
-    /// 既に写像済みの名前はそのまま。
+    /// 既に写像済みの名前はそのまま。symbol を引かず字面で写すので、全大文字
+    /// 2 文字以上の member (HP 等) は定数と見なして写さない。そういう名前の
+    /// field を触るテストは luaExpr を写像後の名前 (p.hp) で書く。
     /// </summary>
     public static string MapLuaExpr(string luaExpr) =>
         System.Text.RegularExpressions.Regex.Replace(luaExpr,
