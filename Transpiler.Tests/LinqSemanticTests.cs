@@ -323,7 +323,7 @@ public class LinqSemanticTests
         Assert.Equal("nil", result);
     }
 
-    // T152: empty sequence の default は要素型別 (int=0 / bool=false / ref=nil)。
+    // empty sequence の default は要素型別 (int=0 / bool=false / ref=nil)。
     // First/Last/Min/Max の empty・predicate miss は nil ではなく明示 error。
     [Fact]
     public void Linq_FirstOrDefault_ValueTypeDefaults()
@@ -391,7 +391,7 @@ public class LinqSemanticTests
         Assert.Contains("Sequence contains no elements", ex.Message);
     }
 
-    // T153: ToDictionary の key/value selector は各要素 1 回だけ、key → value
+    // ToDictionary の key/value selector は各要素 1 回だけ、key → value
     // の順で評価される (C# と同じ評価回数・順序)。
     [Fact]
     public void Linq_ToDictionary_SelectorsEvaluatedOncePerElementInOrder()

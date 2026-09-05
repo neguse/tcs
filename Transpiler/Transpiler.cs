@@ -12,7 +12,7 @@ public class TranspileResult
     public List<string> Warnings { get; init; } = [];
     public bool Success => Errors.Count == 0;
 
-    /// <summary>M1 ストラングラー計測: IL 経由で emit した method body 数。</summary>
+    /// <summary>IL 移行の計測: IL 経由で emit した method body 数。</summary>
     public int IlBodies { get; init; }
 
     /// <summary>legacy visitor で emit した method body 数。</summary>

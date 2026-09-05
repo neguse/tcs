@@ -5,11 +5,11 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace TinyCs;
 
-// M2 (T217): IL→C backend (../luo) 向けの入力契約。検査済みプログラムの
+// IL→C backend (tcs2c) 向けの入力契約。検査済みプログラムの
 // IL (doc/il-spec.md) と migration metadata (il-spec §14) を、Lua 出力を
 // 経由せずに公開する。契約の正本は doc/il-reference.md。
 
-/// <summary>class の migration metadata (il-spec §14) と骨格 IL (T224)。
+/// <summary>class の migration metadata (il-spec §14) と骨格 IL。
 /// Ctor は explicit constructor (無ければ null — default 初期化のみ)。
 /// custom property の accessor は get_/set_ 名の IlMethodInfo として
 /// Methods に現れる。</summary>
@@ -43,7 +43,7 @@ public sealed record IlMethodInfo(
     string ReturnType = "void",
     ImmutableArray<string> ParameterTypes = default);
 
-/// <summary>データ struct (M5 v1) の migration metadata。field のみ
+/// <summary>データ struct の migration metadata。field のみ
 /// (member は診断済み)。LayoutHash は class と同じ展開規則で、struct 値は
 /// reload 時に owner 経由で再直列化される (il-design §6)。</summary>
 public sealed record IlStructInfo(

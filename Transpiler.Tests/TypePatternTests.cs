@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T180: 値型・string の型パターンは Lua 側に型 table が無く、
+// 値型・string の型パターンは Lua 側に型 table が無く、
 // `getmetatable(x) == int` (未定義 global = nil 比較) だと nil がマッチする。
 // type() 判定 (number/boolean/string) を emit する。
 public class TypePatternTests
@@ -67,7 +67,7 @@ public class TypePatternTests
         Assert.Equal("5|-1", result);
     }
 
-    // T181: 式文脈 (ternary / 複合条件 / lambda) の is-pattern designation 束縛
+    // 式文脈 (ternary / 複合条件 / lambda) の is-pattern designation 束縛
     [Fact]
     public void IsPattern_InTernary_BindsDesignation()
     {

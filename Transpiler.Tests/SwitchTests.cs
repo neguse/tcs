@@ -250,7 +250,7 @@ public class SwitchTests
         Assert.Equal("running", result);
     }
 
-    // T140: switch の対象式は一度だけ評価される (arm/case 数に依存しない)。
+    // switch の対象式は一度だけ評価される (arm/case 数に依存しない)。
     [Fact]
     public void SwitchExpression_GoverningExpression_EvaluatedOnce()
     {
@@ -313,7 +313,7 @@ public class SwitchTests
         Assert.Equal("1|mid", result);
     }
 
-    // T140: switch statement のパターンラベル (relational / or / 型) は
+    // switch statement のパターンラベル (relational / or / 型) は
     // 従来空条件の不正 Lua になっていた。case 値ラベルとの混在も含めて動くこと。
     [Fact]
     public void SwitchStatement_PatternAndConstantLabels_Mixed()

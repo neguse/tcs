@@ -99,7 +99,7 @@ public class EntryClassTests
         }
     }
 
-    // T155: --entry は emitter の実 Lua 名 (namespace 透過の simple 名) を
+    // --entry は emitter の実 Lua 名 (namespace 透過の simple 名) を
     // return する。namespaced 指定・一意な simple 指定の両方が動き、
     // interface / 曖昧な simple 名は exit 1。
     private const string NamespacedSource = """

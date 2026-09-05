@@ -83,7 +83,7 @@ public class InheritanceTests
         Assert.Equal("Rex speaks and barks", result);
     }
 
-    // T149: 継承 link は宣言順・ファイル順に依存しない
+    // 継承 link は宣言順・ファイル順に依存しない
     [Fact]
     public void Inheritance_DerivedDeclaredBeforeBase_SameFile()
     {
@@ -126,7 +126,7 @@ public class InheritanceTests
         Assert.Equal("3", result);
     }
 
-    // T150: initializer なしの派生 constructor でも C# は暗黙に base() を呼ぶ
+    // initializer なしの派生 constructor でも C# は暗黙に base() を呼ぶ
     [Fact]
     public void ImplicitBaseCall_PreservesBaseFieldInitializers()
     {

@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T145: C# の整数除算は 0 方向 truncation、剰余は被除数の符号。Lua の
+// C# の整数除算は 0 方向 truncation、剰余は被除数の符号。Lua の
 // `/` (実数除算) と floor 由来 `%` をそのまま使うと負数と整数で結果がずれる。
 public class DivisionSemanticTests
 {
@@ -53,7 +53,7 @@ public class DivisionSemanticTests
                     var a = 5.0f;
                     var b = 2.0f;
                     var zero = 0.0f;
-                    var isInf = a / zero > 1e30f; // f32 数値モデルでも成立する閾値 (M4)
+                    var isInf = a / zero > 1e30f; // f32 数値モデルでも成立する閾値
                     return $"{a / b}|{isInf}";
                 }
             }

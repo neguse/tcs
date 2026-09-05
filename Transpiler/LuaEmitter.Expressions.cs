@@ -475,9 +475,9 @@ public partial class LuaEmitter
             : body;
     }
 
-    // compound の右辺式 (read op rhs)。T145 の整数/浮動小数判定を共有する。
+    // compound の右辺式 (read op rhs)。整数/浮動小数の判定は除算と共有する。
 
-    // compound の右辺式 (read op rhs)。T145 の整数/浮動小数判定を共有する。
+    // compound の右辺式 (read op rhs)。整数/浮動小数の判定は除算と共有する。
     private string ApplyCompound(SemanticModel model,
         AssignmentExpressionSyntax assign, string op, string read, string right)
     {

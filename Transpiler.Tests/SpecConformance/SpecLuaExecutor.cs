@@ -136,7 +136,7 @@ internal sealed class SpecLuaExecutor
             if (main is null)
                 continue;
 
-            // tcs は namespace 透過 emit (型は flat 名で出る — T155)。
+            // tcs は namespace 透過 emit (型は flat 名で出る)。
             // entry は型名チェーンのみで組み立てる
             var parts = new List<string>();
             var node = main.Parent;

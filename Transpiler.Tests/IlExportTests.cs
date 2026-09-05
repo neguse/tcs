@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T217 (M2): IL→C backend 向け入力契約 (IlExport) の検証
+// IL→C backend 向け入力契約 (IlExport) の検証
 public class IlExportTests
 {
     private const string Source = """
@@ -130,7 +130,7 @@ public class IlExportTests
         Assert.NotNull(m.Body);
     }
 
-    // T228: 型情報・field initializer・配列生成の契約
+    // 型情報・field initializer・配列生成の契約
     [Fact]
     public void Export_TypesInitializersAndArrays()
     {
@@ -157,7 +157,7 @@ public class IlExportTests
         Assert.Equal("n", Assert.IsType<IlVar>(arr.Length).Name);
     }
 
-    // T224: class 骨格 (ctor / custom property accessor) の契約
+    // class 骨格 (ctor / custom property accessor) の契約
     [Fact]
     public void Export_CtorAndAccessorBodies()
     {
@@ -192,7 +192,7 @@ public class IlExportTests
         Assert.IsType<IlAssign>(Assert.Single(setter.Body!.Stats));
     }
 
-    // T224 後半: top-level 文と operator の契約
+    // top-level 文と operator の契約
     [Fact]
     public void Export_TopLevelAndOperators()
     {

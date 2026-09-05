@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 
 namespace TinyCs;
 
-// TinyC# IL (doc/il-spec.md)。M1 スライス: method body の中間表現。
+// TinyC# IL (doc/il-spec.md)。method body の中間表現。
 // builder (LuaEmitter.IlBuild) が全 SemanticModel 問い合わせを済ませ、
 // emitter (LuaEmitter.IlEmit) は Roslyn に依存せず IL のみから出力する。
 // 演算ノードは型解決済み・単型 (il-spec §4)。
@@ -68,7 +68,7 @@ public sealed record IlNewObj(string TypeName, ImmutableArray<IlExpr> Args) : Il
 
 /// <summary>table 構築 (List / Dict リテラル / ref-type option table)。
 /// Key があれば [k]=v、NameKey があれば name=v、どちらも無ければ配列項。
-/// ElementType は配列/List リテラルの要素型 (C backend 用 metadata、T228)。</summary>
+/// ElementType は配列/List リテラルの要素型 (C backend 用 metadata)。</summary>
 public sealed record IlTable(ImmutableArray<IlTableEntry> Entries,
     string? ElementType = null, string? KeyType = null) : IlExpr;
 

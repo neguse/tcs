@@ -2,7 +2,7 @@ using System.Text;
 
 namespace TinyCs;
 
-// T220(b)(c): hot reload — 実行中 VM の v1 状態へ v2 を適用する reload chunk を
+// hot reload — 実行中 VM の v1 状態へ v2 を適用する reload chunk を
 // 生成する (il-design §6: eager migration)。適用規則:
 //   - class table は in-place 更新で identity を保つ (method / static の差し替え)
 //   - 生存インスタンスは __tcs_instances (weak registry) を walk して

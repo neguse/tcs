@@ -138,7 +138,7 @@ public class NullableValueTypeTests
         Assert.Equal("false", result);
     }
 
-    // T146: Lua の `or` は false も fallback してしまうため、bool? の ?? は
+    // Lua の `or` は false も fallback してしまうため、bool? の ?? は
     // 明示 nil 判定にする。?? の右辺は null のときだけ評価される。
     [Fact]
     public void NullableBool_Coalesce_FalseIsNotFallback()

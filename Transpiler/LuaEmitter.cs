@@ -555,7 +555,7 @@ public partial class LuaEmitter
     // fast path 内では安定する。
     public List<(string Key, int Start, int Length)> MethodRanges { get; } = [];
 
-    // M1 ストラングラー計測: method body の IL 経由 / legacy fallback 数。
+    // IL 移行の計測: method body の IL 経由 / legacy fallback 数。
     // TCS_IL=off で IL 経路を無効化できる (退行診断用)。
     public int IlBodies { get; private set; }
     public int LegacyBodies { get; private set; }

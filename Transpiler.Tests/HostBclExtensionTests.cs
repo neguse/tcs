@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T239: Lua 標準ライブラリを C# 側の stub (os / utf8 / string) で直接呼ぶ
+// Lua 標準ライブラリを C# 側の stub (os / utf8 / string) で直接呼ぶ
 // 代わりに、同じ C# が実 .NET でも通る BCL API を allowlist に足す。
 //   Environment.GetEnvironmentVariable → os.getenv
 //   int.Parse / float.Parse            → math.tointeger(tonumber) / tonumber

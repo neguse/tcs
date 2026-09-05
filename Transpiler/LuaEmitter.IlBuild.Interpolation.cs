@@ -5,7 +5,8 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace TinyCs;
 
-// IL builder の補間文字列 (LuaEmitter.IlBuild.Expressions から分離)。
+// IL builder の補間文字列。式構築 (LuaEmitter.IlBuild.Expressions) が
+// ファイル長の上限に当たるので別 partial に置く。
 public partial class LuaEmitter
 {
     // legacy VisitInterpolatedString の写像 (alignment はリテラルのみ対応)

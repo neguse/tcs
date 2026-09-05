@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 namespace TinyCs;
 
 // IL → Lua emit。SemanticModel には依存しない (意味決定は builder 側で完了
-// している)。出力は legacy visitor と同形 — M1 は挙動不変が完了条件。
+// している)。出力は legacy visitor と同形 (移行中は挙動不変が条件)。
 public partial class LuaEmitter
 {
     /// <summary>reload chunk (HotReload.cs) が field initializer IL を

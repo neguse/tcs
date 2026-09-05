@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T222: `is` / switch 型判定は C# では「T またはその派生」(il-spec §9)。
+// `is` / switch 型判定は C# では「T またはその派生」(il-spec §9)。
 // getmetatable の完全一致比較だと派生インスタンスへの `is Base` が偽になる。
 public class InheritanceTypeTestTests
 {

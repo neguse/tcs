@@ -2,7 +2,7 @@ using TinyCs;
 
 namespace TinyCs.Tests;
 
-// doc/incremental-module-compilation-design.md §10-§11 (M2) の受入テスト。
+// doc/incremental-module-compilation-design.md §10-§11 の受入テスト。
 // descriptor 分割 (declare/define/initializers) と、LinkSnapshot 出力を実 Lua VM
 // で動かした fresh apply / hot apply の registry 挙動を検証する。
 public class ModuleDescriptorTests

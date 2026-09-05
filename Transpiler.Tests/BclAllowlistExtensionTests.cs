@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T167: Math.Round / Sign / Tan / Log / Exp と String.IsNullOrEmpty の
+// Math.Round / Sign / Tan / Log / Exp と String.IsNullOrEmpty の
 // runtime + facade + allowlist 3点セットを固定する。
 public class BclAllowlistExtensionTests
 {
@@ -69,7 +69,7 @@ public class BclAllowlistExtensionTests
             {
                 public static bool Test() =>
                     Math.Abs(Math.Log(Math.Exp(1.0f)) - 1.0f) < 1e-6f
-                    && Math.Abs(Math.Log(8.0f, 2.0f) - 3.0f) < 1e-6f; // f32 精度 (M4)
+                    && Math.Abs(Math.Log(8.0f, 2.0f) - 3.0f) < 1e-6f; // f32 精度
             }
             """, "tostring(T.test())");
         Assert.Equal("true", result);

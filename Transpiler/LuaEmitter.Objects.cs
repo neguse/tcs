@@ -171,7 +171,7 @@ public partial class LuaEmitter
             {
                 case InterpolatedStringTextSyntax text:
                     // ValueText は \n 等を解決するが brace escape ({{ }}) は
-                    // 残すので明示的に解決し、Lua 形式へ escape し直す (T202 と同方針)
+                    // 残すので明示的に解決し、Lua 形式へ escape し直す
                     parts.Add(EscapeLuaString(text.TextToken.ValueText
                         .Replace("{{", "{", StringComparison.Ordinal)
                         .Replace("}}", "}", StringComparison.Ordinal)));

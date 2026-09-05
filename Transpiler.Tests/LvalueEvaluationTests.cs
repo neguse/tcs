@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T143: 副作用を含む lvalue (receiver / index に呼び出しがある compound
+// 副作用を含む lvalue (receiver / index に呼び出しがある compound
 // assignment、??=、increment、collection mutation) は receiver / index を
 // 一度だけ評価する。C# の評価回数・順序 (receiver → index → read → rhs →
 // write) と一致させる。

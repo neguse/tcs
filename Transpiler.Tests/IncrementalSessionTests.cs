@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T175: IncrementalCompilationSession の M1 core 検証
+// IncrementalCompilationSession の core の検証
 // (doc/incremental-module-compilation-design.md §7-§9, §18.1)。
 public class IncrementalSessionTests
 {

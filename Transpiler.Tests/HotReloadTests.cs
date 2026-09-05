@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T220(b): hot reload runtime — 同一 VM で v1 実行状態へ v2 を適用する
+// hot reload runtime — 同一 VM で v1 実行状態へ v2 を適用する
 // (il-design §6: weak registry + eager migration、instance identity 保持)。
 // テストは 1 つの Lua chunk として v1 → 状態構築 → reload chunk → 検証を実行する
 public class HotReloadTests

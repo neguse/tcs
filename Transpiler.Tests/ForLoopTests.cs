@@ -270,7 +270,7 @@ public class ForLoopTests
         Assert.Equal("5", result);
     }
 
-    // T144: C# の for 条件は毎 iteration 再評価される。bound が動的な場合は
+    // C# の for 条件は毎 iteration 再評価される。bound が動的な場合は
     // Lua numeric for (limit 一回評価) に落とさず while で再評価する。
     [Fact]
     public void For_BoundVariableMutatedInBody_ReevaluatedEachIteration()
@@ -408,7 +408,7 @@ public class ForLoopTests
         Assert.Equal("11", result); // Executes once even though 10 >= 5
     }
 
-    // T221: C# の for 制御変数はループ全体で 1 個であり、closure は全反復で
+    // C# の for 制御変数はループ全体で 1 個であり、closure は全反復で
     // 同じ変数を共有する (il-spec §7)。Lua numeric for は反復ごとに新しい
     // 変数のため、捕捉がある場合は while 脱糖で意味論を保つ。
     [Fact]

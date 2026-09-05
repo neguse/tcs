@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T168: Dictionary<string, object> の wire format 契約を固定する。
+// Dictionary<string, object> の wire format 契約を固定する。
 // lub 等の host は Dictionary を --ref 関数へ渡された素の Lua table
 // (文字列キー→値のみ、metatable / bookkeeping フィールドなし) として読む。
 // Count は保存メタデータではなく pairs 走査で都度計算される。

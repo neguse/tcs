@@ -2,7 +2,7 @@ using TinyCs;
 
 namespace TinyCs.Tests;
 
-// doc/incremental-module-compilation-design.md §11.3-§11.4, §13.1 (M3) の
+// doc/incremental-module-compilation-design.md §11.3-§11.4, §13.1 の
 // 受入テスト。atomic apply / rollback (presence sentinel)、commit ACK、
 // restart classification、lume.hotswap 経由の end-to-end を検証する。
 public class ModuleTransactionTests

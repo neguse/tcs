@@ -1,6 +1,6 @@
 namespace TinyCs.Tests;
 
-// T147: custom property (body 付き accessor / expression-bodied) の読み書きは
+// custom property (body 付き accessor / expression-bodied) の読み書きは
 // 生成済み get_/set_ を呼ぶ。auto property は raw field のまま。
 public class PropertyAccessorTests
 {
@@ -191,7 +191,7 @@ public class PropertyAccessorTests
         Assert.Equal("true|false", result);
     }
 
-    // T148: static property は instance 生成に関係なく class table 上で共有される
+    // static property は instance 生成に関係なく class table 上で共有される
     [Fact]
     public void StaticAutoProperty_InitializerAndWrites_OnClassTable()
     {

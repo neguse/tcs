@@ -6,7 +6,7 @@ public sealed record FuzzReloadScenario(
     string V1, string V2, string StateLua, string AssertsLua);
 
 /// <summary>
-/// hot reload fuzz (T235) の seed 決定的シナリオ生成器。単一 class
+/// hot reload fuzz の seed 決定的シナリオ生成器。単一 class
 /// (+ 任意で struct 型 field) の v1/v2 ペアと、状態構築 Lua・不変量検証 Lua
 /// を生成する。期待値は生成時に計算する (値は小さく保ち wrap を踏まない)。
 /// 検出網の自己検証のため、毎シナリオ必ず「method body 変更」と

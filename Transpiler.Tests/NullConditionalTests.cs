@@ -270,7 +270,7 @@ public class NullConditionalTests
         Assert.Equal("99", result);
     }
 
-    // T139: ?. の receiver は一度だけ評価し、null のときは引数/index を
+    // ?. の receiver は一度だけ評価し、null のときは引数/index を
     // 評価しない (C# の評価回数・順序と一致させる)。
     [Fact]
     public void NullConditional_ReceiverWithSideEffect_EvaluatedOnce()
