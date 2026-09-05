@@ -297,7 +297,7 @@
     "category": "Diag"
   },
   "classes.md:AccessorsInit1": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "classes.md:AccessorsInit2": {
     "category": "Diag"
@@ -366,10 +366,10 @@
     "category": "Diag"
   },
   "classes.md:Constants1": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "classes.md:Constants2": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "classes.md:Constants3": {
     "category": "InCompile"
@@ -484,7 +484,7 @@
     "category": "Diag"
   },
   "classes.md:Inheritance": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "classes.md:InstanceFieldInitialization": {
     "category": "CsErr"
@@ -493,7 +493,7 @@
     "category": "Diag"
   },
   "classes.md:MembersOfConstructedTypes": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "classes.md:MethodBody": {
     "category": "CsErr"
@@ -664,7 +664,7 @@
     "category": "Diag"
   },
   "classes.md:TypeParameterSubstitution": {
-    "category": "InRun"
+    "category": "Diag"
   },
   "classes.md:TypeParameterUsedAsBaseClass": {
     "category": "CsErr"
@@ -673,7 +673,7 @@
     "category": "Diag"
   },
   "classes.md:VariableInitializers1": {
-    "category": "InRun"
+    "category": "Diag"
   },
   "classes.md:VariableInitializers2": {
     "category": "InRun"
@@ -709,7 +709,7 @@
     "category": "CsErr"
   },
   "conversions.md:BoxingConversions1": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "conversions.md:BoxingConversions2": {
     "category": "InRun"
@@ -724,7 +724,7 @@
     "category": "Diag"
   },
   "conversions.md:Conversions1": {
-    "category": "InRun"
+    "category": "Diag"
   },
   "conversions.md:Conversions2": {
     "category": "Diag"
@@ -736,7 +736,7 @@
     "category": "CsErr"
   },
   "conversions.md:ExplicitConvWithTypeParams2": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "conversions.md:IdentityTupleConversion": {
     "category": "Diag"
@@ -873,7 +873,7 @@
     "category": "Diag"
   },
   "enums.md:ColorEnumWithInt64UnderlyingType": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "enums.md:EnumWithCircularValues": {
     "category": "CsErr"
@@ -1029,7 +1029,7 @@
     "category": "InRun"
   },
   "expressions.md:IdenticalSimpleAndTypeNames": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "expressions.md:InferredReturnType1": {
     "category": "Diag"
@@ -1145,10 +1145,10 @@
     "reason": "unsupported-template:expected-exception"
   },
   "expressions.md:SimpleAssignment2": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "expressions.md:SimpleAssignment3": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "expressions.md:SimpleAssignment4": {
     "category": "CsErr"
@@ -1259,7 +1259,7 @@
     "category": "Diag"
   },
   "interfaces.md:InterfaceMemberAccess2": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "interfaces.md:InterfaceMemberAccess3": {
     "category": "Diag"
@@ -1656,7 +1656,7 @@
     "reason": "expected-error-not-raised"
   },
   "structs.md:Constructors3": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "structs.md:DeclarationExprSafeContext": {
     "category": "CsErr"
@@ -1689,7 +1689,7 @@
     "category": "Diag"
   },
   "structs.md:RecordStructEqualityMembers1": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "structs.md:RecordStructEqualityMembers2": {
     "category": "Unextracted",
@@ -1703,7 +1703,7 @@
     "reason": "expected-error-mismatch"
   },
   "structs.md:RecordStructPrintingMembers1": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "structs.md:RecordStructPrintingMembers2": {
     "category": "CsErr"
@@ -1715,7 +1715,7 @@
     "category": "CsErr"
   },
   "structs.md:ValueSemantics3": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "structs.md:refFields1": {
     "category": "Diag"

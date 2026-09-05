@@ -1,9 +1,9 @@
 namespace TinyCs.Tests;
 
-// T232: Lua 標準ライブラリを C# 側の stub (os / utf8 / string) で直接呼ぶ
+// T239: Lua 標準ライブラリを C# 側の stub (os / utf8 / string) で直接呼ぶ
 // 代わりに、同じ C# が実 .NET でも通る BCL API を allowlist に足す。
 //   Environment.GetEnvironmentVariable → os.getenv
-//   int.Parse / double.Parse           → math.tointeger(tonumber) / tonumber
+//   int.Parse / float.Parse            → math.tointeger(tonumber) / tonumber
 //   foreach (var r in s.EnumerateRunes()) + r.Value → utf8.codes
 //   s[i] / (int)s[i] / (int)'a'        → string.sub / string.byte
 public class HostBclExtensionTests
@@ -36,13 +36,13 @@ public class HostBclExtensionTests
                 public static string Test()
                 {
                     int a = int.Parse("42");
-                    double b = double.Parse("2.5");
+                    float b = float.Parse("2.5");
                     float c = float.Parse("1.25");
                     return (a + 1) + ":" + (b * 2) + ":" + (c * 4) + ":" + (a / 5);
                 }
             }
             """, "T.test()", differential: false); // 5.0 と 5 の表記差 (既知)
-        Assert.Equal("43:5.0:5.0:8", result);
+        Assert.Equal("43:5:5:8", result);
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public class HostBclExtensionTests
                 public static int Test(string s)
                 {
                     var v = Environment.GetEnvironmentVariable("X");
-                    var n = int.Parse("1") + (int)double.Parse("2");
+                    var n = int.Parse("1") + (int)float.Parse("2");
                     foreach (var r in s.EnumerateRunes()) n += r.Value;
                     return n + (int)s[0];
                 }

@@ -104,7 +104,8 @@ goto は無い。例外機構は無い — try / throw はサブセット外（T
 - 仮想呼び出し: 単一継承、override は実行時型で解決
 - class の参照比較（operator 定義が無い `==`）は identity 比較
 
-## 10. place と値型（値型は M5 で有効化。意味論は先行定義）
+## 10. place と値型（M5 v1 で「データ struct」= field のみを有効化。
+member 付き struct / record struct は引き続きサブセット外）
 
 place = 格納場所。変数、フィールド path、配列/List 要素 path の 3 種。
 
@@ -152,6 +153,8 @@ fault = 決定的に検出される実行時異常。発生した fault はプ�
   同一の観測列の後に fault する（fault の位置も観測の一部）
 - fault 時の診断情報（メッセージ、source 位置）は品質事項であり適合条件では
   ない
+- 実装は上記に加えて実装定義の資源 fault（allocation 失敗等）を持ってよい。
+  資源 fault の発生位置は backend 間一致の対象外
 
 ## 13. intrinsic
 
@@ -164,7 +167,7 @@ fault = 決定的に検出される実行時異常。発生した fault はプ�
   i32 は 10 進最短表記、f32 は shortest round-trip 10 進表記が規範
 - 数学関数（Sin / Cos / Sqrt 等）の規範は「同一プラットフォーム上で全
   backend が同一値」。プラットフォーム間のビット一致は保証しない。
-  digest workload は数学関数を使わない（spike の libm 排除方針と同一）
+  digest workload は数学関数を使わない（perf の libm 排除方針と同一）
 - Random は backend 間一致の対象外（v0）。合意 PRNG の導入は付録 C
 
 ## 14. migration metadata（v0 はスキーマのみ。実装は T220）
@@ -191,7 +194,7 @@ rename 注釈（`[RenamedFrom]` 相当）/ ユーザーフック（`OnReload` �
 - f32 shortest round-trip の fmt helper（`tostring` の `%.14g` 系は不適合）
 - f32 リテラルは bit 値を正確に表す表記（16 進浮動小数リテラル等）で出力
   （10 進経由の二重丸め禁止 — §6）
-- 値型の copy helper（M5。表現は spike 実測後に決定）
+- 値型の copy helper（M5 v1 実装済み。連続表現への最適化は perf 実測駆動）
 - `LUA_32BITS` ビルドでの実行（M4）
 
 ## 付録 B: C backend の義務（release-lowering、`../luo`）
@@ -203,7 +206,7 @@ rename 注釈（`[RenamedFrom]` 相当）/ ユーザーフック（`OnReload` �
   `-ffinite-math-only` / `-ffast-math` 一括指定は不可（NaN/Inf 意味論を
   壊すため）(§6)
 - bounds / null / 除算 check の生成。省略は観測等価を証明できる場合のみ
-- object model（class 表現・struct 配列表現）は spike 合否解釈に従う
+- object model（class 表現・struct 配列表現）は perf 実測の決着 (IL-native) に従う
 - fault の trap 実装（§12 の決定性を満たすこと）
 
 ## 付録 C: 未決事項
@@ -213,5 +216,5 @@ rename 注釈（`[RenamedFrom]` 相当）/ ユーザーフック（`OnReload` �
   絡むため v0 は出荷ビルド単位のみ）
 - 合意 PRNG（Random の backend 間一致）
 - シリアライズ形式（M2 / T217）
-- Lua 側 struct 配列表現・release 側 class 表現（spike T212 待ち）
+- Lua 側 struct 配列の連続表現最適化（perf 実測駆動。release 側 class 表現は native に決着済み）
 - mixed-mode の module 境界 ABI（il-design §5）

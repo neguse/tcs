@@ -6,6 +6,10 @@ namespace TinyCs;
 // している)。出力は legacy visitor と同形 — M1 は挙動不変が完了条件。
 public partial class LuaEmitter
 {
+    /// <summary>reload chunk (HotReload.cs) が field initializer IL を
+    /// migration 式として render するための公開面。</summary>
+    public string RenderIlExpr(IlExpr expr) => RenderIl(expr);
+
     private void EmitIlBlock(IlBlock block)
     {
         foreach (var stat in block.Stats)
@@ -306,7 +310,9 @@ public partial class LuaEmitter
         IlNewObj obj =>
             $"{obj.TypeName}.new({string.Join(", ", obj.Args.Select(RenderIl))})",
         IlTable table => RenderIlTable(table),
+        IlNewArray => "{}",  // 長さは Lua 表現に現れない (legacy 互換)
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
+        IlStructCopy copy => $"{copy.TypeName}.__copy({RenderIl(copy.E)})",
         IlIsLuaType isLua => $"type({RenderIl(isLua.E)}) == \"{isLua.LuaType}\"",
         IlIife iife => $"(function() {RenderIlStatsInline(iife.Stats)} end)()",
         IlClosure closure => RenderIlClosure(closure),

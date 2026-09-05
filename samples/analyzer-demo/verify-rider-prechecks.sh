@@ -3,14 +3,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-OUTPUT_DIR="${TCS_RIDER_PRECHECK_OUTPUT_DIR:-/tmp/tcs-rider-verification-precheck}"
-SUMMARY="$OUTPUT_DIR/summary.md"
 FAILED=0
 
 source "$SCRIPT_DIR/rider-env.sh"
 
+OUTPUT_DIR="${TCS_RIDER_PRECHECK_OUTPUT_DIR:-$(tcs_cache_dir rider-verification-precheck)}"
+SUMMARY="$OUTPUT_DIR/summary.md"
+
 rm -rf "$OUTPUT_DIR"
-mkdir -p "$OUTPUT_DIR"
+ensure_private_dir "$OUTPUT_DIR"
 
 run_check() {
   local label="$1"
@@ -74,7 +75,7 @@ run_check "dotnet build samples/analyzer-demo/analyzer-demo.csproj --no-incremen
   echo
   echo "## Expected Rider Diagnostics"
   echo
-  echo "- TCS1001 x5: StructDeclaration, LocalFunctionStatement, TryStatement, ThrowStatement, ListPattern"
+  echo "- TCS1001 x5: StructMember, LocalFunctionStatement, TryStatement, ThrowStatement, ListPattern"
   echo "- TCS1002 x1: System.IO.File.ReadAllText"
   echo "- TCS1003 x1: List<T> null storage"
 } >>"$SUMMARY"

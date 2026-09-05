@@ -44,6 +44,8 @@ public static partial class TinyCsComplianceFacts
         SyntaxKind.SingleVariableDesignation,
         SyntaxKind.ThisConstructorInitializer,
         SyntaxKind.ConstructorDeclaration,
+        SyntaxKind.PredefinedType,
+        SyntaxKind.NumericLiteralExpression,
     ];
 
     // Lua 5.5 reserved words (deps/lua llex.c luaX_tokens). C# identifiers
@@ -62,13 +64,37 @@ public static partial class TinyCsComplianceFacts
     {
         syntaxName = node switch
         {
-            StructDeclarationSyntax => "StructDeclaration",
-            RecordDeclarationSyntax record
-                when record.Kind() == SyntaxKind.RecordStructDeclaration
-                    => "RecordStructDeclaration",
+            // struct は M5 (T219) v1 でデータ struct (field のみ) を解除。
+            // ctor / method / property 等の member は引き続き拒否する
+            // (メソッド付き値型は metatable 無し表現と両立しないため)。
+            StructDeclarationSyntax nestedStruct
+                when nestedStruct.Parent is TypeDeclarationSyntax
+                    => "NestedTypeDeclaration",
+            // T219b(a)(b): instance method / property / 単一のパラメータ付き
+            // ctor は対応 (静的自由関数へ emit)。record struct 本体の member も
+            // 同じ規則。static member・operator・indexer 等は引き続き
+            // サブセット外
+            MemberDeclarationSyntax structMember
+                when (structMember.Parent is StructDeclarationSyntax
+                        || structMember.Parent is RecordDeclarationSyntax
+                        {
+                            RawKind: (int)SyntaxKind.RecordStructDeclaration
+                        })
+                    && structMember is not FieldDeclarationSyntax
+                    && !IsSupportedStructMember(structMember)
+                    => $"StructMember({structMember.Kind()})",
             TypeDeclarationSyntax type
                 when type.Modifiers.Any(SyntaxKind.PartialKeyword)
                     => "PartialTypeDeclaration",
+            // nested class は Lua 出力に emit されず、参照時に実行時 nil の
+            // silent wrong-code になる (T215 で実測 → T227)
+            ClassDeclarationSyntax nested
+                when nested.Parent is TypeDeclarationSyntax
+                    => "NestedTypeDeclaration",
+            RecordDeclarationSyntax nestedRecord
+                when nestedRecord.Parent is TypeDeclarationSyntax
+                    && nestedRecord.Kind() == SyntaxKind.RecordDeclaration
+                    => "NestedTypeDeclaration",
             LockStatementSyntax => "LockStatement",
             TryStatementSyntax => "TryStatement",
             ThrowStatementSyntax => "ThrowStatement",
@@ -146,6 +172,31 @@ public static partial class TinyCsComplianceFacts
                     && literal.Token.Text.EndsWith("m",
                         StringComparison.OrdinalIgnoreCase)
                     => "DecimalLiteral",
+            // IL の数値モデルは i32/f32 のみ (il-design §4)。double と
+            // long/ulong は宣言型として拒否し、実数リテラルは f/F suffix を
+            // 必須にする。Token.Value の CLR 型を見ることで 1.5/1e3/1d のみを
+            // 捉え、1.5f や整数リテラルを巻き込まない。
+            PredefinedTypeSyntax predefined
+                when predefined.Keyword.IsKind(SyntaxKind.DoubleKeyword)
+                    => "DoubleType",
+            PredefinedTypeSyntax predefined
+                when predefined.Keyword.IsKind(SyntaxKind.LongKeyword)
+                    || predefined.Keyword.IsKind(SyntaxKind.ULongKeyword)
+                    => "LongType",
+            LiteralExpressionSyntax literal
+                when literal.IsKind(SyntaxKind.NumericLiteralExpression)
+                    && literal.Token.Value is double
+                    => "DoubleLiteral",
+            // 孤立 surrogate は UTF-8 octet 列 (il-spec §11 の string 規範) への
+            // 写像を持たない。対の surrogate (astral 文字) は許容する。
+            LiteralExpressionSyntax surrogateLit
+                when (surrogateLit.IsKind(SyntaxKind.StringLiteralExpression)
+                        || surrogateLit.IsKind(SyntaxKind.CharacterLiteralExpression))
+                    && ContainsLoneSurrogate(surrogateLit.Token.ValueText)
+                    => "LoneSurrogateLiteral",
+            InterpolatedStringTextSyntax interpText
+                when ContainsLoneSurrogate(interpText.TextToken.ValueText)
+                    => "LoneSurrogateLiteral",
             // tuple は Lua 表現を持たない (ValueTuple.new は存在しない)。
             // 分解代入の LHS `(x, y) = rhs` だけは deconstruction lowering が
             // 受け持つため除外する。
@@ -233,6 +284,25 @@ public static partial class TinyCsComplianceFacts
             && assignment.Left == node;
     }
 
+    // struct instance member は静的自由関数へ emit できる (T219b(a))。
+    // パラメータなし明示 ctor は `new S()` (zero 値) と衝突するため除外。
+    // override (ToString/Equals/GetHashCode) は呼び出しが tostring 等の
+    // 動的経路に乗り metatable なしでは差し替えられないため除外。
+    // static member / operator / indexer / event 等はサブセット外のまま
+    private static bool IsSupportedStructMember(MemberDeclarationSyntax member)
+        => member switch
+        {
+            MethodDeclarationSyntax m =>
+                !m.Modifiers.Any(SyntaxKind.StaticKeyword)
+                && !m.Modifiers.Any(SyntaxKind.OverrideKeyword),
+            PropertyDeclarationSyntax p =>
+                !p.Modifiers.Any(SyntaxKind.StaticKeyword),
+            ConstructorDeclarationSyntax c =>
+                !c.Modifiers.Any(SyntaxKind.StaticKeyword)
+                && c.ParameterList.Parameters.Count > 0,
+            _ => false,
+        };
+
     public static bool TryGetUnsupportedSyntax(IOperation? operation,
         out string syntaxName)
     {
@@ -274,9 +344,89 @@ public static partial class TinyCsComplianceFacts
             return true;
         }
 
+        // instance method group の値化 (delegate 変換) は `self:Method` が
+        // Lua の値位置で不正構文になる silent wrong-code (bound closure 未対応)。
+        // 呼び出しの callee 位置 (parent が invocation) は対象外
+        if (node is IdentifierNameSyntax or MemberAccessExpressionSyntax
+            && node.Parent is not InvocationExpressionSyntax
+            && (node.Parent is not MemberAccessExpressionSyntax parentAccess
+                || parentAccess.Name != node)
+            && model.GetSymbolInfo(node).Symbol is IMethodSymbol
+            {
+                IsStatic: false, MethodKind: MethodKind.Ordinary
+            })
+        {
+            syntaxName = "InstanceMethodGroup";
+            return true;
+        }
+
+        // 補間 alignment の非リテラルは format 文字列へ式が埋め込まれる
+        // silent wrong-code
+        if (node is InterpolationSyntax
+            {
+                AlignmentClause.Value: not (LiteralExpressionSyntax
+                    or PrefixUnaryExpressionSyntax
+                    {
+                        RawKind: (int)SyntaxKind.UnaryMinusExpression,
+                        Operand: LiteralExpressionSyntax
+                    })
+            })
+        {
+            syntaxName = "NonConstantAlignment";
+            return true;
+        }
+
+        // interface は実行時表現を持たず (型チェックのみ)、interface を対象と
+        // する type test は常に偽の silent wrong-code になる (il-spec §2)。
+        if (IsInterfaceTypeTest(node, model))
+        {
+            syntaxName = "InterfaceTypeTest";
+            return true;
+        }
+
         return node is InvocationExpressionSyntax
             && TryGetUnsupportedSyntax(model.GetOperation(node),
                 out syntaxName);
+    }
+
+    private static bool IsInterfaceTypeTest(SyntaxNode node,
+        SemanticModel model) => node switch
+    {
+        BinaryExpressionSyntax bin
+            when bin.IsKind(SyntaxKind.IsExpression)
+                && bin.Right is TypeSyntax right =>
+            IsInterfaceType(model.GetTypeInfo(right).Type),
+        DeclarationPatternSyntax dp =>
+            IsInterfaceType(model.GetTypeInfo(dp.Type).Type),
+        TypePatternSyntax tp =>
+            IsInterfaceType(model.GetTypeInfo(tp.Type).Type),
+        RecursivePatternSyntax { Type: { } recType } =>
+            IsInterfaceType(model.GetTypeInfo(recType).Type),
+        ConstantPatternSyntax cp =>
+            model.GetSymbolInfo(cp.Expression).Symbol
+                is ITypeSymbol { TypeKind: TypeKind.Interface },
+        _ => false,
+    };
+
+    private static bool IsInterfaceType(ITypeSymbol? type) =>
+        type?.TypeKind == TypeKind.Interface;
+
+    private static bool ContainsLoneSurrogate(string value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (char.IsHighSurrogate(value[i]))
+            {
+                if (i + 1 >= value.Length || !char.IsLowSurrogate(value[i + 1]))
+                    return true;
+                i++;
+            }
+            else if (char.IsLowSurrogate(value[i]))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Lua 予約語に加え、`self` (Lua method receiver) と `__tcs_` prefix

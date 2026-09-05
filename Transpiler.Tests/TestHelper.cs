@@ -39,9 +39,11 @@ public static class TestHelper
     {
         // Try platform-specific binary names
         var isWindows = OperatingSystem.IsWindows();
+        // M4 (T216): 数値モデルの正本は i32/f32 (il-spec §5-6)。LUA_32BITS
+        // ビルド (lua32) を優先し、無ければ 64bit lua へ fallback する
         var names = isWindows
-            ? new[] { "lua.exe", "lua" }
-            : new[] { "lua", "lua5.5" };
+            ? new[] { "lua32.exe", "lua.exe", "lua" }
+            : new[] { "lua32", "lua", "lua5.5" };
 
         // Check local build first
         foreach (var name in names)
@@ -118,6 +120,7 @@ public static class TestHelper
         string luaExpr, TimeSpan? timeout = null)
     {
         var lua = Transpiler.Transpile(csharpSource);
+        var luaCall = MapLuaExpr(luaExpr);
         var runtimePath = FindProjectFile("runtime/tinysystem.lua");
         var script = $"local TinySystem = dofile(\"{runtimePath}\")\n" +
                      "List = TinySystem.List\n" +
@@ -125,7 +128,7 @@ public static class TestHelper
                      "Math = TinySystem.Math\n" +
                      "String = TinySystem.String\n" +
                      "Random = TinySystem.Random\n" +
-                     $"{lua}\nprint({luaExpr})";
+                     $"{lua}\nprint({luaCall})";
         var result = RunLua(script, timeout).Trim();
         SpecConformance.CorpusDifferential.Check(csharpSource, luaExpr, result);
         return result;
@@ -140,13 +143,35 @@ public static class TestHelper
         bool differential = true)
     {
         var lua = Transpiler.Transpile(csharpSource);
-        var script = $"{lua}\nprint({luaExpr})";
+        var script = $"{lua}\nprint({MapLuaExpr(luaExpr)})";
         var result = RunLua(script).Trim();
         if (differential)
             SpecConformance.CorpusDifferential.Check(csharpSource, luaExpr,
                 result);
         return result;
     }
+
+    // TinySystem runtime の table。member は runtime の名前のままなので写さない
+    private static readonly HashSet<string> RuntimeTables =
+    [
+        "List", "Dict", "Math", "String", "Random", "Console", "TinySystem",
+        "math", "string", "table", "os", "utf8", "io",
+    ];
+
+    /// <summary>
+    /// luaExpr は C# の名前 (T.Test() / p:Level() / p.Hp) で書ける。emit と
+    /// 同じ規則 (LuaNaming) で Lua 側の名前に写す。runtime table の member と
+    /// 既に写像済みの名前はそのまま。
+    /// </summary>
+    public static string MapLuaExpr(string luaExpr) =>
+        System.Text.RegularExpressions.Regex.Replace(luaExpr,
+            @"\b([A-Za-z_][A-Za-z0-9_]*)([.:])([A-Z][A-Za-z0-9_]*)\b",
+            m => RuntimeTables.Contains(m.Groups[1].Value)
+                || System.Text.RegularExpressions.Regex.IsMatch(
+                    m.Groups[3].Value, "^[A-Z0-9_]{2,}$") // 写像済みの定数名 (X 等の 1 文字は field)
+                ? m.Value
+                : m.Groups[1].Value + m.Groups[2].Value
+                    + LuaNaming.Member(m.Groups[3].Value));
 
     /// <summary>
     /// Run a Lua script string and return stdout.

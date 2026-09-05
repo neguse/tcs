@@ -62,6 +62,22 @@ public partial class LuaEmitter
             AppendLine("  end");
             AppendLine("  return false");
             AppendLine("end");
+            // f32 の shortest round-trip 10 進表記 (il-spec §13)。Lua 既定の
+            // %.14g は余分な桁を出すため、%.6g/%.8g/%.9g の順で round-trip
+            // する最短を選ぶ (binary32 は 9 桁で常に round-trip する)
+            AppendLine("local function __tcs_fstr(v)");
+            AppendLine("  if math.type(v) ~= \"float\" then return tostring(v) end");
+            AppendLine("  local s = string.format(\"%.6g\", v)");
+            AppendLine("  if tonumber(s) == v then return s end");
+            AppendLine("  s = string.format(\"%.8g\", v)");
+            AppendLine("  if tonumber(s) == v then return s end");
+            AppendLine("  return string.format(\"%.9g\", v)");
+            AppendLine("end");
+            // hot reload (il-design §6): 生存インスタンスの weak registry。
+            // reload chunk と共有するため global。key = instance (weak)、
+            // value = 構築時の class table (reload 後も identity 不変)
+            AppendLine("__tcs_instances = __tcs_instances or "
+                + "setmetatable({}, { __mode = \"k\" })");
             _headerEmitted = true;
         }
         var root = tree.GetCompilationUnitRoot();
@@ -109,6 +125,9 @@ public partial class LuaEmitter
             case NamespaceDeclarationSyntax ns:
                 foreach (var m in ns.Members) VisitMember(model, m);
                 break;
+            case StructDeclarationSyntax structDecl:
+                VisitStruct(model, structDecl);
+                break;
             case FileScopedNamespaceDeclarationSyntax ns:
                 foreach (var m in ns.Members) VisitMember(model, m);
                 break;
@@ -116,7 +135,10 @@ public partial class LuaEmitter
                 VisitClass(model, cls);
                 break;
             case RecordDeclarationSyntax rec:
-                VisitRecord(model, rec);
+                if (rec.Kind() == SyntaxKind.RecordStructDeclaration)
+                    VisitRecordStruct(model, rec);
+                else
+                    VisitRecord(model, rec);
                 break;
             case EnumDeclarationSyntax enumDecl:
                 VisitEnum(model, enumDecl);
@@ -329,6 +351,9 @@ public partial class LuaEmitter
         {
             AppendLine($"local self = setmetatable({{}}, {className})");
         }
+        // reload migration 用の登録。base ctor 経由でも最派生 class が勝つ
+        // (同一 key への上書き)
+        AppendLine($"__tcs_instances[self] = {className}");
 
         foreach (var (fieldName, init, type) in fieldInits)
         {
@@ -363,15 +388,18 @@ public partial class LuaEmitter
     }
 
     private void VisitCustomProperty(SemanticModel model, string className,
-        PropertyDeclarationSyntax prop)
+        PropertyDeclarationSyntax prop, bool explicitSelf = false)
     {
         var propName = N(prop.Identifier.ValueText);
         // static accessor は self を取らない class function
-        var separator = prop.Modifiers.Any(SyntaxKind.StaticKeyword) ? "." : ":";
+        var isStatic = prop.Modifiers.Any(SyntaxKind.StaticKeyword);
+        var separator = isStatic || explicitSelf ? "." : ":";
+        var selfParam = explicitSelf && !isStatic ? "self" : "";
         foreach (var accessor in prop.AccessorList!.Accessors)
         {
             var (prefix, extraParam) = accessor.IsKind(SyntaxKind.GetAccessorDeclaration)
-                ? ("get_", "") : ("set_", "value");
+                ? ("get_", selfParam)
+                : ("set_", selfParam.Length > 0 ? "self, value" : "value");
 
             _currentType?.DefinitionKeys.Add($"{prefix}{propName}");
             AppendLine($"function {className}{separator}{prefix}{propName}({extraParam})");
@@ -406,12 +434,15 @@ public partial class LuaEmitter
 
     // expression-bodied property (int D => expr;) は get-only custom property
     private void VisitExpressionBodiedProperty(SemanticModel model,
-        string className, PropertyDeclarationSyntax prop)
+        string className, PropertyDeclarationSyntax prop,
+        bool explicitSelf = false)
     {
         var propName = N(prop.Identifier.ValueText);
-        var separator = prop.Modifiers.Any(SyntaxKind.StaticKeyword) ? "." : ":";
+        var isStatic = prop.Modifiers.Any(SyntaxKind.StaticKeyword);
+        var separator = isStatic || explicitSelf ? "." : ":";
+        var selfParam = explicitSelf && !isStatic ? "self" : "";
         _currentType?.DefinitionKeys.Add($"get_{propName}");
-        AppendLine($"function {className}{separator}get_{propName}()");
+        AppendLine($"function {className}{separator}get_{propName}({selfParam})");
         _indent++;
         AppendLine($"return {VisitExpression(model, prop.ExpressionBody!.Expression)}");
         _indent--;
@@ -448,6 +479,7 @@ public partial class LuaEmitter
         AppendLine($"function {name}.new({string.Join(", ", paramNames)})");
         _indent++;
         AppendLine($"local self = setmetatable({{}}, {name})");
+        AppendLine($"__tcs_instances[self] = {name}");
         for (var i = 0; i < paramNames.Count; i++)
             AppendLine($"self.{fieldNames[i]} = {paramNames[i]}");
         AppendLine("return self");
@@ -546,15 +578,19 @@ public partial class LuaEmitter
         return _sb.ToString();
     }
 
+    // explicitSelf: struct member 用 — metatable が無いので `:` 定義でなく
+    // 明示 self 引数の自由関数 (`function S.M(self, ...)`) にする
     private void VisitMethod(SemanticModel model, string className,
-        MethodDeclarationSyntax method)
+        MethodDeclarationSyntax method, bool explicitSelf = false)
     {
         SetSource(method);
         var methodName = N(method.Identifier.ValueText);
         var isStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword);
         var paramNames = method.ParameterList.Parameters
             .Select(p => p.Identifier.ValueText).ToList();
-        var sep = isStatic ? "." : ":";
+        var sep = isStatic || explicitSelf ? "." : ":";
+        if (explicitSelf && !isStatic)
+            paramNames.Insert(0, "self");
         _currentType?.DefinitionKeys.Add(methodName);
         var rangeStart = _sb.Length;
 
@@ -572,19 +608,14 @@ public partial class LuaEmitter
             else
             {
                 LegacyBodies++;
+                WarnIfStructInLegacyBody(model, method.Body);
                 foreach (var stmt in method.Body.Statements)
                     VisitStatement(model, stmt);
             }
         }
         else if (method.ExpressionBody != null)
         {
-            if (!IlDisabled
-                && BuildExpr(model, method.ExpressionBody.Expression) is { } ilExpr)
-            {
-                IlBodies++;
-                AppendLine($"return {RenderIl(ilExpr)}");
-            }
-            else
+            if (!TryEmitReturnViaIl(model, method.ExpressionBody.Expression))
             {
                 LegacyBodies++;
                 AppendLine($"return {VisitExpression(model, method.ExpressionBody.Expression)}");

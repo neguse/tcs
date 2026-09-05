@@ -7,6 +7,9 @@ obj/
 *.swp
 *~
 
+# ローカルエージェント設定 (agmsg が生成、マシン固有)
+.codex/
+
 # Lua build artifacts
 deps/lua/lua
 deps/lua/lua.exe
@@ -14,3 +17,9 @@ deps/lua/*.o
 
 # CMake build directory
 build/
+
+# Playdate build artifacts (perf/playdate)
+perf/playdate/build*/
+perf/playdate/Source/pdex.*
+perf/playdate/*.pdx/
+perf/playdate/*.log

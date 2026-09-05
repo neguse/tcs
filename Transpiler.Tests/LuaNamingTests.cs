@@ -153,7 +153,7 @@ public class LuaNamingTests
         public class PassOpts
         {
             public TextureRef? Target;
-            public double[]? ClearColor;
+            public float[]? ClearColor;
             public int? Load;
         }
         public class Readback
@@ -192,7 +192,7 @@ public class LuaNamingTests
                     Gfx.BeginPass(new PassOpts
                     {
                         Target = Gfx.MainTex,
-                        ClearColor = new double[] { 0.5, 1.0 },
+                        ClearColor = new float[] { 0.5f, 1.0f },
                         Load = (int)Gfx.LoadAction.DontCare,
                     });
                     var rb = Gfx.Readback();

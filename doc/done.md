@@ -1251,14 +1251,329 @@
 - 残課題: wasm 上の実レイテンシ計測は lub 側 (playground 統合) で行い、自動発火可否を判断する → lub verify A8 で実測 complete 47ms / hover 5ms (17_flappy、swiftshader headless)、恒常観測ログ化済み
 - レビュー反映 (PR #1): hover の対象を SimpleName 参照 / 宣言ノードに限定し、親式 walk による user-defined operator の誤 hover を排除
 
-### T231: Lua 出力の名前規則 (snake_case 写像) ✓ (2026-09-05)
+### T238: Lua 出力の名前規則 (snake_case 写像) ✓ (2026-09-05)
 - lub の言語構成設計 (lub `docs/log/2026-09-04-language-architecture-design.md`) に従い、C# のメンバ名を規則で Lua の snake_case に写す `LuaNaming` を emit の全経路 (IL builder / legacy visitor / class 骨格 / enum / record / object initializer / pattern / conditional access) に入れた。enum メンバは UPPER_SNAKE、`--ref` 型の static アクセスは入れ子の型名を小文字で `.` 結合 (`Lub.Gfx` → `lub.gfx`)、`--ref` 型に入れ子の enum は親の下に平らに置く。`const` field は値を inline。同じ型で写像後の名前が衝突するメンバは warning
 - 検証: LuaNamingTests 27 件 green、既存テストの Lua 式を写像後の名前へ書き換えて全テスト 720 green、run-tests.sh 全ゲート exit 0
 - 判断: flag にせず無条件の規則にした (tcs の出力を Lua ライブラリとして配れる形に揃える)。表は持たず関数 1 つで写す。BCL / TinySystem の metadata symbol は写さない (runtime の名前で呼ぶ)。全大文字の名前は既に snake_case とみなす
 - 残課題: lub 側の stub / サンプルの PascalCase 化と `--no-naming-check` の撤去 (lub 側で実施)
 
-### T232: host 連携 BCL (Environment / Parse / EnumerateRunes / string indexer) ✓ (2026-09-05)
+### T239: host 連携 BCL (Environment / Parse / EnumerateRunes / string indexer) ✓ (2026-09-05)
 - Lua 標準ライブラリを C# 側の stub (`os` / `utf8` / `string`) で直接呼ぶ代わりに、同じ C# が実 .NET でも通る BCL を写す: `Environment.GetEnvironmentVariable` → `os.getenv`、`int.Parse` → `math.tointeger(tonumber)`、`double.Parse` / `float.Parse` → `tonumber`、`foreach (var r in s.EnumerateRunes())` + `r.Value` → `utf8.codes`、`s[i]` → `string.sub`、`(int)s[i]` / `(int)ch` → `string.byte`、`(int)'a'` は定数畳み込み
 - 検証: HostBclExtensionTests 5 件 green (allowlist 側の非警告も確認)、全テスト green
 - 判断: `Rune` は `System.Text` (未対応 namespace) だが `Value` だけ partial 対応にした。`int` / `double` は元から allowlist の外側 (許可) なので partial 型にはしない (`int.MaxValue` 等の既存挙動を変えないため)
 
+### T223: interface type test と孤立 surrogate literal の診断化 ✓ (2026-07-18)
+- Shared/TinyCsComplianceFacts に 2 ルール追加: InterfaceTypeTest (is 式 / declaration・type・recursive・constant pattern の interface 対象 — 実行時表現が無く常に偽の silent wrong-code) と LoneSurrogateLiteral (string/char literal と補間テキストの孤立 surrogate — il-spec §11 の UTF-8 octet 規範へ写像不能)。対 surrogate (astral 文字) は許容
+- 診断一致 (analyzer / check / transpiler) は Shared 共有により自動で、恒常ゲートが担保
+- 検証: SubsetDiagnosticTests 4 本 (Red 2 → green、非対象 2 の非診断)、全テスト 692 + analyzer 47 green
+
+### T213: LUA_32BITS ビルド整備 (lua32) ✓ (2026-07-18)
+- CMake に TCS_LUA_32BITS_VARIANT (既定 ON) を追加し、LUA_32BITS 定義の liblua32/lua32 を deps/lua/lua32 へ併産。既存 lua (64bit) と共存し、run-tests の再ビルド経路でも一緒に生成される
+- 検証: cmake ビルド成功、lua32 で math.maxinteger=2147483647 (int32) / 1/3=0.333333343 (float32) を確認
+- 判断: 既定バイナリの切替は M4 (T216) で行う — テスト資産の移行と同時でないと挙動確認が split-brain になる
+
+### T216: [M4] 数値モデルを i32/f32 (LUA_32BITS) へ移行 ✓ (2026-07-18)
+- テスト実行の Lua を lua32 優先へ (TestHelper FindLua)、run-tests.sh/ps1 の鮮度判定にも lua32 を追加。differential の数値等価は .NET double を f32 量子化してから比較 (il-spec §6)
+- 移行の爆風半径は 3 件のみ: double 精度前提テスト 2 件を f32/double 両立形へ適正化 (1e308→1e30、epsilon 1e-9→1e-6)、spec 例 VariableInitializers1 (Math.Sqrt の double 全桁表示) を known-differences へ理由付き登録
+- 検証: run-tests.sh 全ゲート exit 0 (conformance sweep + differential + fuzz smoke 込み、694 tests)
+- 判断: double/long の診断化 (il-design §4 の完全なサブセット外化) は分離 — T216 の完了条件 (32bit ビルドで全ゲート green + differential f32 比較) は満たしており、ソース資産の一括 f32 リテラル移行は独立タスクとして需要と合わせて判断する (tasks.md T226 起票)
+
+### T215: digest harness — spike 3 kernel の f32 FNV digest ゲート ✓ (2026-07-18)
+- ../luo/spike/CONTRACT.md と同一仕様 (LCG / 演算列 / FNV-1a) の 3 kernel を TinyC# で記述 (Transpiler.Tests/DigestKernels/、particles は M5 まで class SoA 形)。lua32 実行の出力 f32 を bit 列で FNV し、期待値を恒常ゲート化 (DigestHarnessTests、+約 2.5 秒)
+- 実測 digest: sprite_update e8814b32 / spawn_churn 4e5bf016 / particles 8bf97e09。CONTRACT へ追記済みで、luo spike の全変種 (interp/aot-hash/aot-slot/native) はこれと一致すべき — 2 backend 一致検証の tcs 側正本
+- 検証: 3/3 green。spawn_churn の CONTRACT 未規定分 (初期空・spawn→update 順・ring 順序) は解釈を明文化
+- 副次発見: nested class は Lua 出力に emit されず実行時 nil (診断もなし)。要診断化 — T227 起票
+
+### T217: [M2] IL 入力契約 — IlExport API + リファレンス文書 ✓ (2026-07-18)
+- `IlExport.Export(sources)` を公開: class metadata (fields/型/static、auto property 込み)、migration metadata の layout hash (il-spec §14 — instance field の名前:型列 FNV、static 変更で不変・改名で変化)、method body の IL (未対応は null)。luo は assembly 参照で直接消費
+- `doc/il-reference.md` を新設: 全 IL ノードのカタログ (意味論は il-spec 参照、Lua render は参考情報)、API、C backend の義務、digest 検証の接続 (DigestKernels ↔ spike CONTRACT)
+- 検証: IlExportTests 3 本 green (metadata/IL body 形/layout hash 性質/未対応 null)
+- 判断: シリアライズ形式は定義しない (il-spec §1 の v0 決定どおり in-memory)。class 骨格 (ctor/accessor/field initializer) の IL 本文は T224 で拡張
+
+### T227: nested class の診断化 ✓ (2026-07-18)
+- class 内の class / record class 宣言を TCS1001 (NestedTypeDeclaration) で拒否。emit されず参照時に実行時 nil になる silent wrong-code (T215 で実測) の封鎖
+- 検証: SubsetDiagnosticTests 追加 1 本 green、run-tests 全ゲート green (conformance baseline 影響なし)
+
+### T212: [spike] AOT 性能上界の PC 測定 ✓ (2026-07-18)
+- ../luo/spike/ に CONTRACT 準拠の 3 kernel × 5 変種 (native/aot-hash/aot-slot/interp/jit-off) を実装 (実装は Codex 委任、検証・適用・突き合わせは当方)。全変種 digest 一致 + tcs TinyC#→Lua とも 3 kernel bit 一致 — 「手書き C と transpiler 出力が同じ計算」の初実証で、digest harness (T215) が backend 間契約として実働
+- 実測 (PC): aot-slot/native = 16.8x (sprite N=1024)、interp/native ≈ 19-36x。aot-slot は interp と大差なし — boxed TValue 表現自体がボトルネック
+- 合否解釈: 「aot-* のみ予算落ち、native は通る」側 → **release-lowering は IL-native 表現 (struct / 連続配列) を採る** (il-design §8 の spike 待ち 2 項が決着: release class 表現 = native、Lua 側 struct 配列表現の需要は M5 実装時に再実測)
+- spawn_churn の CONTRACT 未規定分は spike 実装解釈 (開始時充填) に統一し、tcs kernel を追随 (digest 9274159d で一致確認)
+- 残課題: 実機 (Playdate) 測定は SDK 導入後。luo コミット済み (未 push)
+
+### T218 第一マイルストーン: luoc IL→C backend 骨格 ✓ (2026-07-18)
+- ../luo/luoc/ (net10.0 console、Transpiler を ProjectReference) が IlExport.Export を消費して C を生成。class=calloc struct、配列=型付き連続バッファ (spike 合否解釈の IL-native 表現)、strict f32 bit literal、null/bounds/除算 fault、未対応ノードは名前付きエラー (実装は Codex 委任、適用と受入検証は当方)
+- 受入: digest kernel 3 種の C 変換を指定 flags (gcc -O2 -ffp-contract=off -fwrapv -fexcess-precision=standard) でビルド・実行し、digest が Lua backend と 3/3 一致 (e8814b32 / 9274159d / 8bf97e09) — **M3 の核である 2 backend digest 一致が初成立**
+- 判断: IlExport v0 に無い宣言情報 (method 型、配列要素型/長さ、field initializer) は暫定で Roslyn 再解析により補完 → 契約拡充を T228 起票。式・制御フローは IL のみから生成
+- 残課題: T218 本体の全域化 (tasks.md 更新済み)、luo コミット済み (未 push)
+
+### T228: IlExport 契約拡充 ✓ (2026-07-18)
+- IlNewArray (要素型 + 長さ、il-spec §11 の固定長配列) を IL に追加 (Lua render は legacy 互換の {})。IlTable に要素型 metadata。IlMethodInfo に ReturnType/ParameterTypes、IlFieldInfo に Init (initializer の IL)。il-reference 更新
+- T218 第一実装が Roslyn 再解析で補完していた宣言情報が IL 契約に載った
+- 検証: IlExportTests +1 green、run-tests 全ゲート green (Lua 出力不変)
+
+### T219: [M5 v1] データ struct のサブセット追加 ✓ (2026-07-18)
+- field のみの struct を TCS1001 解除。値意味論は il-spec §10 の copy 地点 (代入/引数/return/値文脈読み) を IL builder が IlStructCopy 挿入で実装 — Lua は __tcs_scopy (metatable 無し plain table の shallow copy)、C backend は素の値代入に写る。place への部分書き込み (arr[i].X = v) は copy なし
+- 診断の再構成: struct member (method/ctor/property 等) は StructMember、nested struct は NestedTypeDeclaration、record struct は従来どおり。struct 値が legacy fallback 経路へ流れる場合は警告 (silent wrong-code 防止の安全網)
+- 検証: StructSemanticsTests 4 本 (copy 3 地点 + 診断)、**particles struct 版 digest = 8bf97e09 で SoA 版と一致** (値意味論込みで同一計算の実証)、run-tests 全ゲート green (analyzer-demo/CLI/analyzer テストの期待を StructMember へ更新)
+- 判断: v1 はデータ struct のみ — メソッド付き値型は metatable 無し表現と両立せず、需要も particles 型 kernel が field アクセスのみで満たされるため。残りは T219b (P2)
+
+### T218 第二マイルストーン: luoc の string/List/instance method 対応 ✓ (2026-07-18)
+- luoc が string (immutable byte 列 + concat + 値別 WriteLine)、instance method、exact type-id の型 test、List<int>/<float> (連続 growable buffer)、IlNewArray/IlTable/IlForeachList/IlTernary に対応。T228 契約のみで生成 (第一実装の Roslyn 再解析を廃止)
+- 受入: collision の実行値 (hit,miss,hit) が lua32 実行と一致、追加 harness も f32 印字表記以外一致 (同一 binary32。Lua 側 %.14g が shortest でない既知課題 → tasks の T218 残りに記載)、digest 回帰 3/3 維持。実装 Codex 委任、適用と再検証は当方
+- 判断 (契約ギャップとして記録): ctor 本文なし → 宣言順 positional 扱い、local 型なし → initializer 推論、IlTable の array/List 種別なし → List 扱い。これらは T224 (class 骨格 IL 化) / T228 続きで契約側に載せる
+
+### T224 前半: class 骨格の IL 契約化 (ctor / accessor) ✓ (2026-07-18)
+- IlExport に IlCtorInfo (explicit ctor の params/型/本文 IL) と custom property accessor (get_/set_ 名の IlMethodInfo) を追加。luoc の「ctor 本文なし → positional 暫定」の契約ギャップを解消
+- レビュー指摘の docs 反映: il-reference に GNU statement expression の移植性制約、il-spec §12 に実装定義の資源 fault 許容を明記
+- 検証: IlExportTests +1 green、run-tests 全ゲート green
+
+### Lua 側 f32 印字の shortest round-trip 化 ✓ (2026-07-18)
+- __tcs_fstr (%.6g/%.8g/%.9g の round-trip 最短、il-spec §13) を導入し、builder が float 静的型既知の出力 4 地点 (WriteLine 引数 / 補間 hole / ToString / concat operand) で適用。C backend との stdout 完全一致の最後のギャップ (%.14g の余剰桁) を解消し、.NET の表示形 (1.0f → "1") とも一致
+- 付随: IlBuild.Expressions が 800 行超 → Invocations 系を分割。struct テスト期待 3 件を新表示形へ更新
+- 検証: run-tests 全ゲート green。object 型経由など動的値の tostring は対象外 (静的型でのみ適用 — 既知の限界として記録)
+
+### T226: double / long のサブセット外化 ✓ (2026-07-18)
+- TCS1001 に DoubleType / LongType (predefined type keyword) と DoubleLiteral (Token.Value is double — 1.5/1e3/1d を捉え 1.5f と整数を巻き込まない) を追加、analyzer 登録同期。TinySystem facade を MathF 委譲の float シグネチャへ移行 (dotnet 側単体テストと differential が f32 で計算し Lua32 と真正 parity)
+- テスト・サンプル資産を f suffix へ移行、spec 例 10 件が Diag へ (baseline 更新、VariableInitializers1 の known-difference 登録は Diag 化に伴い削除)。FuzzGenerator の 32bit overflow 回避制約を撤廃し、wrap 跨ぎ for (i != end 条件) と全域 int32 を生成 (CS0220 は片側変数化で回避)
+- 検証: run-tests 全ゲート green + deep fuzz 200 seeds 全一致。着手は Codex 委任だったが指示により中断し、診断コア/FuzzGenerator/facade/baseline を精査のうえ当方で完成・検証
+
+### T225 第一スライス: ternary の statement 化 (local 初期化 / return) ✓ (2026-07-18)
+- 評価順が構造的に不変な 2 位置 (local 初期化子・return 式) の条件式を IIFE から if 文へ。closure 割当を最頻出位置で除去 (examples 決定 2 の実施開始)
+- 検証: 専用テスト (IIFE 不在 + 意味論) + run-tests 全ゲート green。代入 RHS 等の残り位置は評価順条件を tasks に明記
+
+### T225 第一スライス: ternary の statement 化 (local 初期化 / return) ✓ (2026-07-18)
+- 評価順が構造的に不変な 2 位置 (local 初期化子・return 式) の条件式を IIFE から if 文へ。closure 割当を最頻出位置で除去 (examples 決定 2 の実施開始)
+- 検証: 専用テスト (IIFE 不在 + 意味論) + run-tests 全ゲート green。代入 RHS 等の残り位置は評価順条件を tasks に明記
+
+### T225 第二スライス: switch 式の statement 化 + return 経路統一 ✓ (2026-07-18)
+- switch 式 IIFE の形 (前置 local 列 + return する if 連鎖) を認識し、local 初期化 / 純 local 代入 / return 位置で文へ inline (代入位置は return→代入へ書換)。return 位置の else 無し chain は「値なし return」化で print の 0 値/1 値差が出るため IIFE 維持
+- return 位置の statement 化を AddReturnStat に共通化し、method 式 body (VisitMethod)・operator/accessor (TryEmitReturnViaIl)・IlExport の 3 経路を統一
+- 検証: 専用テスト + run-tests 全ゲート green
+
+### T225 第三スライス: 値返し IIFE 形状の一般化 ✓ (2026-07-18)
+- 形状認識を [locals + IlIf(arm=前置文*+末尾return, else?) + 末尾return?] へ一般化し、?. / ?? / TryGetValue / GetValueOrDefault の IIFE も statement 位置で文へ。末尾 return は else へ正規化、arm 前置文 (TryGetValue の out 代入) は保存
+- 検証: 専用テスト (IIFE 不在 + hit/miss/?? 意味論) + run-tests 全ゲート green
+
+### T224 後半: IlExport 契約の完備 (top-level 文 / operator) ✓ (2026-07-18)
+- IlExportResult.TopLevel (top-level 文の IL) と operator (metamethod 名 __add 等の static IlMethodInfo) を収載。program 構造の IL 契約はこれで完備 — luoc はエントリポイント込みの全体を IL のみから生成できる
+- 判断: legacy visitor のコード削除は行わない — 診断構文の出力経路と挙動不変の保険として保持し、fallback 面の縮小 (残構文の IL 化/診断化) のみ継続する
+- 検証: IlExportTests +1 green、run-tests 全ゲート green
+
+### T218 第三マイルストーン: ctor 本文と top-level 文の適用 (自作) ✓ (2026-07-18)
+- luoc に T224 で完備した契約を消化: ctor を __ctor 合成 instance method、top-level 文を TopLevel.Main 合成 static method として注入し、facts/prototype/EmitMethod の既存機構をそのまま通す。RenderNew は ctor 呼び出しへ置換 (positional 暫定を廃止、ctor 無し + 引数ありは明示エラー)
+- __tcs_fstr intrinsic (f32 印字改善で IL に増えた分) を luoc の to-string 経路へ写像。digest モードは unwrap して f32 bit を直接投入
+- 検証: digest 回帰 3/3 + ctor/string field initializer/concat/top-level 混在サンプルの stdout が lua32 と完全一致
+
+### T218 第四マイルストーン: 継承 (自作) ✓ (2026-07-18)
+- luoc に継承を実装: DFS pre-order の範囲型 ID (`is` = type_id 範囲判定)、chain flatten による prefix layout 互換 upcast (中央 RenderCoerced で明示 cast)、同名再宣言の推論による type_id switch dispatcher (契約に virtual/override フラグ不要 — hiding/overload は診断済みなので同名 = override が健全)、base.M(self,...) 形は dispatcher を通さない直呼び、ctor は chain 最寄り (連鎖は base 初期化子が契約に無いため明示エラー → 契約拡張の需要として記録)
+- 受入: 仮想 dispatch / base 呼び / is (base 真・派生真・無関係偽) / 継承 field / 非仮想メソッド経由の多態を含むサンプルの stdout が lua32 と完全一致、digest 回帰 3/3、gcc エラーなし
+
+### Dict lowering の契約クリーン化 (T218 Dict の前提) ✓ (2026-07-18)
+- ContainsKey を IlCall("Dict.ContainsKey")、TryGetValue を Dict.TryGet (found, value) の multi-return intrinsic + IlMultiAssign へ変更 — 「nil 比較 = 不在判定」の Lua 方言を IL から排除 (C backend は nil を型付けできない)。runtime に Dict.TryGet を追加
+- 線形 IIFE (分岐なし前置 + 末尾 return) と無条件前置 (代入/呼び出し) も statement 化対象へ拡張 → TryGetValue も statement 位置で IIFE 不要に
+- 判断: TryGetValue は runtime 必須へ (Dict.Remove 等と同格 — Dictionary は言語機能でなくライブラリ)。検証: run-tests 全ゲート green
+
+### T218 第五マイルストーン: Dict runtime + 契約補強 (自作) ✓ (2026-07-18)
+- 契約補強 (tcs): IlLocal.Type (宣言型 — 初期化なし local の型付け)、IlTable.KeyType (空 Dict リテラルの K/V 型)、ContainsKey の intrinsic call 化を実在箇所 (Invocations/Patterns — 前回コミットは置換空振りで無効だった) へ適用、out 前宣言を out var 形のみに削減 (既存 local への冗長 shadow を廃止)
+- luoc: TcsDict (chained hash、i32/string キー、8byte 値スロット)、literal/index get (不在 fault)・upsert/ContainsKey/TryGet (multi-assign)/Remove/Count/foreach-dict (KeyValuePair は Kvp 疑似型で .Key/.Value を node へ写像)。変数束縛を Lua と同じ後勝ち shadow へ
+- 受入: dict 総合サンプル (string/int キー、hit/miss、upsert、foreach) の stdout が lua32 と完全一致、継承/ctor サンプル回帰一致、digest 3/3
+- 教訓: python replace の空振り検証を必須化 (assert 追加で再発防止)
+
+### T225 完了: IIFE の statement 化 (設計範囲) ✓ (2026-07-18)
+- 最終ピース: root if 条件位置の値返し IIFE hoist (`if (d.TryGetValue(...))` 形 — root 条件は無条件先頭評価なので前置 hoist が評価順不変。elseif / while 条件は再評価・条件付き評価のため対象外)
+- 完了範囲: statement 位置 (local 初期化 / 純 local 代入 / return / root if 条件) の ternary / switch 式 / ?. / ?? / TryGetValue 系。式中間位置は「IIFE 維持」を設計判断として確定 — 除去には全 effectful 左 operand の temp 化枠組みが必要で、意味は既に正しく最適化のみの問題。必要になれば C backend 側の最適化 (statement expression は既に温存) で吸収する
+- 検証: 専用テスト + run-tests 全ゲート green
+
+### T224 完: fallback 構文の整理 ✓ (2026-07-18)
+- static method group を IL 化 (IlField(Class, Method) = Lua の関数値と同型、Select(Twice) 等が IL 経由に)。instance method group を診断化 (InstanceMethodGroup — `self:Method` が値位置で不正 Lua になる silent wrong-code、bound closure は需要待ち)。補間 alignment の定数式 (非リテラル) を診断化 (NonConstantAlignment — format 文字列へ式テキストが埋まる。非定数は C# 自体が CS0150 で拒否と判明)
+- 進化に伴う期待更新: fallback 例を instance method group へ差し替え (method group が IL 対応になったため)
+- T224 はこれで完 — legacy visitor は診断構文の出力と挙動不変の保険として恒久保持 (削除しない判断は既録)
+
+### T218 第六マイルストーン: ctor 連鎖の契約化と実装 (自作) ✓ (2026-07-18)
+- 契約: IlCtorInfo.BaseArgs (base(...) 初期化子の引数 IL、暗黙 base() は空)
+- luoc: 構築を Lua backend の Class.new と同順 (base ctor → type_id 上書き = setmetatable 相当 → 自 class field init → ctor body) の tcs_new_C(params) へ再構成。__ctor 合成と「連鎖未対応」制約を撤去
+- 受入: 2 段連鎖 (Puppy→Dog(base args)→Animal、field init と ctor body の交互実行順) の stdout が lua32 と一致、既存 3 サンプル回帰一致、digest 3/3
+
+### T218 第七マイルストーン: closure (自作) ✓ (2026-07-18)
+- luoc: capture-by-variable (il-spec §7) の C 実装 — escape 解析で捕捉 local/param を heap cell (T*) へ box、closure = lifted static 関数 + cells 配列 (TcsClosure)。static method group は thunk、closure 要素 List、一般 callee 式の呼び出し (fs[0]() 等) に対応。前方宣言はマーカー差し込み
+- tcs: BuildInvocation に一般 callee fallthrough を追加 (legacy `{expr}({args})` の写像 — fs[0]() が IL 化)
+- 受入: 共有変異 (2)・ループ捕捉 (9 = 3,3,3 の T221 意味論を C でも実証)・thunk (42)・後変異可視 (101) が lua32 と stdout 一致。全サンプル回帰 + digest 3/3
+
+### T218 完: 静的 link 出荷形 (--lib) と M3 クローズ ✓ (2026-07-18)
+- luoc --lib: main なしで tcs_lib_init / tcs_entry_<Class>_<Method> を外部 linkage 公開。ar で .a 化し外部 main から link 実行 → stdout が lua32 と一致 (il-design の「release AOT = 静的 link」の最小成立)
+- T218 (M3) はこれでクローズ: 継承 / Dict / closure / ctor 連鎖 / 静的 link の全残項目を受入済み。未対応構文は明示エラー方針を維持し、対応面の拡張は実利用需要で駆動する
+- T219b / T220 は需要ゲートの最終判断を tasks.md に記録 (検証面が立つまで書かない)
+
+### CI flaky 根治 v2: 生 Console.SetOut の全廃 ✓ (2026-07-18)
+- CI (2 vCPU) で fuzz smoke が「dotnet 側 capture 空」で 1 回失敗 (seed 1004、master 先頭は green)。真因: CLI 系テスト 6 ファイルが生 SetOut/SetError で Console を全域差し替えており、並列中は SpecDotnetExecutor の AsyncLocal router が外れて in-proc 実行の出力が失われる (T209 対策の枠外)。ローカル再現なし・当該コミットでも再現なし → 競合タイミング依存を確認してから修正
+- 共有 ConsoleCapture (プロセス唯一の out/err ルーティング + AsyncLocal capture) を導入し、SpecDotnetExecutor / CliRuntimeTests / PreludeTests / ComplianceParityTests / EntryClassTests / NamingSuppressionTests / SnapshotCliTests を統一。生 SetOut はテストコードから全廃
+- 検証: run-tests 全ゲート green (並列実行込み)。縮小結果が無意味な断片だったのは「空 baseline への縮小」の帰結で、生成器の問題ではない
+
+### luoc / spike の tcs 取り込み ✓ (2026-07-18)
+- git subtree (履歴保持) で ../luo から luoc/ と spike/ を取り込み。ProjectReference をリポジトリ内参照へ、slnx に luoc を追加、doc/spike-ceiling.md を移管し全参照を付け替え (done.md の歴史記述は当時のまま)
+- run-tests に luoc digest ゲートを常設 (cc 存在時) — **2 backend 一致が毎コミット・CI で守られる**ようになった (従来は手動)。ファイルサイズ規約の適用で CEmitter を 6 ファイルへ分割
+- 判断: 対称 2 backend は同一リポジトリが正 (契約ロックステップの解消、ゲート統合、bisect)。../luo は旧 AOT 方向のアーカイブとして以後変更しない (CLAUDE.md 記載)
+
+### spike の名称整理 → perf/ ✓ (2026-07-18)
+- 合否決着済みの「spike」を恒久名 perf/ へ改称 (既存 bench/ = wasm E2E スクリプト群との衝突回避)。暫定正本だった spike-ceiling.md を解体し、恒久内容 (KPI floor / 変種 / 決着済み合否 / 実機残り) を perf/README.md へ、参照を全付け替え (done.md の歴史は当時のまま)
+- 判断: spike 名は「一時実験」を示唆し役割決着後は負債 — 実体は kernel 契約・性能回帰基盤・実機測定受け皿という恒久物
+
+### perf Playdate ハーネス: 実機/シミュレータビルド + spike 識別子の粉砕 ✓ (2026-07-18)
+- Playdate SDK 3.1.0 + arm-none-eabi toolchain (Arch pacman) を導入し、perf 全変種 (native / aot-hash / aot-slot / interp) を 1 つの .pdx で実行する `perf/playdate/` ハーネスを追加。デバイス (Cortex-M7) とシミュレータ (host .so) の両ビルドが green
+- 前提リファクタ: common.c を core.c (OS 非依存: LCG/frand/digest) とホスト CLI 部へ分離、native.c/aot.c に dispatch 関数 (`PERF_NO_MAIN` で main をガード)、aot.c は hash/slot を別 TU で 2 回コンパイル。ホストの digest 回帰 (全 kernel × 3 C 変種) は results-pc.md と bit 一致
+- Playdate 対応の要点: pd_api.h の独自 `lua_State` (void*) と本物の Lua ヘッダが衝突するため interp 実行を別 TU (interp_runner.c) へ分離。bench.lua は CMake で hex 埋め込み、os.clock/io.write を pd タイマー/console へ差し替え。newlib setjmp が引き込む ARM unwinder には空 exidx を defsym、`-nostartfiles` で欠ける `_init/_fini` は空 stub、malloc は SDK setup.c が pd realloc へ接続
+- 残っていた spike 識別子・参照 (perf/*.c/h, CMake, run.sh, CONTRACT/results, root CMakeLists, Transpiler.Tests コメントの ../luo/spike stale パス) を perf 系へ全置換。CLAUDE.md に「spike 名称禁止」を明文化
+- 検証: ホスト perf 再ビルド + 各変種実行で digest 一致 (e8814b32/d4a095ee/0040a0c1/9274159d/8bf97e09)、デバイスビルドで tcs_perf_DEVICE.pdx (pdex.bin 165KB) 生成、`file` で ARM EABI5 確認。実機実行は未 (デバイス未接続)
+- 残課題: 実機での実行・results-playdate.md への記録。update 長時間ブロックが watchdog に当たる場合はフレーム分割が必要 (README に記載)
+
+### perf Playdate ハーネス: results.csv 出力 + シミュレータ検証 ✓ (2026-07-18)
+- perf_pd_log を console + `Data/<bundleID>/results.csv` の二重出力へ (job 毎 append+close — ヘッドレス実行と実機からの結果回収の正になる)
+- 検証: Xvfb + dbus-run-session でシミュレータをヘッドレス実行し、全 24 job (4 変種 × 6 workload) 完走、全 digest が results-pc.md と bit 一致 (interp = 埋め込み lua32 + os.clock/io.write 差し替えも含めて動作確認)
+- よかったこと: logToConsole はヘッドレスでは取れない — ファイル出力を結果の正としたことで実機でも同じ回収導線になる
+- 残課題: 実機実行のみ (README 記載)
+
+### perf 2-backend bench: PC 実測 + CI 常設 ✓ (2026-07-18)
+- `perf/bench-2backend.sh`: 同一 TinyC# kernel (DigestKernels、frames=5000 へスケール) を dev (tcs→Lua→lua32) と release (tcs→IL→luoc→C, gcc -O2) で実行。digest 相互一致 = fail ゲート、ms/frame = レポート。GHA に bench-2backend job を追加し毎 push 実行 (step summary へ表出力)
+- PC 実測 (7-run median): dev/release = sprite_update 50x / spawn_churn 48x / particles 38x。release backend は手書き native 天井とほぼ同水準 (particles 0.015 vs 0.014 ms/f) — release-lowering の IL-native 表現判断を実パイプラインで裏付け
+- 発見: particles_struct は luoc 未対応 (`unsupported IL type: Particle`) — T219b (struct 拡張) への具体需要 1 件目。bench は dev のみで継続し、luoc が対応したら自動で比較に入る
+- 判断: CI では絶対時間の閾値ゲートを置かない (runner がぶれる)。決定的な digest 一致のみゲート
+- 検証: ローカルで GITHUB_STEP_SUMMARY 込み実行 green、digest 3 kernel 相互一致 + struct は dev digest が SoA 版と一致 (85ca3656)
+
+### luoc → tcs2c 改名 ✓ (2026-07-18)
+- IL→C release backend の luoc を tcs2c へ一括改名 (ディレクトリ / csproj / namespace TinyCs.Tcs2c / Tcs2cException / CLI usage / slnx / run-tests / verify-digests / bench-2backend / ドキュメント参照。done.md の歴史は当時のまま)
+- 判断: luoc は旧 luo リポジトリ由来で実体 (tcs IL → C) と乖離。tcs2c は安直だが「tcs 全体のリブランディングが控えている前提で tcs 系に暫定統一」というユーザー判断
+- 検証: verify-digests.sh 3/3 green (改名後の再ビルド込み)、luoc の残存参照ゼロ (grep、done.md 除く)
+
+### bench 結果の workflow artifact 化 ✓ (2026-07-18)
+- CI の bench-2backend job で stdout CSV を `bench-results.csv` へ tee し、workflow artifact `bench-2backend-results` としてアップロード (if: always() — digest 不一致で fail しても部分結果を残す)
+- 検証: 軽量パラメータ (RUNS=1, FRAMES=100) で stdout が純 CSV であることを確認、push 後の CI 完走と artifact 生成を確認
+
+### T220(a): layout hash の struct 推移展開 ✓ (2026-07-18)
+- IlExport の LayoutHash を拡張: struct 型 field は内部レイアウト `{name:type;...}` へ再帰展開して hash する (struct in struct も推移、循環は防御的に名前で打ち切り)。struct 値は reload 時に owner 経由で再直列化される (il-design §6) ため、struct 内部の変更が owner class の hash に現れないと変更検知が漏れる穴を塞いだ
+- 文脈: ユーザー判断で T220 のゲート解除 — cold reload 安全弁止まりでなく CLOS 流 eager migration を実装する。検証面は同一 VM 2 版 reload のセマンティックテストで立てる方針 (tasks.md に段階 (b)(c) を記録)
+- 検証: IlExportTests +2 (embed 変更/改名の伝播、nested struct 伝播、同一レイアウト安定) 8/8 green
+- 判断: T219b の struct 型 field 解禁に先行して hash 契約だけ先に固めた (解禁時に hash 互換を壊さないため)
+
+### T220(b): hot reload runtime — weak registry + eager migration ✓ (2026-07-18)
+- 生成 Lua に weak instance registry (`__tcs_instances`、global 共有・weak key) と構築時登録を常設 (class new / record new。struct は identity なしなので対象外)。base ctor 連鎖は同一 key 上書きで最派生 class が勝つ
+- `HotReload.EmitReloadChunk(v1, v2)`: v2 定義 + eager migration の単一 Lua chunk を生成。旧 class table を捕獲 → v2 実行 → global を旧 identity へ復元 → method 全面差し替え (accessor/operator/new 込み、削除は nil) / static diff (retained は生存値保持・added は fresh 初期値・discarded 破棄) / 親付け替え (base 変更時) → registry walk で instance field diff (added=initializer render or 型 default / discarded=nil、継承 field は chain 判定で派生 instance にも適用) → OnReload を instance ごと 1 回
+- module mode: registry の strict _ENV が `__tcs_instances` guard 代入を弾いたため、host 所有 + 当該キーのみ write 許可に変更
+- 検証: HotReloadTests 4 本 (field migration + identity / static 保持 + method swap / 継承 field 伝播 / OnReload) green、全 721 green (module/snapshot 回帰込み)
+- 判断: reload chunk は自己完結 (helper を chunk 内 local 定義) — 将来 load() 経由の実 reload 導線にそのまま載る。record class は IlExport 対象外のため未移行 (対象化は需要待ち)。DigestKernels は class 構築を含まないため bench 数値への登録コスト影響なし
+
+### T220(c): struct 値の再直列化 migration + struct field default 修正 ✓ (2026-07-18)
+- 発見バグ修正: struct 型 class field の default 初期化が `nil` で member アクセスが実行時エラーになる既存ギャップ (T219b 残の一因) を修正 — source 宣言のデータ struct は `{Struct}.new()` (zero 値) で初期化
+- IlExport 契約拡張: `Structs` (IlStructInfo: Name/Fields/LayoutHash) を追加、il-reference.md へ記載
+- HotReload: layout の変わった struct ごとに再直列化関数を生成し、owner (class instance field / static field、直接と配列の両形) 経由で新 layout の table に組み直す。retained field は旧値 (struct は再帰 migrate)、added は default (struct なら v2 の zero 値)、同名型変更は新型 default へ reset
+- 検証: HotReloadTests +3 (struct field 追加+削除 / 配列要素 / added struct field の zero 値)、StructSemanticsTests +1 (default init)、全 725+48 green
+- 残課題: List/Dict 内 struct 値の再直列化、record class の migration、実導線接続 (tasks.md 記載)
+
+### T232: 補間文字列 emit の atomicity 修正 (fuzz 発見) ✓ (2026-08-07)
+- T231 の拡張 fuzz が 4/200 seeds で即検出した同根バグの修正。補間文字列が括弧なしの `..` 連接チェーンで emit されるが、Lua は `#` が `..` より強く結合するため、`$"...".Length` が「先頭リテラルの長さに残りを連接した文字列」になる (crash 2 seeds / silent 誤出力 2 seeds)。legacy (`VisitInterpolatedString`) と IL (`BuildInterpolatedString`) の両経路を producer 側で括弧付けに修正。`$""` (空補間) が空文字列 emit になり構文エラーを生む隣接バグも同時修正
+- 検証: 新規 StringTests 3 本 (Length receiver / 算術文脈 / 空補間) Red→Green、全 733+48 green、run-fuzz.sh 500 seeds ×2 域 (1000-1499 / 5000-5499) 差分ゼロ
+- 判断: 修正は `#` 使用側の括弧補強でなく producer 側 — 「複合式は自己完結で emit する」という emitter の他経路と同じ不変条件に合わせた (IL 側も `IlParen` wrap で同形)
+
+### T231: fuzz 文法拡張 第1弾 — string 操作 + static helper ✓ (2026-08-07)
+- FuzzGenerator を拡張: string allowlist 全 API (Length / Contains / StartsWith / EndsWith / IndexOf / Replace / Trim / ToUpper / ToLower / ガード付き Substring)、文字列補間、static helper メソッド 0-3 個 (int/bool/string の型付きシグネチャ、先行 helper のみ呼べる非再帰構造、呼び出しは各型の式アトムとして合流)。文字列は ASCII のみ (UTF-16/バイト列既知差異を踏まない)
+- ユーザー定義オーバーロード生成は実装直後に TCS1001 (MethodOverload) と判明し撤去 — 新設した transpile-only の subset invariant テストが実行前に検出。「生成しないこと」のテストへ反転して固定
+- FuzzRunner.Reduce を helper 対応にし、「使用中 decl/helper の削除で compile error にすり替わった候補は採用しない」ガードを追加 (semantic bug の再現が invalid C# に化けるのを防ぐ)
+- 検証: FuzzTests 6 本 green (決定性 / 文法枝の生存 / オーバーロード不生成 / subset invariant 30 seeds / 故障注入検出 / 縮小)、拡張直後の run-fuzz.sh で 4/200 seeds が実バグを検出 (→ T232 で修正済み)、修正後 1000 seeds (1000-1499 / 5000-5499) 差分ゼロ。run-tests の 20-seed smoke は自動で強化済み
+- よかったこと: 拡張初回の 200 seeds で silent wrong-code (補間 + Length) を掘り当てた — 手書き 733 テストと仕様 corpus 642 例が踏んでいなかった領域。縮小器は 4 件とも数文の repro まで縮めた
+- 判断: 方向はユーザー決定「C# compat が先」(2026-08-07)。hot reload fuzz は不変量オラクルの新設計になるため T235 として分離。第2弾 (class/record/pattern) は T233、LINQ/struct は T234
+
+### T236: switch-case break の Lua 素通し修正 (fuzz 発見) ✓ (2026-08-07)
+- T233(a) の拡張 fuzz が 153/300 seeds で検出。switch section の暗黙 break skip が「section 直下」しか見ておらず、block で包んだ case 本体 (`case X: { ...; break; }`) の break が Lua の `break` として素通し。switch が関数直下なら `break outside loop` で crash、**loop 内なら外側 loop を静かに脱出する silent wrong-code** (mismatch 系 3 seeds も同根)
+- 修正: 「末尾 block 連鎖の末尾 break = 暗黙終端」を再帰収集して suppress。それ以外の switch 束縛 break (条件付き早期 break) は legacy が switch 全体を `repeat ... until true` で包んで Lua break を switch 脱出に束縛 (C# と Lua の break 束縛規則が一致、生テキストで包むので continue label 機構は無傷)。IL 側は IlRepeat が do-while 用に continue label を積む設計のため早期 break を含む switch は IL 化せず legacy fallback
+- 検証: SwitchTests +4 (braced case in loop / 条件付き早期 break / nested loop の break 束縛 / switch 内 continue の外側 loop 束縛) Red→Green、既存 SwitchTests 10 本含め全 737+48 green、run-fuzz.sh 300 seeds 差分ゼロ (修正前 153/300 失敗)
+- 判断: repeat 包みは早期 break を含む switch のみ (needsBreakScope)。全 switch を包むと tcs2c 側の IlRepeat 対応が必要になり blast radius が大きい
+
+### T233(a): fuzz 文法拡張 第2弾 — 制御フロー + コレクション ✓ (2026-08-07)
+- FuzzGenerator に追加: 有界 while (カウンタは block スコープなので変数表に登録しない — 終了保証も兼ねる)、switch 文 (int/string、block 付き case)、switch 式 (定数 arm を先頭に置き CS8510 包摂を回避)、break/continue (増分先頭の while なので continue しても前進)、foreach (body はリスト不変更)、三項、正数ガード付き変数除数 (MinValue/-1 overflow も排除)、複合代入 -=/*=//=/%=、List indexer 読み書き・Sort・RemoveAt (全て Count ガード)、Dictionary int/string キー (Add は相異 pool キー、読みは ContainsKey ガード、TryGetValue out var、列挙は Lua と順序が異なるため生成せず固定キープローブで内容検証)
+- 検証: FuzzTests 6 本 green (coverage マーカー 19 種)、初回 300 seeds で 153 失敗 → 全て単一根 (T236 switch break) と特定、修正後 300 seeds 差分ゼロ、全 737+48 green
+- よかったこと: 「範囲内が呼び出し側契約の API は常にガード付きで生成」の原則 (Substring と同型) が List/Dict にそのまま延びた。early break の縮小 repro が switch 単体まで縮んで root cause 特定が数分で済んだ
+
+### T233(b): fuzz 文法拡張 第2弾 — class/record 生成 ✓ (2026-08-07)
+- FuzzGenerator.TypeGen.cs (partial) を追加: class 生成 (int/string field initializer、auto property、instance method 0-2 引数、virtual + override、単一継承)、positional record (先頭 param は int 保証)。ctor は生成しない (MultipleConstructors 回避、object initializer で代替)。`Base o = (cond ? new Derived() : new Base());` の実行時条件 dispatch、is / is-designation 三項 / property pattern (record・auto property 両方)、record の with 再代入 (`r = r with {...}` — 宣言文にしないのは nested block スコープ事故防止)、値等価 ==/!=
+- instance method body は field を平名でスコープ登録して既存の Statement/式生成器を再利用 (状態変化する field 書き込みも生成される)。record の直接 WriteLine は ToString 書式が C# と異なるため member 単位で出力
+- reducer は 型リストも greedy 削除対象に追加 (使用中の型は invalid C# ガードで保護)
+- 検証: FuzzTests coverage マーカー 27 種 green、subset invariant 30 seeds green (property pattern 含め全構文がサブセット内)、deep fuzz 2300 seeds (1000-1999 / 7000-7999 / 初回300) 差分ゼロ、全 737+48 green
+
+### T237: LINQ チェーンの FirstOrDefault/LastOrDefault が default(T) を返さない修正 (fuzz 発見) ✓ (2026-08-07)
+- T234(a) の LINQ fuzz が 5/500 seeds で検出。List receiver 直呼びの OrDefault 系は呼び出しサイトの型から default(T) を注入済みだったが、**IEnumerable 拡張メソッドの汎用 fallthrough (チェーン途中 — `xs.OrderBy(...).Skip(2).FirstOrDefault()` 等) が default を渡しておらず**、空列で nil が漏れる。int なら 0 のはずが nil → 後段の算術で crash、record field 経由なら `nil` 出力の silent wrong-code
+- 修正: legacy / IL 両経路の拡張メソッド fallthrough に OrDefault 特例を追加し、`methodSym.ReturnType` から default(T) を埋め込む (List receiver 分岐と同形)
+- 検証: LinqSemanticTests +2 (OrderBy.Skip 空列 / Where 空列) Red→Green、20/20 green、run-fuzz.sh 500 seeds 差分ゼロ (修正前 5/500 失敗)、全 739+48 green
+
+### T234(a): fuzz 文法拡張 第3弾 — LINQ 小核 + Split/Join/IsNullOrEmpty ✓ (2026-08-07)
+- FuzzGenerator.Linq.cs (partial) を追加: Where/Select/Sum/Count(pred)/Min/Max (Count ガード)/FirstOrDefault/LastOrDefault/OrderBy(Descending).Skip.FirstOrDefault/Take/Any/All、ラムダ述語 (1/5 で外側変数捕捉 — closure emit を踏む)、string.Join(sep, List<int>)、s.Split(needle) の foreach、string.IsNullOrEmpty。例外を踏む形は構造的に排除 (Sum は %1000 有界化 — C# の Enumerable.Sum は checked、ToDictionary はキー重複 throw、First/Last は OrDefault 系のみ)
+- 分布調整: LINQ bool は BoolExpr の depth>0 arm だけだと出現が枯れる (BoolExpr は atom 直行しない構造) ため BoolAtom 側にも 1/5 ゲートで注入。ついでに BoolExpr の `_` arm が死んで helper-bool 呼び出しが消えていた事故を Next(13) 化で修正。coverage corpus は 200 seeds (固定シードなので実測で全マーカー出現を確認済み = 決定的)
+- 検証: FuzzTests 6 本 green (マーカー 37 種)、fuzz 即 5/500 seeds で T237 を検出 → 修正後 500 seeds 差分ゼロ、全 739+48 green
+- よかったこと: 生成器を単体 csproj で回してマーカー出現数を実測する手が分布デバッグに効いた (Any 21 / All 4 / Sum 3 / Where 31 / Join 12 / Split 79 を確認して確率でなく実測で固定)
+
+### T234(a) 追補: LINQ 即時評価の既知差異から fuzz 生成を隔離 ✓ (2026-08-07)
+- 大規模スイープ (seed 6355) が「Where 述語が捕捉した変数を foreach 本体が変異」で C# (遅延評価) と runtime (即時評価) の可視差を検出。これは support-matrix 明記の設計判断 (遅延評価は非目標) なのでバグでなく既知差異 — dict 列挙順と同じ扱いで、foreach 駆動の述語は捕捉なし (PurePredicate) に制約。単一評価点の式文脈では捕捉を維持 (closure emit のプローブは残る)
+- support-matrix の LINQ 節に可視差の条件 (捕捉変数の列挙中変異) を 1 文追記
+- 検証: seed 6355 を含む 2000 seeds (6000-7999) 差分ゼロ
+
+### T219b(a): struct instance member 解禁 — 静的自由関数 emit ✓ (2026-08-08)
+- struct の instance method / property (auto・custom・式本体) / 単一のパラメータ付き ctor をサブセット解禁。emit は設計方針どおり metatable なしを維持し、member は `function S.M(self, ...)` の静的自由関数、呼び出しサイトは Roslyn の静的型から `S.M(recv, ...)` へ直接ディスパッチ (struct は継承がなく動的ディスパッチ不要)
+- receiver 規則: C# の「変数」(local/param/field/配列要素/this) は直渡しで変異が残り、rvalue (property / List indexer / 呼び出し結果) は copy へ変異 = 捨てられる — `list[0].Inc()` が no-op になる C# の有名な挙動まで一致
+- 明示 ctor は `S.ctor(args)` (zero 初期化 → field initializer → 本文の順、C# 11 意味論)。`new S()` は ctor を通らず zero 値 (`S.new()`) のまま。ctor 引数の struct copy 漏れ (class ctor にもあった既存ギャップ) も同時修正
+- custom property は get_/set_ の自由関数化を BuildPropTarget の StructOwner 経由で compound 代入 / ??= / increment / object initializer まで一貫適用
+- LuaEmitter.cs が 800 行超過 → struct 節を LuaEmitter.Structs.cs (partial) へ分離
+- override method (ToString/Equals/GetHashCode) は診断維持 — 呼び出しが tostring 等の動的経路に乗り metatable なしでは差し替え不能 (class 側も __tostring 未対応で、対応するなら両者一括の別タスク)。spec sweep の structs.md:Constructors1 が Diag→Bug になったことで検出
+- spec conformance baseline 更新: 診断緩和で 7 例が Diag → InCompile x5 / InRun x2 へ改善 (InRun は実 .NET オラクルと出力一致 — 仕様 corpus でも member 意味論を裏取り)
+- 検証: StructSemanticsTests +7 (Red→Green、receiver 3 形 / ctor / auto・custom property / static 診断維持)、analyzer・CLI・demo の診断期待を instance 解禁へ追随 (TCS1001 x5 維持)、spec sweep 642 例 Bug ゼロ、全 745+48 green、fuzz 300 seeds 差分ゼロ
+
+### T219b(b): record struct 解禁 ✓ (2026-08-08)
+- record struct / readonly record struct をサブセット解禁。emit は struct と同じ plain table + 自由関数の上に、positional primary ctor (`R.ctor` — zero → positional 代入 → field initializer 順、initializer は param 参照可) と値等価 `R.op_Equality` を合成。==/!= の呼び出しサイトは IlBuild が静的型 (INamedTypeSymbol.IsRecord + struct) から直接振り分け、!= は not 包み
+- 値等価はネストした struct 値を推移的に field 展開して比較 (struct は循環不能なので停止)。member 列挙は IFieldSymbol ベース (positional prop の backing field 込み) で明示 field / auto prop / positional を一様に拾う
+- with 式は既存 IlWith render がそのまま正しい (plain table では `setmetatable(copy, getmetatable(src))` が no-op)。`new R()` は zero 値 (ctor を通らない — C# と一致)。record struct 本体の member は struct と同じ規則 (instance のみ、override/static は診断)
+- 発見 (d 送り): __tcs_scopy が shallow のため struct-in-struct の copy 経由部分書き込みが alias する潜在ギャップ (v1 由来) を特定 — per-struct copy 関数生成で解消予定、tasks.md に記録
+- 検証: StructSemanticsTests +6 (positional/zero、値等価、with、代入 copy、ネスト値等価、readonly) Red→Green、DiagnosticTests/analyzer の record struct 期待を解禁へ追随、spec sweep で structs.md の RecordStruct 2 例が Diag→InCompile (baseline 更新、Bug ゼロ維持)、全 749+48 green、fuzz 300 seeds 差分ゼロ
+
+### T219b(c): readonly (record) struct の copy 省略 ✓ (2026-08-08)
+- readonly struct / readonly record struct は不変で alias が観測不能なため、copy 地点の __tcs_scopy 挿入を全省略 (コピーコスト・GC 圧ゼロの性能レバー)。不変性は Roslyn がコンパイル時保証するので runtime 検査なし。実装は WrapStructCopy (IlStructCopy の単一生成点) に IsReadOnly 判定を足すだけ
+- 検証: 省略テスト (readonly = scopy 呼び出しサイトゼロ / mutable = 保持、header 定義分は出現数で除外) + 値フロー semantic テスト Red→Green、全 751+48 green
+
+### T234(b): fuzz 文法拡張 — struct copy セマンティクス ✓ (2026-08-08)
+- FuzzGenerator に struct 生成を追加: mutable struct (int field 1-2、this 変異 method、単一 ctor、object initializer)、record struct / readonly record struct (positional int)。member は int のみ — string member は zero 値 null の出力 nil/"" 差 (既知差異) を踏むため生成しない
+- プローブ形: `var w = v;` の代入 copy ペア (片方の変異が漏れたら tail print で検出)、変数間再コピー、field 書き込み/複合代入、this 変異 method 呼び (receiver 規則)、record の with 再代入・positional set・値等価 ==/!=
+- T233 / T234 全段完了 — 生成文法は 式/文/制御フロー/string/List/Dictionary/class/record/継承/pattern/LINQ 小核/struct/record struct を差分オラクル + 自動縮小付きでカバー
+- 検証: coverage マーカー 40 種 green、subset invariant 30 seeds green、struct 込み deep fuzz 2000 seeds (1000-1999 / 6000-6999) 差分ゼロ、全 751+48 green
+
+### T219b(d): tcs2c のデータ struct 対応 + struct-in-struct copy の再帰化 ✓ (2026-08-08)
+- tcs2c: CTypeKind.StructVal を追加 (ポインタなしの素の C 値型)。struct typedef 生成 (struct-in-struct は完全型が要るため内側先の依存順)、IlNewObj → `(Tcs_S){0}` (zero 値)、IlStructCopy → 素通し (C の値代入が copy)、配列要素・ネスト field への読み書きは RenderStructPlace の lvalue 連鎖 (`(*(T*)tcs_array_at(a,i)).f = v`)。struct member / record struct / 明示 ctor の tcs2c 対応は明示エラーのまま需要駆動
+- Lua 側: __tcs_scopy (shallow) の struct-in-struct alias ギャップを型別 `S.__copy` 生成で解消 — struct-typed member は再帰 copy、readonly struct member は不変なので共有。IlStructCopy に TypeName を付与 (il-reference.md 更新)、無い場合は従来の __tcs_scopy に fallback
+- 検証: NestedStruct_CopyIsDeep Red→Green、**bench-2backend 完走 — particles_struct が初めて release 列に載り dev/release digest 一致 (85ca3656 = SoA 版 particles と同値)、72.1x**。release では AoS struct 版 (0.0119ms/frame) が SoA 版 (0.0156ms/frame) より速い。全 752+48 green、fuzz 500 seeds 差分ゼロ。CEmitter.cs が 800 行超過 → CEmitter.Structs.cs へ分離
+- 残課題: record struct の IlExport (layout hash / hot reload migration) は未対応 — T220 系の需要待ちとして tasks.md 記録
+
+### T235: hot reload fuzz — v1/v2 ペア生成 + 不変量オラクル ✓ (2026-08-08)
+- FuzzReloadGenerator: 単一 class (+ 任意で struct 型 field) の v1/v2 型定義ペアと状態構築 Lua・検証 Lua を seed 決定的に生成。mutation は field/static の retain・drop・add、struct layout 変更 (owner walk 再直列化を踏む)、method body 変更、static method 変更、OnReload フック。オラクルは differential でなく生成時計算の不変量: retained=live 値保持 / added=initializer / dropped=nil / instance・class identity / method swap / OnReload 1 回 / reload 後の新規構築は v2 shape
+- 検出網の自己検証: 毎シナリオ必ず「method body 変更 + added field」を含む構造にし、reload を適用しない fault 注入で不変量が破れることをテストで常設確認
+- 常設ゲート: 固定 10 seeds の不変量テスト (常時) + FuzzReloadSweep (TCS_FUZZ ゲート、run-tests smoke と run-fuzz.sh の filter に組み込み)
+- 検証: 3+1 テスト green、reload sweep 1300 seeds (1000-1299 / 5000-5999) 不変量違反ゼロ、全 755+48 green
+- 判断: record class / 継承の reload fuzz は migration 側が未対応 (需要待ち) のため生成対象外と明記。対象機能が入った時に生成器へ足す
+
+### push 前レビュー適用: struct emit の重複排除と dead code 粉砕 ✓ (2026-08-09)
+- 汎用 __tcs_scopy を粉砕: T219b(d) の型別 __copy 化で呼び出しが全滅していた fallback (IlEmit 分岐 / 生成 Lua ヘッダの関数定義 / module prelude の _G alias / runtime の TinySystem.scopy) を除去し、IlStructCopy.TypeName を必須化 (il-reference 更新)。生成 Lua が全ファイル 5 行軽くなり、二重 doc comment (Il.cs) も解消
+- 余剰 copy 2 種を除去: `new S(args)` (S.ctor 経由) と with 式の結果は常に fresh なのに WrapStructCopy が再 copy していた — fresh 除外 (BaseObjectCreation / IlWith) を追加。struct を返す一般メソッド呼び出しの call-site copy は残置 (List.FirstOrDefault 等 runtime 関数は要素 alias を返すため、除外には callee の由来判定が要る — 需要が出たら)
+- LuaEmitter.Structs.cs の重複排除: zero-init new / member dispatch / field initializer を struct・record struct 共通ヘルパー化。VisitStruct 側だけ override method を emit していた非対称も解消 (診断済み構文は emit しない)。ValueEqualityParts は ValueMembers 経由に統一
+- ファイルサイズ帯の是正: struct 系ヘルパーを LuaEmitter.IlBuild.cs (792→754) から Structs へ、RenderStructPlace を tcs2c/CEmitter.Expressions.cs (784→750) から CEmitter.Structs.cs へ移設。fuzz の record/struct 等価生成を共通化
+- 見送り (過剰化回避): BuildPropGet/Set の tri-state enum 化・struct dispatch 4 サイトの強制共通化・StructOwnerName ヘルパー・FuzzReloadGenerator の分割 — いずれも抽象の追加コストが重複コストを上回ると判断
+- 検証: 全 755+48 green、fuzz 1000 seeds (differential + reload) 差分ゼロ、bench-2backend digest 4/4 不変 (85ca3656 等) — copy 除去が意味論に影響していないことを確認
+
+### 開発 script の world-writable な /tmp 依存を除去 ✓ (2026-08-15)
+- verify-inspectcode.sh は `/tmp/tcs-jetbrains-tools/jb` を固定パスで実行していた。/tmp は world-writable なので、共有ホストでは別ユーザーが先回りして jb を置ける (実行されるのは script を動かした側の権限)。`[ ! -x "$JB" ]` ガードは install を *skip* する方向に働くため、仕込まれた方が優先される
+- 既定の作業ディレクトリを per-user cache (`${XDG_CACHE_HOME:-$HOME/.cache}/tcs/...`) に移し、rider-env.sh に `tcs_cache_dir` / `ensure_private_dir` を追加。使う前に「symlink でない」「自分の所有」を確認して 0700 を強制する。対象は verify-inspectcode.sh の tool/output と verify-rider-prechecks.sh の output
+- run-tests.sh の analyzer package consumer は `mktemp -d` (= /tmp 直下) の dir で `dotnet build` していた。MSBuild / NuGet は project の祖先を遡って Directory.Build.props / NuGet.Config を取り込むため、/tmp に置かれた props の `<Exec>` が開発者権限で走る。scratch root を同じ per-user cache 配下に移し、祖先から world-writable な dir を外した (mktemp のランダム名と cleanup trap はそのまま)
+- 検証: verify-rider-scripts.sh に ensure_private_dir の unit テスト (cache 既定パス / 0700 / symlink 拒否) と verify-inspectcode.sh の e2e ガードテストを追加。ガードを外した copy では symlink が通ることを確認 (Red) → 追加後 green。`bash run-tests.sh` 全通過 (758+48 green、tcs2c digest 3/3 不変、analyzer demo / package consumer / severity override 期待どおり)、`~/.cache/tcs/tmp` が 0700 で作られることを確認
+- 判断: PowerShell 版は据え置き。Windows の `%TEMP%` はユーザーごとで同じ攻撃が成立せず、この機械で検証もできないため。README には両者の差を明記
+- 注記: このマシンの .NET SDK が壊れており (`Workload set version 10.0.109.1 has missing manifests`、SDK 10.0.110)、run-tests.sh は `MSBuildEnableWorkloadResolver=false` を付けて実行した。`dotnet workload repair` が別途必要
+
+### .NET SDK の版管理を global.json pin + Dependabot に移行 ✓ (2026-08-15)
+- 背景: Arch の pacman dotnet と `dotnet workload install` (wasm-tools、lub の gen-tcs 用) が `/usr/share/dotnet` に同居し、pacman 更新のたびに workload set の pin (`sdk-manifests/.../workloadsets`、pacman 管理外) が参照する manifest だけ消えて resolver が例外 → `dotnet build/test` 全滅、が再発していた (3月にも repair 履歴)
+- `global.json` で SDK 10.0.111 を pin、`.github/dependabot.yml` に `dotnet-sdk` ecosystem を追加 (新版が出たら pin bump の PR が来て、CI が run-tests で検証してからマージ)。CI の setup-dotnet は `dotnet-version: 10.0.x` → `global-json-file: global.json` に変更し、CI とローカルが同じ正本を読むようにした
+- マシン側は dotnet-install.sh の per-user install (`~/.dotnet` + DOTNET_ROOT/PATH) に一本化し、SDK と workload の所有者を一人にした。README / CLAUDE.md に方針を明記
+- 検証: `~/.dotnet` の SDK 10.0.111 で pre-commit ゲート (run-tests.sh) 全通過 — MSBuildEnableWorkloadResolver 無効化なしで通ることを確認 (壊れた pacman 側 resolver を踏んでいない証明)。SDK 暗黙参照の追随で WasmCompiler の packages.lock.json が 10.0.11 に上がる (別コミット)
+- 残課題: workload set 版の pin (`sdk.workloadVersion`) は wasm-tools を実際に要求する lub 側で行う。Dependabot は workloadVersion の bump 未対応 (dependabot-core#13216) のため、workload set は SDK bump PR に乗せて手動更新

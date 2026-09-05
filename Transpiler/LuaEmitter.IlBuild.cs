@@ -21,6 +21,50 @@ public partial class LuaEmitter
             ? new IlBlock([.. stats]) : null;
     }
 
+    // IlExport (M2) 用: method body の IL を出力せずに構築して返す。
+    // expression body は IlReturn 1 文へ正規化する。
+    internal IlBlock? ExportMethodIl(SemanticModel model,
+        MethodDeclarationSyntax method)
+    {
+        if (method.Body != null) return TryBuildIlBody(model, method);
+        if (method.ExpressionBody != null
+            && BuildExpr(model, method.ExpressionBody.Expression) is { } expr)
+        {
+            var acc = new List<IlStat>();
+            AddReturnStat(acc, expr, method.ExpressionBody.Expression);
+            return new IlBlock([.. acc]);
+        }
+        return null;
+    }
+
+    // IlExport (T228) 用: 式の IL を出力せずに構築して返す (field initializer 等)
+    internal IlExpr? ExportExprIl(SemanticModel model, ExpressionSyntax expr) =>
+        BuildExpr(model, expr);
+
+    // IlExport (T224) 用: 文列 (ctor / accessor body)
+    internal IlBlock? ExportStatsIl(SemanticModel model,
+        IEnumerable<StatementSyntax>? statements)
+    {
+        if (statements == null) return null;
+        var acc = new List<IlStat>();
+        return BuildStatsInto(model, statements, acc)
+            ? new IlBlock([.. acc]) : null;
+    }
+
+    // accessor expression body: get は return 式、set は文位置式
+    internal IlBlock? ExportAccessorExprIl(SemanticModel model,
+        ExpressionSyntax expr, bool isGet)
+    {
+        if (isGet)
+            return BuildExpr(model, expr) is { } e
+                ? new IlBlock([new IlReturn(e)]) : null;
+        var acc = new List<IlStat>();
+        return BuildExprStatInto(model, expr, null, acc)
+            ? new IlBlock([.. acc]) : null;
+    }
+
+    private int _condHoist;
+
     // ---- 共通フック (T214c): 文列 / return 式 / 文位置式を IL 経由で emit ----
 
     private bool TryEmitStatsViaIl(SemanticModel model,
@@ -40,7 +84,9 @@ public partial class LuaEmitter
         var built = BuildExpr(model, expr);
         if (built == null) return false;
         IlBodies++;
-        AppendLine($"return {RenderIl(built)}");
+        var acc = new List<IlStat>();
+        AddReturnStat(acc, built, expr);
+        EmitIlBlock(new IlBlock([.. acc]));
         return true;
     }
 
@@ -80,7 +126,11 @@ public partial class LuaEmitter
                 if (ret.Expression != null
                     && (value = BuildExpr(model, ret.Expression)) == null)
                     return false;
-                acc.Add(new IlReturn(value) { Origin = stmt });
+                if (value != null)
+                    value = WrapStructCopy(model, ret.Expression!, value);
+                // T225: return 位置の条件式は IIFE でなく if 文へ (closure
+                // 割当の除去。評価順は cond→分岐値のままで不変)
+                AddReturnStat(acc, value, stmt);
                 return true;
             }
             case LocalDeclarationStatementSyntax decon
@@ -108,14 +158,46 @@ public partial class LuaEmitter
             {
                 if (local.UsingKeyword.IsKind(SyntaxKind.UsingKeyword))
                     return false;
+                var declaredType = (model.GetDeclaredSymbol(
+                        local.Declaration.Variables[0]) as ILocalSymbol)
+                    ?.Type.ToDisplayString();
                 foreach (var v in local.Declaration.Variables)
                 {
                     IlExpr? init = null;
                     if (v.Initializer != null
                         && (init = BuildExpr(model, v.Initializer.Value)) == null)
                         return false;
-                    acc.Add(new IlLocal(v.Identifier.ValueText, init)
-                        { Origin = stmt });
+                    if (init != null)
+                        init = WrapStructCopy(model, v.Initializer!.Value, init);
+                    // T225: 初期化子の条件式を statement 化 (return 位置と同方針)
+                    if (init is IlTernary lt)
+                    {
+                        var varNode = new IlVar(v.Identifier.ValueText);
+                        acc.Add(new IlLocal(v.Identifier.ValueText, null,
+                            declaredType) { Origin = stmt });
+                        acc.Add(new IlIf(
+                            [(lt.Cond, new IlBlock([new IlAssign(varNode, lt.T)]))],
+                            new IlBlock([new IlAssign(varNode, lt.F)]))
+                            { Origin = stmt });
+                        continue;
+                    }
+                    if (init is IlIife li
+                        && TryGetValueChainShape(li, out var liSetup,
+                            out var liChain, out var liTail, out _))
+                    {
+                        var varNode = new IlVar(v.Identifier.ValueText);
+                        acc.Add(new IlLocal(v.Identifier.ValueText, null,
+                            declaredType) { Origin = stmt });
+                        foreach (var st in liSetup)
+                            acc.Add(st with { Origin = stmt });
+                        acc.Add(liChain != null
+                            ? SwitchChainAsAssigns(liChain, varNode)
+                                with { Origin = stmt }
+                            : new IlAssign(varNode, liTail!) { Origin = stmt });
+                        continue;
+                    }
+                    acc.Add(new IlLocal(v.Identifier.ValueText, init,
+                        declaredType) { Origin = stmt });
                 }
                 return true;
             }
@@ -125,6 +207,28 @@ public partial class LuaEmitter
             {
                 var built = BuildIf(model, ifStmt);
                 if (built == null) return false;
+                // T225: root 条件の値返し IIFE は if の前へ hoist する
+                // (root 条件は無条件に最初へ評価されるため評価順不変。
+                // elseif 条件は前段が偽の時のみ評価されるので対象外)
+                if (built.Arms[0].Cond is IlIife condIife
+                    && TryGetValueChainShape(condIife, out var cSetup,
+                        out var cChain, out var cTail, out _))
+                {
+                    var condVar = new IlVar($"__tcs_cond{_condHoist++}");
+                    acc.Add(new IlLocal(condVar.Name, null, "bool")
+                        { Origin = stmt });
+                    foreach (var st in cSetup)
+                        acc.Add(st with { Origin = stmt });
+                    acc.Add(cChain != null
+                        ? SwitchChainAsAssigns(cChain, condVar)
+                            with { Origin = stmt }
+                        : new IlAssign(condVar, cTail!) { Origin = stmt });
+                    built = built with
+                    {
+                        Arms = [(condVar, built.Arms[0].Body),
+                            .. built.Arms[1..]],
+                    };
+                }
                 acc.Add(built with { Origin = stmt });
                 return true;
             }
@@ -365,6 +469,29 @@ public partial class LuaEmitter
             var target = BuildExpr(model, assign.Left);
             var value = BuildExpr(model, assign.Right);
             if (target == null || value == null) return false;
+            value = WrapStructCopy(model, assign.Right, value);
+            // T225: target が純 local なら条件式 RHS を if 文へ (target の
+            // 評価が存在しないため cond 先行評価でも順序が変わらない)
+            if (value is IlTernary at && target is IlVar)
+            {
+                acc.Add(new IlIf(
+                    [(at.Cond, new IlBlock([new IlAssign(target, at.T)]))],
+                    new IlBlock([new IlAssign(target, at.F)]))
+                    { Origin = origin });
+                return true;
+            }
+            if (value is IlIife ai && target is IlVar
+                && TryGetValueChainShape(ai, out var aiSetup, out var aiChain,
+                    out var aiTail, out _))
+            {
+                foreach (var st in aiSetup)
+                    acc.Add(st with { Origin = origin });
+                acc.Add(aiChain != null
+                    ? SwitchChainAsAssigns(aiChain, target)
+                        with { Origin = origin }
+                    : new IlAssign(target, aiTail!) { Origin = origin });
+                return true;
+            }
             acc.Add(new IlAssign(target, value) { Origin = origin });
             return true;
         }
@@ -498,6 +625,95 @@ public partial class LuaEmitter
         return limit == null ? null : new IlNumericFor(varName, start, limit, body);
     }
 
+    // T225: return 位置の値を statement 化込みで追加する共通経路
+    private void AddReturnStat(List<IlStat> acc, IlExpr? value,
+        SyntaxNode? origin)
+    {
+        if (value is IlTernary ternary)
+        {
+            acc.Add(new IlIf(
+                [(ternary.Cond, new IlBlock([new IlReturn(ternary.T)]))],
+                new IlBlock([new IlReturn(ternary.F)]))
+                { Origin = origin });
+            return;
+        }
+        // switch 式は inline (return がそのまま効く)。else 無しは
+        // 「値なし return」への変化 (print の 0 値/1 値差) を避け IIFE 維持
+        if (value is IlIife iife
+            && TryGetValueChainShape(iife, out var setup, out var chain,
+                out var tailValue, out var complete)
+            && complete)
+        {
+            foreach (var st in setup)
+                acc.Add(st with { Origin = origin });
+            if (chain != null) acc.Add(chain with { Origin = origin });
+            else acc.Add(new IlReturn(tailValue) { Origin = origin });
+            return;
+        }
+        acc.Add(new IlReturn(value) { Origin = origin });
+    }
+
+    // T225: 値を返す IIFE の形を認識する。対象は
+    //   [IlLocal*, IlIf(各 arm = 前置文* + 末尾 IlReturn, else 同形?), IlReturn?]
+    // (switch 式 / ?. / ?? / TryGetValue / GetValueOrDefault の lowering 産物)。
+    // 末尾 IlReturn は else へ正規化する (if が返らなければ落ちて返る形)。
+    // Complete = 全経路が値を返す (false なら不一致時 nil — return 位置では
+    // 「値なし return」化するため使えない)
+    private static bool TryGetValueChainShape(IlIife iife,
+        out ImmutableArray<IlStat> setup, out IlIf? chain,
+        out IlExpr? tailValue, out bool complete)
+    {
+        setup = default; chain = null; tailValue = null; complete = false;
+        var stats = iife.Stats;
+        IlReturn? trailing = null;
+        if (stats.Length > 0 && stats[^1] is IlReturn { Value: not null } tr)
+        {
+            trailing = tr;
+            stats = stats[..^1];
+        }
+        // 前置は無条件実行の宣言・代入・呼び出しのみ (hoist しても等価)
+        bool LeadingOk(ImmutableArray<IlStat> xs) => xs.All(
+            st => st is IlLocal or IlMultiAssign { Declare: true }
+                or IlAssign or IlCallStat);
+        // 線形形 (分岐なし): [前置宣言*, return v]
+        if (trailing != null && LeadingOk(stats))
+        {
+            setup = stats;
+            tailValue = trailing.Value;
+            complete = true;
+            return true;
+        }
+        if (stats.Length == 0 || stats[^1] is not IlIf tail) return false;
+        if (!LeadingOk(stats[..^1])) return false;
+        if (tail.Else != null && trailing != null) return false;
+        if (!tail.Arms.All(a => IsReturningBlock(a.Body))) return false;
+        if (tail.Else is { } e && !IsReturningBlock(e)) return false;
+        setup = stats[..^1];
+        chain = trailing != null
+            ? tail with { Else = new IlBlock([trailing]) }
+            : tail;
+        complete = tail.Else != null || trailing != null;
+        return true;
+    }
+
+    private static bool IsReturningBlock(IlBlock block) =>
+        block.Stats.Length > 0
+        && block.Stats[^1] is IlReturn { Value: not null }
+        && block.Stats[..^1].All(st => st is not IlReturn);
+
+    // 各 arm の末尾 return を target への代入に置換した if 連鎖を作る
+    private static IlIf SwitchChainAsAssigns(IlIf chain, IlExpr target)
+    {
+        static IlBlock Rewrite(IlBlock body, IlExpr target) => new(
+            [.. body.Stats[..^1],
+             new IlAssign(target, ((IlReturn)body.Stats[^1]).Value!)]);
+        var arms = chain.Arms
+            .Select(a => (a.Cond, Rewrite(a.Body, target)))
+            .ToImmutableArray();
+        return new IlIf(arms,
+            chain.Else is { } e ? Rewrite(e, target) : null);
+    }
+
     // ---- 検出 helper (legacy の判定部だけを写し、render は行わない) ----
 
     private bool IsCustomPropertyTarget(SemanticModel model,
@@ -530,10 +746,17 @@ public partial class LuaEmitter
             chain = elseIf;
         }
 
+        // out の宣言形 (out var x) と bare discard (out _) を前宣言する。
+        // 既存 local への out は宣言済みなので不要 (かつての識別子 shadow は
+        // 冗長だった)。`_` は識別子形でも local を持たない discard なので、
+        // 前宣言を落とすと global 書き込みになり module _ENV に拒否される
         return stmt.DescendantNodes()
             .OfType<ArgumentSyntax>()
             .Where(arg => arg.Ancestors().OfType<StatementSyntax>()
-                .FirstOrDefault() == stmt)
+                .FirstOrDefault() == stmt
+                && arg.RefKindKeyword.IsKind(SyntaxKind.OutKeyword)
+                && arg.Expression is DeclarationExpressionSyntax
+                    or IdentifierNameSyntax { Identifier.ValueText: "_" })
             .Select(TryGetOutArgumentName)
             .Where(name => !string.IsNullOrEmpty(name))
             .Select(name => name!)

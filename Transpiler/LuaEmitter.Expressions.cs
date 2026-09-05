@@ -608,14 +608,29 @@ public partial class LuaEmitter
         };
     }
 
-    private static string GetDefaultValueForType(ITypeSymbol? type) => type?.SpecialType switch
+    private static string GetDefaultValueForType(ITypeSymbol? type)
     {
-        SpecialType.System_Boolean => "false",
-        SpecialType.System_Int32 or SpecialType.System_Int64
-            or SpecialType.System_UInt32 or SpecialType.System_Single
-            or SpecialType.System_Double => "0",
-        _ => "nil"
-    };
+        // source 宣言の struct / record struct の default は zero 初期化された
+        // struct 値 (C# 意味論)。nil にすると member アクセスが落ちる
+        if (type is { TypeKind: TypeKind.Struct, SpecialType: SpecialType.None }
+            && type.DeclaringSyntaxReferences.Any(
+                r => r.GetSyntax() is StructDeclarationSyntax
+                    or RecordDeclarationSyntax
+                    {
+                        RawKind: (int)SyntaxKind.RecordStructDeclaration
+                    }))
+        {
+            return $"{type.Name}.new()";
+        }
+        return type?.SpecialType switch
+        {
+            SpecialType.System_Boolean => "false",
+            SpecialType.System_Int32 or SpecialType.System_Int64
+                or SpecialType.System_UInt32 or SpecialType.System_Single
+                or SpecialType.System_Double => "0",
+            _ => "nil"
+        };
+    }
 
     private static string ResolvePredefinedType(PredefinedTypeSyntax predefined) =>
         predefined.Keyword.Text switch

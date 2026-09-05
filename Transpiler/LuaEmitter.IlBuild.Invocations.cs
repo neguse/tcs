@@ -1,11 +1,12 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace TinyCs;
 
-// IL builder の collection / string メソッド写像 (LuaEmitter.IlBuild.Expressions
-// から分離)。
+// IL builder: collection / string / Dict の invocation 写像 (legacy
+// TryMapCollectionMethod / MapStringMethodCall 系)。
 public partial class LuaEmitter
 {
     // legacy TryMapCollectionMethod の写像 (Dict と Clear の IIFE 経路は
@@ -29,8 +30,8 @@ public partial class LuaEmitter
                     result = new IlCall("Dict.Remove", [recvD, args[0]]);
                     return true;
                 case "ContainsKey":
-                    result = new IlParen(new IlBin(IlBinOp.Ne,
-                        new IlIndex(recvD, args[0], false), new IlLit("nil")));
+                    // backend 非依存の intrinsic call (il-spec §13)
+                    result = new IlCall("Dict.ContainsKey", [recvD, args[0]]);
                     return true;
                 case "Add":
                     // 代入形は statement 側 (BuildDictAddStatInto) が扱う
@@ -46,6 +47,18 @@ public partial class LuaEmitter
             {
                 var recvExt = BuildExpr(model, ma.Expression);
                 if (recvExt == null) return true; // fallback
+                // OrDefault 系は List receiver 分岐と同様に default(T) を渡す
+                if (methodName is "FirstOrDefault" or "LastOrDefault")
+                {
+                    var predicateExt = args.Length > 0
+                        ? args[0]
+                        : new IlLit("nil");
+                    result = new IlCall($"List.{methodName}",
+                        [recvExt, predicateExt,
+                         new IlLit(GetDefaultValueForType(
+                             methodSym.ReturnType))]);
+                    return true;
+                }
                 result = new IlCall($"List.{methodName}",
                     [recvExt, .. args]);
                 return true;

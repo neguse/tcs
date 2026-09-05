@@ -342,10 +342,10 @@ public class SubsetDiagnosticTests
         var result = Transpiler.TranspileWithDiagnostics(["""
             public class T
             {
-                public static double Test()
+                public static float Test()
                 {
                     var r = new System.Random();
-                    return r.NextDouble();
+                    return (float)r.NextDouble();
                 }
             }
             """]);
@@ -427,6 +427,48 @@ public class SubsetDiagnosticTests
     }
 
     [Fact]
+    public void DoubleAndLongTypesAndDoubleLiteral_ReportWarnings()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public class T
+            {
+                public double Field;
+                public long Signed;
+                public ulong Unsigned;
+
+                public static double Test(long value, ulong other)
+                {
+                    double result = 2.5;
+                    return result + value + other;
+                }
+            }
+            """]);
+
+        AssertUnsupportedWarning(result, "DoubleType");
+        AssertUnsupportedWarning(result, "DoubleLiteral");
+        AssertUnsupportedWarning(result, "LongType");
+    }
+
+    [Fact]
+    public void FloatLiteral_DoesNotReportDoubleLiteral()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public class T
+            {
+                public static float Test()
+                {
+                    float value = 1.5f;
+                    return value;
+                }
+            }
+            """]);
+
+        Assert.True(result.Success);
+        Assert.DoesNotContain(result.Warnings,
+            w => w.Contains("DoubleType") || w.Contains("DoubleLiteral"));
+    }
+
+    [Fact]
     public void FloatAndDoubleLiterals_AreNotFlaggedAsDecimal()
     {
         var result = Transpiler.TranspileWithDiagnostics(["""
@@ -443,5 +485,131 @@ public class SubsetDiagnosticTests
 
         Assert.True(result.Success);
         Assert.DoesNotContain(result.Warnings, w => w.Contains("Decimal"));
+    }
+
+    // T223: interface は実行時表現を持たないため、interface を対象とする
+    // type test は常に偽になる (il-spec §2)。診断で拒否する。
+    [Fact]
+    public void InterfaceTypeTest_ReportsWarning()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public interface IShape { }
+            public class Circle : IShape { }
+            public class T
+            {
+                public static string Test(object x)
+                {
+                    if (x is IShape) return "shape";
+                    return x switch
+                    {
+                        IShape s => "pattern",
+                        _ => "other",
+                    };
+                }
+            }
+            """]);
+        AssertUnsupportedWarning(result, "InterfaceTypeTest");
+    }
+
+    [Fact]
+    public void ClassTypeTest_NoWarning()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public class Animal { }
+            public class T
+            {
+                public static bool Test(object x) { return x is Animal; }
+            }
+            """]);
+        Assert.True(result.Success);
+        Assert.DoesNotContain(result.Warnings,
+            w => w.Contains("InterfaceTypeTest"));
+    }
+
+    // T223: 孤立 surrogate は UTF-8 octet 列への写像を持たない (il-spec §11)
+    [Fact]
+    public void LoneSurrogateLiteral_ReportsWarning()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public class T
+            {
+                public static string Test() { return "bad\uD800end"; }
+            }
+            """]);
+        AssertUnsupportedWarning(result, "LoneSurrogateLiteral");
+    }
+
+    [Fact]
+    public void PairedSurrogateLiteral_NoWarning()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public class T
+            {
+                public static string Test() { return "ok\U0001F600end"; }
+            }
+            """]);
+        Assert.True(result.Success);
+        Assert.DoesNotContain(result.Warnings,
+            w => w.Contains("LoneSurrogateLiteral"));
+    }
+
+    // T227: nested class は emit されず参照時に実行時 nil になる
+    [Fact]
+    public void NestedClass_ReportsWarning()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public class Outer
+            {
+                public class Inner { public int V; }
+                public static object Make() { return new Inner(); }
+            }
+            """]);
+        AssertUnsupportedWarning(result, "NestedTypeDeclaration");
+    }
+
+    // T224: instance method group / 非リテラル alignment は silent wrong-code
+    [Fact]
+    public void InstanceMethodGroupAndAlignment_ReportWarnings()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using System;
+            public class T
+            {
+                public int V;
+                public int Get() { return V; }
+                public object Grab()
+                {
+                    Func<int> f = Get;
+                    return f;
+                }
+                public static string Fmt(int x) { return $"{x,5}|{x:D2}"; }
+                public static string Bad(int x) { return $"{x,2 + 3}"; }
+            }
+            """]);
+        Assert.True(result.Success);
+        AssertUnsupportedWarning(result, "InstanceMethodGroup");
+        AssertUnsupportedWarning(result, "NonConstantAlignment");
+        Assert.Single(result.Warnings, w => w.Contains("NonConstantAlignment"));
+    }
+
+    [Fact]
+    public void StaticMethodGroup_NoWarning_AndWorks()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System;
+            using System.Collections.Generic;
+            using System.Linq;
+            public class T
+            {
+                public static int Twice(int v) { return v * 2; }
+                public static string Test()
+                {
+                    var xs = new List<int> { 1, 2 };
+                    var ys = xs.Select(Twice).ToList();
+                    return $"{ys[0]}:{ys[1]}";
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("2:4", result);
     }
 }

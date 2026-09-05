@@ -62,7 +62,7 @@ public class DiagnosticTests
 
     [Theory]
     [InlineData("public class T { public static int Test() { int x = \"oops\"; return x; } }", "CS0029")]
-    [InlineData("public class T { public static int Test() { int x = 1.5; return x; } }", "CS0266")]
+    [InlineData("public class T { public static int Test() { int x = 1.5f; return x; } }", "CS0266")]
     [InlineData("public class T { public static bool Test() => true + false; }", "CS0019")]
     [InlineData("public interface IRun { void Run(); } public class T : IRun { }", "CS0535")]
     public void OrdinaryErrors_WithTinyCsExceptionIds_AreRejected(
@@ -160,8 +160,9 @@ public class DiagnosticTests
     }
 
     [Fact]
-    public void UnsupportedStructDeclaration_ReportsWarning()
+    public void DataStruct_NoDiagnostic()
     {
+        // M5 (T219) v1: field のみのデータ struct はサブセット内
         var result = Transpiler.TranspileWithDiagnostics(["""
             public struct Vec2
             {
@@ -169,17 +170,29 @@ public class DiagnosticTests
             }
             """]);
 
-        AssertUnsupportedWarning(result, "StructDeclaration");
+        Assert.True(result.Success);
+        Assert.DoesNotContain(result.Warnings,
+            w => w.Contains("StructDeclaration"));
     }
 
+    // T219b(b): record struct は対応済み。static member は struct と同じく
+    // サブセット外のまま
     [Fact]
-    public void UnsupportedRecordStructDeclaration_ReportsWarning()
+    public void RecordStruct_IsClean_StaticMemberReportsWarning()
     {
-        var result = Transpiler.TranspileWithDiagnostics(["""
+        var clean = Transpiler.TranspileWithDiagnostics(["""
             public readonly record struct Vec2(int X, int Y);
             """]);
+        Assert.DoesNotContain(clean.Warnings,
+            w => w.Contains("RecordStruct") || w.Contains("StructMember"));
 
-        AssertUnsupportedWarning(result, "RecordStructDeclaration");
+        var withStatic = Transpiler.TranspileWithDiagnostics(["""
+            public record struct Vec2(int X, int Y)
+            {
+                public static int Make() { return 1; }
+            }
+            """]);
+        AssertUnsupportedWarning(withStatic, "StructMember");
     }
 
     [Fact]
@@ -494,14 +507,14 @@ public class DiagnosticTests
 
             public class T
             {
-                public static double Test()
+                public static float Test()
                 {
                     var values = new List<int> { 1 };
                     values.Reverse();
                     var one = values.Single();
                     var capacity = values.Capacity;
                     var empty = string.Empty;
-                    return Math.Cbrt(one) + Math.E + capacity + empty.Length;
+                    return (float)(Math.Cbrt(one) + Math.E + capacity + empty.Length);
                 }
             }
             """]);

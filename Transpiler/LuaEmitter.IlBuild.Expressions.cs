@@ -121,9 +121,29 @@ public partial class LuaEmitter
                 ParenthesizedLambdaExpressionSyntax:
                 return BuildLambda(model, expr);
             case ArrayCreationExpressionSyntax arr:
-                return BuildArrayItems(model, arr.Initializer);
+            {
+                if (arr.Initializer == null)
+                {
+                    var elemType = (model.GetTypeInfo(arr).Type
+                        as IArrayTypeSymbol)?.ElementType.ToDisplayString();
+                    var sizeExpr = arr.Type.RankSpecifiers.Count == 1
+                        && arr.Type.RankSpecifiers[0].Sizes.Count == 1
+                        && arr.Type.RankSpecifiers[0].Sizes[0]
+                            is not OmittedArraySizeExpressionSyntax
+                        ? arr.Type.RankSpecifiers[0].Sizes[0] : null;
+                    if (elemType != null && sizeExpr != null
+                        && BuildExpr(model, sizeExpr) is { } len)
+                        return new IlNewArray(elemType, len);
+                    return new IlTable([], elemType);
+                }
+                return BuildArrayItems(model, arr.Initializer,
+                    (model.GetTypeInfo(arr).Type as IArrayTypeSymbol)
+                        ?.ElementType.ToDisplayString());
+            }
             case ImplicitArrayCreationExpressionSyntax implArr:
-                return BuildArrayItems(model, implArr.Initializer);
+                return BuildArrayItems(model, implArr.Initializer,
+                    (model.GetTypeInfo(implArr).Type as IArrayTypeSymbol)
+                        ?.ElementType.ToDisplayString());
             case WithExpressionSyntax withExpr:
                 return BuildWithExpr(model, withExpr);
             case MemberBindingExpressionSyntax mb:
@@ -142,9 +162,9 @@ public partial class LuaEmitter
     }
 
     private IlExpr? BuildArrayItems(SemanticModel model,
-        InitializerExpressionSyntax? initializer)
+        InitializerExpressionSyntax? initializer, string? elementType = null)
     {
-        if (initializer == null) return new IlTable([]);
+        if (initializer == null) return new IlTable([], elementType);
         var items = new List<IlTableEntry>();
         foreach (var e in initializer.Expressions)
         {
@@ -152,7 +172,7 @@ public partial class LuaEmitter
             if (built == null) return null;
             items.Add(new IlTableEntry(null, built));
         }
-        return new IlTable([.. items]);
+        return new IlTable([.. items], elementType);
     }
 
     private IlExpr? BuildWithExpr(SemanticModel model,
@@ -184,13 +204,20 @@ public partial class LuaEmitter
             return new IlLit(constLit);
         switch (symbol)
         {
+            case IMethodSymbol { IsStatic: true, ContainingType: not null } sm:
+                // static method group = 関数値 (Lua は Class.Method がそのまま
+                // 関数)。instance group は診断済み (InstanceMethodGroup)
+                return new IlField(new IlVar(TypeRef(sm.ContainingType)), N(sm));
             case IMethodSymbol:
                 return null;
             case IPropertySymbol custom when IsCustomProperty(custom):
                 return custom.IsStatic
                     ? new IlDynCall(new IlField(
                         new IlVar(TypeRef(custom.ContainingType)), $"get_{N(custom)}"), [])
-                    : new IlInvoke(new IlVar("self"), $"get_{N(custom)}", []);
+                    : IsUserStruct(custom.ContainingType)
+                        ? new IlCall($"{TypeRef(custom.ContainingType)}.get_{N(custom)}",
+                            [new IlVar("self")])
+                        : new IlInvoke(new IlVar("self"), $"get_{N(custom)}", []);
             case IFieldSymbol { IsStatic: false }
                 or IPropertySymbol { IsStatic: false }:
                 return new IlField(new IlVar("self"), N(symbol));
@@ -228,6 +255,21 @@ public partial class LuaEmitter
         var right = BuildExpr(model, bin.Right);
         if (left == null || right == null) return null;
 
+        // record struct の ==/!= は合成値等価へ (plain table の raw == は
+        // identity 比較になってしまう)
+        if ((bin.IsKind(SyntaxKind.EqualsExpression)
+                || bin.IsKind(SyntaxKind.NotEqualsExpression))
+            && model.GetTypeInfo(bin.Left).Type is INamedTypeSymbol
+                { IsRecord: true } eqType
+            && IsUserStruct(eqType))
+        {
+            var eqCall = new IlCall($"{eqType.Name}.op_Equality",
+                [left, right]);
+            return bin.IsKind(SyntaxKind.EqualsExpression)
+                ? eqCall
+                : new IlParen(new IlUn(IlUnOp.Not, eqCall));
+        }
+
         if (bin.IsKind(SyntaxKind.DivideExpression)
             && IsIntegralType(model.GetTypeInfo(bin).Type))
             return new IlCall("__tcs_idiv", [left, right]);
@@ -257,8 +299,12 @@ public partial class LuaEmitter
              model.GetTypeInfo(bin).Type?.SpecialType == SpecialType.System_String);
         if (isStringConcat)
         {
-            left = WrapConcatOperand(model, bin.Left, left);
-            right = WrapConcatOperand(model, bin.Right, right);
+            left = IsFloatingType(model.GetTypeInfo(bin.Left).Type)
+                ? new IlCall("__tcs_fstr", [left])
+                : WrapConcatOperand(model, bin.Left, left);
+            right = IsFloatingType(model.GetTypeInfo(bin.Right).Type)
+                ? new IlCall("__tcs_fstr", [right])
+                : WrapConcatOperand(model, bin.Right, right);
             return new IlBin(IlBinOp.Concat, left, right);
         }
 
@@ -290,6 +336,14 @@ public partial class LuaEmitter
         };
         return op == null ? null : new IlBin(op.Value, left, right);
     }
+
+    // f32 出力の shortest round-trip 化 (il-spec §13 / 付録 A)。
+    // 静的型が float/double の値の文字列化地点で __tcs_fstr を挟む
+    private IlExpr WrapFloatToString(SemanticModel model,
+        ExpressionSyntax src, IlExpr built) =>
+        IsFloatingType(model.GetTypeInfo(src).Type)
+            ? new IlCall("__tcs_fstr", [built])
+            : new IlCall("tostring", [built]);
 
     // legacy NullSafeConcatOperand の写像
     private static IlExpr WrapConcatOperand(SemanticModel model,
@@ -371,7 +425,7 @@ public partial class LuaEmitter
         {
             var built = BuildExpr(model, a.Expression);
             if (built == null) return null;
-            args.Add(built);
+            args.Add(WrapStructCopy(model, a.Expression, built));
         }
         var argArr = args.ToImmutableArray();
 
@@ -419,7 +473,16 @@ public partial class LuaEmitter
 
             if (methodName == "WriteLine" && symbol is IMethodSymbol console
                 && console.ContainingType.ToDisplayString() == "System.Console")
-                return new IlCall("print", argArr);
+            {
+                var printArgs = argArr.ToArray();
+                for (var i = 0; i < printArgs.Length; i++)
+                {
+                    if (IsFloatingType(model.GetTypeInfo(invocation.ArgumentList
+                            .Arguments[i].Expression).Type))
+                        printArgs[i] = new IlCall("__tcs_fstr", [printArgs[i]]);
+                }
+                return new IlCall("print", [.. printArgs]);
+            }
 
             if (symbol is IMethodSymbol mathMethod
                 && mathMethod.ContainingType.ToDisplayString() == "System.Math")
@@ -454,16 +517,22 @@ public partial class LuaEmitter
             {
                 var recvAny = BuildExpr(model, ma.Expression);
                 return recvAny == null
-                    ? null : new IlCall("tostring", [recvAny]);
+                    ? null : WrapFloatToString(model, ma.Expression, recvAny);
             }
 
             if (symbol is IMethodSymbol { IsExtensionMethod: true }) return null;
 
-            if (symbol is IMethodSymbol { IsStatic: false } instanceMethod)
+            if (symbol is IMethodSymbol { IsStatic: false } instMethod)
             {
                 var recv = BuildExpr(model, ma.Expression);
-                return recv == null
-                    ? null : new IlInvoke(recv, N(instanceMethod), argArr);
+                if (recv == null) return null;
+                // struct は metatable が無いので自由関数を静的ディスパッチ
+                if (IsUserStruct(model.GetTypeInfo(ma.Expression).Type))
+                    return new IlCall(
+                        $"{TypeRef(instMethod.ContainingType)}.{N(instMethod)}",
+                        [StructReceiverArg(model, ma.Expression, recv),
+                         .. argArr]);
+                return new IlInvoke(recv, N(instMethod), argArr);
             }
 
             if (symbol is IMethodSymbol { IsStatic: true } staticMethod)
@@ -484,13 +553,18 @@ public partial class LuaEmitter
             if (symbol is IMethodSymbol { ContainingType: not null } method)
                 return method.IsStatic
                     ? new IlCall($"{TypeRef(method.ContainingType)}.{N(method)}", argArr)
-                    : new IlInvoke(new IlVar("self"), N(method), argArr);
+                    : IsUserStruct(method.ContainingType)
+                        ? new IlCall($"{TypeRef(method.ContainingType)}.{N(method)}",
+                            [new IlVar("self"), .. argArr])
+                        : new IlInvoke(new IlVar("self"), N(method), argArr);
             if (symbol is ILocalSymbol or IParameterSymbol)
                 return new IlDynCall(new IlVar(name), argArr);
             return null;
         }
 
-        return null;
+        // 一般 callee 式 (fs[0]() 等) — legacy の `{expr}({args})` と同型
+        var callee = BuildExpr(model, invocation.Expression);
+        return callee == null ? null : new IlDynCall(callee, argArr);
     }
 
     // legacy VisitMemberAccess の写像
@@ -548,7 +622,11 @@ public partial class LuaEmitter
                     ? new IlDynCall(new IlField(
                         new IlVar(TypeRef(propSym.ContainingType)),
                         $"get_{N(propSym)}"), [])
-                    : new IlInvoke(obj, $"get_{N(propSym)}", []);
+                    : IsUserStruct(model.GetTypeInfo(ma.Expression).Type)
+                        ? new IlCall(
+                            $"{TypeRef(propSym.ContainingType)}.get_{N(propSym)}",
+                            [StructReceiverArg(model, ma.Expression, obj)])
+                        : new IlInvoke(obj, $"get_{N(propSym)}", []);
             return new IlField(obj, N(propSym));
         }
 
@@ -557,6 +635,9 @@ public partial class LuaEmitter
             var obj = BuildExpr(model, ma.Expression);
             return obj == null ? null : new IlField(obj, N(fieldSym));
         }
+
+        if (symbol is IMethodSymbol { IsStatic: true, ContainingType: not null } smg)
+            return new IlField(new IlVar(smg.ContainingType.Name), smg.Name);
 
         return null;
     }
@@ -571,9 +652,13 @@ public partial class LuaEmitter
             : model.GetTypeInfo(creation).ConvertedType;
         var typeDef = typeSymbol?.OriginalDefinition.ToDisplayString() ?? "";
 
+        string? TypeArg(int i) =>
+            typeSymbol is INamedTypeSymbol { TypeArguments.Length: > 0 } named
+            && named.TypeArguments.Length > i
+                ? named.TypeArguments[i].ToDisplayString() : null;
         if (IsListType(typeDef))
         {
-            if (initializer == null) return new IlTable([]);
+            if (initializer == null) return new IlTable([], TypeArg(0));
             var items = new List<IlTableEntry>();
             foreach (var e in initializer.Expressions)
             {
@@ -581,11 +666,12 @@ public partial class LuaEmitter
                 if (built == null) return null;
                 items.Add(new IlTableEntry(null, built));
             }
-            return new IlTable([.. items]);
+            return new IlTable([.. items], TypeArg(0));
         }
         if (IsDictType(typeDef))
         {
-            if (initializer == null) return new IlTable([]);
+            if (initializer == null)
+                return new IlTable([], TypeArg(1), TypeArg(0));
             var entries = new List<IlTableEntry>();
             foreach (var e in initializer.Expressions)
             {
@@ -602,7 +688,7 @@ public partial class LuaEmitter
                     return null; // indexer initializer 等は fallback
                 }
             }
-            return new IlTable([.. entries]);
+            return new IlTable([.. entries], TypeArg(1), TypeArg(0));
         }
 
         if (typeSymbol == null) return null;
@@ -612,13 +698,18 @@ public partial class LuaEmitter
             if (!a.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
             var built = BuildExpr(model, a.Expression);
             if (built == null) return null;
-            args.Add(built);
+            // ctor 引数も by-value (il-spec §10 の引数 copy 地点)
+            args.Add(WrapStructCopy(model, a.Expression, built));
         }
         if (IsReferenceOnlyType(typeSymbol))
             // ctor 引数つきは legacy が警告する経路 — fallback
             return args.Count > 0
                 ? null : BuildRefTypeTable(model, initializer);
-        var ctor = new IlNewObj(typeSymbol.Name, [.. args]);
+        // struct の明示 ctor は S.ctor (zero 初期化 + 本文)。`new S()` は
+        // ctor を通らない zero 値なので S.new のまま
+        var ctor = IsUserStruct(typeSymbol) && args.Count > 0
+            ? (IlExpr)new IlCall($"{typeSymbol.Name}.ctor", [.. args])
+            : new IlNewObj(typeSymbol.Name, [.. args]);
         return initializer != null
             ? BuildObjectInitializerExpr(model, ctor, initializer)
             : ctor;
@@ -647,71 +738,15 @@ public partial class LuaEmitter
         var defaultValue = GetDefaultValueForType(
             methodSym.Parameters.Length > 1
                 ? methodSym.Parameters[1].Type : null);
+        // multi-return intrinsic (il-spec §13)。nil 比較の desugar を IL に
+        // 残さない (C backend が「nil = 不在」を型付けできないため)
         return new IlIife([
-            new IlLocal("__tcs_value", new IlIndex(recv, key, false)),
-            new IlIf([(new IlBin(IlBinOp.Ne, new IlVar("__tcs_value"),
-                    new IlLit("nil")),
-                new IlBlock([new IlAssign(target, new IlVar("__tcs_value")),
-                    new IlReturn(new IlLit("true"))]))],
-                new IlBlock([new IlAssign(target, new IlLit(defaultValue)),
-                    new IlReturn(new IlLit("false"))]))]);
-    }
-
-    // legacy VisitInterpolatedString の写像 (alignment はリテラルのみ対応)
-    private IlExpr? BuildInterpolatedString(SemanticModel model,
-        InterpolatedStringExpressionSyntax interp)
-    {
-        var parts = new List<IlExpr>();
-        foreach (var content in interp.Contents)
-        {
-            switch (content)
-            {
-                case InterpolatedStringTextSyntax text:
-                    parts.Add(new IlLit(EscapeLuaString(text.TextToken.ValueText
-                        .Replace("{{", "{", StringComparison.Ordinal)
-                        .Replace("}}", "}", StringComparison.Ordinal))));
-                    break;
-                case InterpolationSyntax hole:
-                {
-                    var inner = BuildExpr(model, hole.Expression);
-                    if (inner == null) return null;
-                    IlExpr rendered;
-                    if (hole.FormatClause != null)
-                    {
-                        var luaFmt = ConvertFormatSpecifier(
-                            hole.FormatClause.FormatStringToken.Text);
-                        rendered = new IlCall("string.format",
-                            [new IlLit($"\"{luaFmt}\""), inner]);
-                    }
-                    else
-                    {
-                        rendered = new IlCall("tostring", [inner]);
-                    }
-                    if (hole.AlignmentClause != null)
-                    {
-                        if (hole.AlignmentClause.Value is not
-                            (LiteralExpressionSyntax
-                             or PrefixUnaryExpressionSyntax
-                             {
-                                 RawKind: (int)SyntaxKind.UnaryMinusExpression,
-                                 Operand: LiteralExpressionSyntax
-                             }))
-                            return null;
-                        var align = hole.AlignmentClause.Value.ToString();
-                        rendered = new IlCall("string.format",
-                            [new IlLit($"\"%{align}s\""), rendered]);
-                    }
-                    parts.Add(rendered);
-                    break;
-                }
-                default:
-                    return null;
-            }
-        }
-        if (parts.Count == 0) return null;
-        var result = parts[0];
-        for (var i = 1; i < parts.Count; i++)
-            result = new IlBin(IlBinOp.Concat, result, parts[i]);
-        return result;
+            new IlMultiAssign(
+                [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
+                [new IlCall("Dict.TryGet",
+                    [recv, key, new IlLit(defaultValue)])],
+                Declare: true),
+            new IlAssign(target, new IlVar("__tcs_v")),
+            new IlReturn(new IlVar("__tcs_found"))]);
     }
 }

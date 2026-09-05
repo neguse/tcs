@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LUA_BIN="$SCRIPT_DIR/deps/lua/lua"
+# M4 (T216): テストの数値モデル正本は LUA_32BITS (lua32)。cmake は両方を併産する
+LUA32_BIN="$SCRIPT_DIR/deps/lua/lua32"
 BUILD_DIR="$SCRIPT_DIR/build"
 TEMP_DIRS=()
 
@@ -33,14 +35,14 @@ build_lua() {
 }
 
 needs_lua_build() {
-  if [ ! -x "$LUA_BIN" ]; then
+  if [ ! -x "$LUA_BIN" ] || [ ! -x "$LUA32_BIN" ]; then
     return 0
   fi
 
   for input in "$SCRIPT_DIR/CMakeLists.txt" \
       "$SCRIPT_DIR/deps/lua/luaconf.h" \
       "$SCRIPT_DIR/deps/lua/lua.c"; do
-    if [ "$input" -nt "$LUA_BIN" ]; then
+    if [ "$input" -nt "$LUA_BIN" ] || [ "$input" -nt "$LUA32_BIN" ]; then
       return 0
     fi
   done
@@ -89,6 +91,14 @@ dotnet run --project "$SCRIPT_DIR/Transpiler" -- \
   check "$SCRIPT_DIR/samples/host_api_game.cs" \
   --ref "$SCRIPT_DIR/samples/host_api_stub.cs"
 
+# 2 backend digest 一致 (IL→C backend、cc がある環境のみ)
+if command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1; then
+  echo "Running tcs2c digest verification..."
+  bash "$SCRIPT_DIR/tcs2c/verify-digests.sh"
+else
+  echo "Skipping tcs2c digest verification (no C compiler)."
+fi
+
 bash "$SCRIPT_DIR/samples/analyzer-demo/verify-rider-scripts.sh"
 
 echo "Running analyzer demo build..."
@@ -121,7 +131,7 @@ assert_expected_diagnostic_texts() {
   local label="$1"
   local output="$2"
   for needle in \
-      "StructDeclaration" \
+      "StructMember" \
       "LocalFunctionStatement" \
       "TryStatement" \
       "ThrowStatement" \
@@ -142,8 +152,22 @@ fi
 assert_expected_diagnostic_texts "analyzer demo" "$analyzer_output"
 
 echo "Running analyzer package consumer build..."
-package_dir="$(mktemp -d)"
-consumer_dir="$(mktemp -d)"
+# MSBuild / NuGet は project の祖先ディレクトリを遡って Directory.Build.props や
+# NuGet.Config を取り込む。scratch dir を /tmp 直下に作ると、そこに置かれたものを
+# build の一部として実行してしまうため、自分専用の temp root の下に作る。
+TEMP_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/tcs/tmp"
+if [ -L "$TEMP_ROOT" ]; then
+  echo "Error: $TEMP_ROOT is a symlink; refusing to use it." >&2
+  exit 1
+fi
+if [ -e "$TEMP_ROOT" ] && [ ! -O "$TEMP_ROOT" ]; then
+  echo "Error: $TEMP_ROOT is not owned by the current user; refusing to use it." >&2
+  exit 1
+fi
+mkdir -p "$TEMP_ROOT"
+chmod 700 "$TEMP_ROOT"
+package_dir="$(mktemp -d "$TEMP_ROOT/analyzer-package.XXXXXX")"
+consumer_dir="$(mktemp -d "$TEMP_ROOT/analyzer-consumer.XXXXXX")"
 TEMP_DIRS+=("$package_dir" "$consumer_dir")
 dotnet pack "$SCRIPT_DIR/TinyCs.Analyzers/TinyCs.Analyzers.csproj" \
   -c Release \

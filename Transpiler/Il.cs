@@ -67,8 +67,14 @@ public sealed record IlInvoke(IlExpr Recv, string Method, ImmutableArray<IlExpr>
 public sealed record IlNewObj(string TypeName, ImmutableArray<IlExpr> Args) : IlExpr;
 
 /// <summary>table 構築 (List / Dict リテラル / ref-type option table)。
-/// Key があれば [k]=v、NameKey があれば name=v、どちらも無ければ配列項。</summary>
-public sealed record IlTable(ImmutableArray<IlTableEntry> Entries) : IlExpr;
+/// Key があれば [k]=v、NameKey があれば name=v、どちらも無ければ配列項。
+/// ElementType は配列/List リテラルの要素型 (C backend 用 metadata、T228)。</summary>
+public sealed record IlTable(ImmutableArray<IlTableEntry> Entries,
+    string? ElementType = null, string? KeyType = null) : IlExpr;
+
+/// <summary>固定長配列の生成: new T[n] (il-spec §11)。dev backend は
+/// 空 table (要素は使用時に埋まる)、release backend は連続バッファ確保。</summary>
+public sealed record IlNewArray(string ElementType, IlExpr Length) : IlExpr;
 
 public readonly record struct IlTableEntry(
     IlExpr? Key, IlExpr Value, string? NameKey = null);
@@ -89,6 +95,11 @@ public sealed record IlClosure(
     ImmutableArray<string> Params, IlBlock? Body, IlExpr? ExprBody,
     ImmutableArray<string> PatternLocals) : IlExpr;
 
+/// <summary>struct 値の copy 地点 (il-spec §10)。Lua backend は型別 copy
+/// 関数 {TypeName}.__copy (struct-in-struct を再帰 copy)、C backend は
+/// 素の値代入として扱う。</summary>
+public sealed record IlStructCopy(IlExpr E, string TypeName) : IlExpr;
+
 /// <summary>record with 式 (shallow copy + 上書き)。</summary>
 public sealed record IlWith(
     IlExpr Src, ImmutableArray<(string Name, IlExpr Value)> Overrides) : IlExpr;
@@ -99,7 +110,10 @@ public abstract record IlStat : IlNode;
 
 public sealed record IlBlock(ImmutableArray<IlStat> Stats);
 
-public sealed record IlLocal(string Name, IlExpr? Init) : IlStat;
+/// <summary>変数導入。Type は宣言型 (display 文字列、backend の型付け用。
+/// Init 非 null でも設定される)。</summary>
+public sealed record IlLocal(string Name, IlExpr? Init, string? Type = null)
+    : IlStat;
 
 public sealed record IlAssign(IlExpr Target, IlExpr Value) : IlStat;
 

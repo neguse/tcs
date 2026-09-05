@@ -112,6 +112,7 @@ public class CliRuntimeTests
             public struct Vec2
             {
                 public int X;
+                public static int Twice(Vec2 v) { return v.X * 2; }
             }
 
             public class T
@@ -128,7 +129,7 @@ public class CliRuntimeTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Stdout);
         Assert.Contains(TinyCsDiagnosticIds.UnsupportedSyntax, result.Stderr);
-        Assert.Contains("StructDeclaration", result.Stderr);
+        Assert.Contains("StructMember", result.Stderr);
         Assert.Contains(TinyCsDiagnosticIds.UnsupportedApi, result.Stderr);
         Assert.Contains("System.IO.File.ReadAllText", result.Stderr);
     }
@@ -171,7 +172,7 @@ public class CliRuntimeTests
             TinyCsDiagnosticIds.UnsupportedApi));
         Assert.Equal(1, CountDiagnostics(result.Stderr,
             TinyCsDiagnosticIds.UnsupportedCollectionNull));
-        Assert.Contains("StructDeclaration", result.Stderr);
+        Assert.Contains("StructMember", result.Stderr);
         Assert.Contains("LocalFunctionStatement", result.Stderr);
         Assert.Contains("TryStatement", result.Stderr);
         Assert.Contains("ThrowStatement", result.Stderr);
@@ -547,21 +548,9 @@ public class CliRuntimeTests
                 app.lua:43: in function 'T.Test'
             """);
 
-        var oldOut = Console.Out;
-        using var writer = new StringWriter();
-        try
-        {
-            Console.SetOut(writer);
-            var exitCode = Program.Main(["--map-stacktrace", mapPath, tracePath]);
-
-            Assert.Equal(0, exitCode);
-        }
-        finally
-        {
-            Console.SetOut(oldOut);
-        }
-
-        var output = writer.ToString();
+        var (exitCode, output, _) = ConsoleCapture.Run(
+            () => Program.Main(["--map-stacktrace", mapPath, tracePath]));
+        Assert.Equal(0, exitCode);
         Assert.Contains("app.lua:42: attempt to call a nil value  --> app.cs:9",
             output);
         Assert.Contains("app.lua:43: in function 'T.Test'  --> app.cs:9",
@@ -569,26 +558,8 @@ public class CliRuntimeTests
     }
 
     private static (int ExitCode, string Stdout, string Stderr) RunCli(
-        params string[] args)
-    {
-        var oldOut = Console.Out;
-        var oldErr = Console.Error;
-        using var stdout = new StringWriter();
-        using var stderr = new StringWriter();
-
-        try
-        {
-            Console.SetOut(stdout);
-            Console.SetError(stderr);
-            var exitCode = Program.Main(args);
-            return (exitCode, stdout.ToString(), stderr.ToString());
-        }
-        finally
-        {
-            Console.SetOut(oldOut);
-            Console.SetError(oldErr);
-        }
-    }
+        params string[] args) =>
+        ConsoleCapture.Run(() => Program.Main(args));
 
     private static int CountDiagnostics(string text, string diagnosticId) =>
         text.Split('\n', StringSplitOptions.RemoveEmptyEntries)

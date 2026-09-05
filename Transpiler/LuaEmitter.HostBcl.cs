@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace TinyCs;
 
-// host 連携で使う BCL (T232) の判定。emit は IL builder と legacy visitor の
+// host 連携で使う BCL (T239) の判定。emit は IL builder と legacy visitor の
 // 両方がここを引く。
 //   Environment.GetEnvironmentVariable(s) → os.getenv(s)
 //   int.Parse(s)                          → math.tointeger(tonumber(s))

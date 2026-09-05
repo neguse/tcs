@@ -464,4 +464,21 @@ function TinySystem.instanceof(x, T)
   return false
 end
 
+-- TryGetValue の lowering 先 (il-spec §13)。(found, value or default) を返す
+function Dict.TryGet(dict, key, default)
+  local v = dict[key]
+  if v ~= nil then return true, v end
+  return false, default
+end
+
+-- f32 の shortest round-trip 10 進表記 (il-spec §13)
+function TinySystem.fstr(v)
+  if math.type(v) ~= "float" then return tostring(v) end
+  local s = string.format("%.6g", v)
+  if tonumber(s) == v then return s end
+  s = string.format("%.8g", v)
+  if tonumber(s) == v then return s end
+  return string.format("%.9g", v)
+end
+
 return TinySystem

@@ -13,57 +13,56 @@
 
 価値最大化の原則:
 1. **情報を先に買う** — 2 大不確実性（release object model / IL 抽象度）を
-   コンパイラのコードを書く前に spike と紙の演習で決着させる
+   コンパイラのコードを書く前に実測 (perf) と紙の演習で決着させる
 2. **各段階で独立に価値を着地させる** — 途中で止まっても損しない順序
 3. **数値モデルの凍結を C backend 着手より前に** — double 前提で
    IL→C を書く手戻りを封じる
 
 ### Phase 0 — 情報を買う + 発見バグ修正（並行可）
 
-- [ ] **T223** (P1): interface を対象とする type test / cast の診断化 —
-      interface は実行時表現を持たないため `x is I` は偽陰性になる
-      （il-spec §2 で診断化を決定）。孤立 surrogate を含む string literal の
-      診断化（il-spec §11）も同じ Shared facts 追加で扱う
-- [ ] **T212** (P0, luo 側): 性能上界 spike の PC 測定 —
-      `../luo/docs/spike-ceiling.md` の kernels（sprite_update / spawn_churn /
-      particles）を手書き C で実測し、aot-slot vs native 比を先に取る。
-      実機測定は Playdate SDK / toolchain 導入後に追補
-- [ ] **T213** (P1): LUA_32BITS ビルド整備（tcs 側）— CMake で 32bit 変種を
-      選択ビルド可能に。spike（T212）と M4（T216）の共有基盤
-
 ### Phase 1 — M1: 挙動不変の内部再編 ✓ (T214a-c 完、done.md 参照)
 
-- [ ] **T224** (P2): legacy visitor の縮退 — fallback に残る構文
-      （method group 参照、混在 tuple 分解、lock、using 宣言、
-      非リテラル alignment、TCS 診断構文）の IL 化 or 診断化を進め、
-      fallback を診断 method のみに絞ったうえで legacy 削除を判断。
-      class 骨格 / field initializer 式の IL 化（program 構造の IL 化、
-      M2 で luo 入力契約を決める際に形を確定）もここ
-- [ ] **T225** (P2): IIFE の statement 化（examples 決定 2）— IL 上の
-      出力改善。M1 の挙動不変契約から切り離して実施
+- [x] T224 完 (2026-07-18): IlExport 契約完備、fallback 構文の整理
+      (static method group IL 化 / instance method group・定数式 alignment
+      診断化 / lock・using 等は既存診断)。legacy visitor は診断出力と
+      挙動不変の保険として恒久保持
 
-### Phase 2 — 契約の確立（luo が独立実装できる状態を作る）
 
-- [ ] **T216** (P1): M4 数値モデル移行 — i32/f32、LUA_32BITS 実行へ切替。
-      differential の .NET 側も int/float 比較へ。全ゲートが 32bit ビルドで green。
-      **T218（IL→C）の digest baseline より前に完了させる**
-- [ ] **T215** (P1): digest harness — spike と同じ 3 kernel を TinyC# で記述し
-      （particles は struct 前提のため M5 までは class 版）、f32 量子化値の
-      FNV digest を run-tests ゲート化。2 backend 一致テストの正本になる。
-      baseline は 32bit ビルド（T216 後）で記録
-- [ ] **T217** (P1): M2 IL 仕様の文書化 + metadata 出力。
-      合格基準: luo 側が LuaEmitter を読まずに IL 文書だけで実装着手できる
+### Phase 3 — 価値の刈り取り
 
-### Phase 3 — 価値の刈り取り（T218 と T219 は並行可）
+- [x] T218 完 (2026-07-18): M3 IL→C backend (tcs2c)。継承 / Dict / closure /
+      ctor 連鎖 / 静的 link (--lib) まで全マイルストーン受入済み
+      (digest 3/3 + 全サンプル stdout 一致)。未対応構文は明示エラー方針で、
+      対応面の拡張は実利用の需要駆動 (done.md 第一〜第八参照)
+- T219b 完 (done.md 参照): struct / record struct の値セマンティクス
+  対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
+- [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で
+      「cold reload 安全弁止まり」を却下し、il-design §6 の CLOS 流 eager
+      migration を実装対象とする。検証面は同一 VM 内で 2 版を transpile して
+      reload するセマンティックテストで立てる (lub 側導線は待たない)。段階:
+      - [x] (a) layout hash の struct 推移展開 (IlExport — struct 内部変更が
+            owner class の hash へ伝播。T219b の struct 型 field 解禁に先行)
+      - [x] (b) reload runtime: weak registry + metadata diff 適用
+            (added=initializer / discarded=破棄 / retained 保持、in-place で
+            identity 維持)、OnReload フック、reload は frame 境界
+      - [x] (c) struct 値の再直列化 migration (owner walk 経由、il-design §6)
+      - 残: 実導線 (ファイル監視 → EmitReloadChunk → 実行中 VM へ適用) は
+        実利用トラックで接続。List/Dict 内 struct 値の再直列化と record class
+        の migration は需要待ち。record struct の IlExport (layout hash /
+        migration) も未対応 — 需要待ち
 
-- [ ] **T218** (P1, luo 側): M3 IL→C backend。object model は T212 の
-      合否解釈に従う。完了条件: digest harness で 2 backend 一致
-- [ ] **T219** (P1): M5 struct / record struct のサブセット追加 —
-      Lua 側表現（table of tables vs userdata 連続バッファ）は T212 の
-      particles 実測で決定。TCS1001 解除、値意味論の semantic テスト、
-      digest harness へ particles struct 版を追加
-- [ ] **T220** (P2): migration metadata（il-design.md §6）の実装 —
-      仕様は T217 で定義済み。実装は dev ホットリロードの需要と同期して着手
+---
+
+## Conformance / fuzz トラック（spec-conformance-design.md C4 の継続拡張）
+
+方針 (ユーザー決定 2026-08-07): C# compat の differential fuzz を先に育てる。
+hot reload の fuzz は compat 文法の拡張が一巡してから独立に起こす。
+
+- T233 / T234 完 (done.md 参照)。生成文法の現状は FuzzGenerator の
+  doc comment が正本
+- T235 完 (done.md 参照): hot reload fuzz。v1/v2 ペア生成 + 不変量
+  オラクル、run-fuzz.sh / run-tests smoke に常設。拡張候補 (継承 reload /
+  record class migration の fuzz) は対象機能の実装が入ってから
 
 ---
 

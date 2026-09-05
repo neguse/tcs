@@ -5,15 +5,15 @@
 > Date: 2026-07-18
 >
 > Scope: `Transpiler` core の内部再編と IL 仕様。IL→C release backend の実装先は
-> `../luo`。`../lub` は読み取り専用の文脈。決定の経緯と性能 spike は
-> `../luo/docs/spike-ceiling.md` を参照。
+> `tcs2c/`（旧 `../luo` から 2026-07-18 に取り込み）。`../lub` は読み取り専用の
+> 文脈。性能前提と実測は `perf/README.md` を参照。
 
 ## 1. 結論
 
 tcs 内部を「syntax 走査 → IL → Lua 出力」に再編し、**IL を意味論の正本**にする。
 
 - Lua と C は IL の対称な 2 backend。IL→Lua が dev 実行（現行出力の後継、挙動互換）、
-  IL→C が release AOT（`../luo` の新しい役割。静的 link / dll / wasm）
+  IL→C が release AOT（`tcs2c/`。静的 link / dll / wasm）
 - IL の意味論の核は C# 形: i32/f32、値型/参照型の区別、0-based 配列、C# の除算規則
 - lowering は 2 モード: dev-lowering（layout 間接参照つき、データ移行可能）と
   release-lowering（layout 凍結）
@@ -38,7 +38,7 @@ tcs 内部を「syntax 走査 → IL → Lua 出力」に再編し、**IL を意
 | 値型 (struct) | 代入=コピー、配列=連続 | なし（table は参照） | TCS1001 未対応 |
 | 配列 index | 0-based | 1-based | 生成コードで +1 |
 | 整数除算/剰余 | 切り捨て（符号は被除数） | floor | 生成コードで idiv/irem 補正済み |
-| 数値型 | int/float/double/long 区別 | integer/number | double 前提 |
+| 数値型 | int/float/double/long 区別 | integer/number | i32/f32 に統一済み (M4)、double/long は診断 (T226) |
 | 連続メモリ | `float[]`, struct 配列 | boxed TValue 列 | なし |
 | 型 test (`is`) と継承 | 派生インスタンスも真 | metatable 完全一致比較 | バグ (T222) |
 | ループ変数の capture | `for` 変数は全反復で共有 | numeric for は反復ごと | バグ (T221) |
@@ -56,7 +56,7 @@ C# source
   → syntax tree + SemanticModel 走査（現行資産を維持。IOperation 化はしない）
   → TinyC# IL ── 意味論の正本
        ├→ IL→Lua backend（dev。挙動は現行出力互換）
-       └→ IL→C backend（release。../luo。静的 link / dll / wasm）
+       └→ IL→C backend（release。tcs2c/。静的 link / dll / wasm）
 ```
 
 型検査と診断（TCS1001-1003、analyzer 共有ルール）は現行どおり Roslyn 層。
@@ -114,7 +114,7 @@ CLOS（CLHS 4.3.6 Redefining Classes）の語彙を踏襲する。
 |---|---|---|
 | M1 | Transpiler 内部を syntax 走査→IL→Lua に再編 | 挙動不変。既存テスト全通過。source module 単位 emit（増分コンパイル設計）と両立 |
 | M2 | IL 仕様の文書化と metadata 出力 | IL→C backend の入力契約が固まる |
-| M3 | IL→C backend（`../luo` 側で実装） | 固定 workload で 2 backend の digest 一致 |
+| M3 | IL→C backend（`tcs2c/` で実装） | 固定 workload で 2 backend の digest 一致 |
 | M4 | i32/f32 数値モデル移行（`LUA_32BITS`） | 全テストが 32bit ビルドで通過 |
 | M5 | struct / record struct のサブセット追加 | TCS1001 解除、値意味論の semantic テスト |
 
@@ -135,9 +135,9 @@ IL の具体形（in-memory 正規形 + 診断用テキスト表記、シリア�
 残る未決（il-spec 付録 C と同期）:
 
 - Lua backend での struct 配列表現: table of tables か userdata 連続バッファか
-  （`../luo/docs/spike-ceiling.md` の `particles` kernel の実測で判断）
-- release backend の class 表現（Lua table 式か native struct 式か。spike の
-  合否解釈に従う）
+  （`perf/` の `particles` kernel の実測で判断）
+- release backend の class 表現 — perf 実測 (2026-07-18) で native 側に決着
+  済み (perf/README.md)
 - mixed-mode の module 境界 ABI（間接参照の具体形）
 - Nullable\<T\> の位置づけ / 合意 PRNG
   （interface への type test は診断化で決着 — il-spec §2、実装は T223）
@@ -145,8 +145,9 @@ IL の具体形（in-memory 正規形 + 診断用テキスト表記、シリア�
 ## 9. 関連文書
 
 - `doc/il-spec.md` — IL 意味論仕様 v0（意味論の正本）
+- `doc/il-reference.md` — ノードカタログと IlExport API（IL→C backend の入力契約）
 - `doc/il-lowering-examples.md` — 紙の演習（抽象度の決定根拠）
-- `../luo/docs/spike-ceiling.md` — 方向づけ決定リストの暫定正本、性能上界 spike
+- `perf/README.md` — 性能前提 (KPI floor) と実測ハーネス
 - `objective.md` — tcs の目的とデュアルランタイム戦略
 - `doc/incremental-module-compilation-design.md` — browser-wasm 増分コンパイル
   （M1 が保つべき既存アーキテクチャ）

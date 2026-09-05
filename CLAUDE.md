@@ -17,6 +17,8 @@ tcs/
 ├── doc/
 │   ├── tasks.md           # タスクリスト
 │   └── done.md            # 完了ログ
+├── tcs2c/                 # IL→C release backend (.NET、digest で Lua backend と一致検証)
+├── perf/                  # 性能実測ハーネス (kernel 契約 CONTRACT.md + 変種実装 + 実測記録)
 ├── Transpiler/            # トランスパイラ本体 (.NET)
 │   ├── Transpiler.csproj
 │   ├── Program.cs         # CLI エントリポイント
@@ -43,7 +45,9 @@ tcs/
 
 ### 前提
 
-- .NET 10 SDK / C# 14
+- .NET 10 SDK / C# 14 — SDK 版は `global.json` で固定し、Dependabot (`dotnet-sdk`) が
+  bump PR を出す。マシンへの導入は `dotnet-install.sh --jsonfile global.json` の
+  per-user install (distro package と混ぜると workload manifest が更新で消えて壊れる)
 - CMake 3.12+ / C compiler (Lua 5.5 build)
 - Lua 5.5 (`deps/lua/lua` or `deps/lua/lua.exe`)
 
@@ -106,7 +110,19 @@ support-matrix / README / design doc、歴史は done.md と git log。
 - テスト + 実装 + ドキュメント更新をセットで
 - コミットメッセージ: `feat: T{番号} {概要}`（例: `feat: T3 if/else文のトランスパイル`）
 
+## 進め方（このリポジトリ固有）
+
+- 実装は Claude (Fable) が直接行う。Codex は反証限定の second opinion レビューに
+  限定し、実装委任はユーザーが明示的に求めた場合のみ
+
 ## コード規約
+
+### 命名
+
+- 「spike」という名称は使わない（識別子・ファイル名・新規ドキュメントとも）。
+  旧 spike 由来の実体はすべて `perf` 系の名前を使う
+- tcs / tcs2c はプロジェクト全体のリブランディング（時期・名称未定）を控えた
+  暫定名。新規の命名は tcs 系に揃える
 
 ### C# (.NET 10 / C# 14)
 
@@ -136,7 +152,7 @@ support-matrix / README / design doc、歴史は done.md と git log。
 | C#                  | Lua 5.5                            |
 |---------------------|------------------------------------|
 | class               | table + metatable                  |
-| struct / record struct | TCS1001 未対応診断（class / record class で代替） |
+| struct / record struct | plain table + copy 地点で型別 `__copy`（instance member は静的自由関数、readonly は copy 省略。static member / operator / override は TCS1001） |
 | enum                | integer 定数テーブル                |
 | method              | function(self, ...)                |
 | static method       | function(...)                      |
@@ -155,7 +171,7 @@ support-matrix / README / design doc、歴史は done.md と git log。
 - `IOperation` (Bound Tree) を走査してLuaコード生成
 - 型情報は Roslyn から取得、自前の型システムは持たない
 - Roslyn Analyzer / transpiler warning / `tcs check` は `Shared/TinyCsComplianceFacts.cs` の同じ準拠ルールを共有する
-- `TCS1001`: 未対応構文 (`struct`, `record struct`, `try`, `throw`, local function, list pattern など)
+- `TCS1001`: 未対応構文 (`try`, `throw`, local function, list pattern, struct の static member など)
 - `TCS1002`: 未対応 BCL API / core library allowlist 外 member (`Math.Cbrt`, `List.Reverse`, `Enumerable.Single` など)
 - `TCS1003`: Lua table で表現できない collection null 保存
 
@@ -211,6 +227,7 @@ Clang AST → TypeRegistry → ModuleSpec（既存IR）
 ## 参考リポジトリ（読み取り専用）
 
 - `../lub` — Haxe 代替検証 (T125-T127) の対象。C/C++ runtime + Lua 5.5 + Haxe script 層。readonly で、lub 側に変更が必要な場合は feature request を出す
+- `../luo` — 旧 AOT 方向のアーカイブ。IL→C backend (tcs2c) と性能ハーネス (perf) は 2026-07-18 に tcs へ取り込み済みで、以後 luo 側は変更しない
 - `../lub3d` — 参考実装。直接対応先とは限らない
 - `../lubs` — Lua linter（開発ワークフローの参考）
 
@@ -235,6 +252,6 @@ Clang AST → TypeRegistry → ModuleSpec（既存IR）
 
 - dotnet と Lua の数値精度差異（double vs Lua number）
 - 文字列: C# は UTF-16、Lua は バイト列（UTF-8前提）
-- struct / record struct: 現時点は TCS1001 未対応診断。値セマンティクス需要が出るまでは class / record class で代替
+- struct / record struct: 値セマンティクス対応済み (T219b)。static member / operator / override (ToString 等) はサブセット外
 - null vs nil: C# の null は Lua の nil にマップ
 - 型消去: ジェネリクスはコンパイル時のみ、Lua出力には型情報なし
