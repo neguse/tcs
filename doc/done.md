@@ -1601,3 +1601,11 @@
 - 読むのは reload chunk だけ (出荷経路に読み手なし) なので、`HotReload.EmitReloadChunk` の v2 出力は常に登録付き。reload 後に生成した instance も次の reload で移行される。module registry の host 所有 guard は無害なので据え置き
 - 検証: InstanceRegistryTests 4 本 (既定出力に registry なし + 実行、opt-in で class/record 登録、CLI `--hot-reload`、reload 後生成物の再 reload 移行)。HotReloadTests / FuzzReloadTests は v1 を instanceRegistry 付きで出力するよう変更し全 green
 - 判断: issue の「リロード時だけ列挙する方式」(registry を持たず reload 時に到達可能な object graph を walk する) は、global / upvalue / closure からの到達経路を網羅する必要があり dev 機構の複雑さが跳ねる。まず opt-in 化で出荷コストをゼロにし、列挙方式は実導線 (T220 残) の需要で判断する
+
+### T243: コンストラクタの生成コードで table を一度に作る (issue #10) ✓ (2026-09-25)
+- class の `new` は `setmetatable({}, C)` の後に既定値代入 → 本文代入を 1 key ずつ出していた (hash 部の再確保が key 数に応じて起き、既定値は直後に上書き)。field を宣言順に並べた table constructor で一度に作る: `local self = setmetatable({x = x, y = y, z = z}, V)`。record class の `new`、struct の `new` / `__copy` / `ctor`、record struct の positional `ctor` も同じ形 (`return {x = 0, y = 0}` / `return {x = s.x, ...}`)
+- 本文先頭の連続する「`self.f = 純粋な値`」(literal / self 以外の local・parameter / それらの struct copy) を table へ畳み込み、畳んだ field の既定値代入は出さない。畳み込み規則 (InstanceTable): 捨ててよいのは副作用のない既定値・定数だけ (副作用のある initializer を本文が上書きしても initializer は評価する)。副作用のある値を既存 entry の位置へ置き換えるのは後続 entry がすべて純粋な時だけで、評価順を保てない値は table 生成直後の代入文へ spill し、以後も spill して順序を保つ。self を読む本文 (`Z = X + Y`) は畳まない
+- 派生 class は base の `new` が作った table へ足すため table constructor は使わず、畳み込み後の field 列を代入文で出す (nil は key を作らないので省く)
+- ctor 本文は IL を構築してから先頭を畳み、残りを emit する (IL 化できなければ従来どおり legacy)。LuaEmitter.cs が 800 行に近づいたため生成系を LuaEmitter.Construct.cs へ分離 (733 → 645 行)
+- 実測 (lua 5.5 64bit、2M 回): 3 field class の生成 ~400ns → ~190ns、2 field struct の copy ~240ns → ~138ns
+- 検証: ConstructorTableTests 10 本 (table 一括生成の形、副作用 initializer の宣言順 → 本文順、上書きされる副作用 initializer の評価、self を読む本文、参照型 field / collection initializer、派生 class、式本体 / optional parameter ctor、struct ctor と copy の独立性、ネスト struct の deep copy、record struct の positional + initializer) を TCS_DIFFERENTIAL (dotnet 実行との出力比較) 付きで green

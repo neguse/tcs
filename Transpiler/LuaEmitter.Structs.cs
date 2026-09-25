@@ -51,10 +51,13 @@ public partial class LuaEmitter
             _currentType?.DefinitionKeys.Add("ctor");
             AppendLine($"function {name}.ctor({string.Join(", ", paramNames.Select(L))})");
             _indent++;
-            AppendLine($"local self = {name}.new()");
+            var table = ZeroStructTable(symbol);
             foreach (var p in paramNames)
-                AppendLine($"self.{N(p)} = {L(p)}");
-            EmitMemberInitializers(model, rec.Members);
+                table.Set(N(p), L(p), pure: true);
+            SetMemberInitializers(model, table, rec.Members);
+            AppendLine($"local self = {table.Render()}");
+            foreach (var (field, value) in table.Spilled)
+                AppendLine($"self.{field} = {value}");
             AppendLine("return self");
             _indent--;
             AppendLine("end");
@@ -87,14 +90,19 @@ public partial class LuaEmitter
         _currentType?.DefinitionKeys.Add("new");
         AppendLine($"function {name}.new()");
         _indent++;
-        AppendLine("local self = {}");
-        foreach (var (memberName, memberType) in ValueMembers(symbol))
-            AppendLine($"self.{memberName} = " +
-                $"{GetDefaultValueForType(memberType)}");
-        AppendLine("return self");
+        AppendLine($"return {ZeroStructTable(symbol).Render()}");
         _indent--;
         AppendLine("end");
         AppendLine();
+    }
+
+    // 全 member を zero 値で並べた生成 table (struct ctor の出発点)
+    private static InstanceTable ZeroStructTable(INamedTypeSymbol? symbol)
+    {
+        var table = new InstanceTable();
+        foreach (var (memberName, memberType) in ValueMembers(symbol))
+            table.Set(memberName, GetDefaultValueForType(memberType), pure: true);
+        return table;
     }
 
     // instance member の emit。override (ToString 等) は診断済み (Shared facts)
@@ -126,22 +134,27 @@ public partial class LuaEmitter
     }
 
     // field / property initializer は明示 ctor 実行時のみ走る (C# 11 意味論)
-    private void EmitMemberInitializers(SemanticModel model,
+    private void SetMemberInitializers(SemanticModel model, InstanceTable table,
         IEnumerable<MemberDeclarationSyntax> members)
     {
         foreach (var member in members)
         {
             switch (member)
             {
-                case FieldDeclarationSyntax field:
+                case FieldDeclarationSyntax field
+                    when !field.Modifiers.Any(SyntaxKind.StaticKeyword)
+                        && !field.Modifiers.Any(SyntaxKind.ConstKeyword):
                     foreach (var v in field.Declaration.Variables)
                         if (v.Initializer != null)
-                            AppendLine($"self.{N(v.Identifier.ValueText)} = " +
-                                $"{VisitExpression(model, v.Initializer.Value)}");
+                            table.Set(N(v.Identifier.ValueText),
+                                VisitExpression(model, v.Initializer.Value),
+                                model.GetConstantValue(v.Initializer.Value).HasValue);
                     break;
-                case PropertyDeclarationSyntax { Initializer: not null } prop:
-                    AppendLine($"self.{N(prop.Identifier.ValueText)} = " +
-                        $"{VisitExpression(model, prop.Initializer.Value)}");
+                case PropertyDeclarationSyntax { Initializer: not null } prop
+                    when !prop.Modifiers.Any(SyntaxKind.StaticKeyword):
+                    table.Set(N(prop.Identifier.ValueText),
+                        VisitExpression(model, prop.Initializer.Value),
+                        model.GetConstantValue(prop.Initializer.Value).HasValue);
                     break;
             }
         }
@@ -160,9 +173,20 @@ public partial class LuaEmitter
         AppendLine($"function {name}.ctor({string.Join(", ", ctorParams)})");
         _indent++;
         EmitParameterDefaults(model, ctor.ParameterList);
-        AppendLine($"local self = {name}.new()");
-        EmitMemberInitializers(model, structDecl.Members);
-        if (ctor.Body != null && !TryEmitStatsViaIl(model, ctor.Body.Statements))
+        var table = ZeroStructTable(model.GetDeclaredSymbol(structDecl));
+        SetMemberInitializers(model, table, structDecl.Members);
+        var body = BuildCtorBody(model, ctor);
+        var rest = body == null ? null : FoldCtorPrefix(table, body);
+        AppendLine($"local self = {table.Render()}");
+        foreach (var (field, value) in table.Spilled)
+            AppendLine($"self.{field} = {value}");
+        if (rest != null)
+        {
+            if (ctor is { Body: not null } or { ExpressionBody: not null })
+                IlBodies++;
+            EmitIlBlock(rest);
+        }
+        else if (ctor.Body != null)
         {
             LegacyBodies++;
             WarnIfStructInLegacyBody(model, ctor.Body);
@@ -182,16 +206,15 @@ public partial class LuaEmitter
         _currentType?.DefinitionKeys.Add("__copy");
         AppendLine($"function {name}.__copy(s)");
         _indent++;
-        AppendLine("local c = {}");
-        foreach (var (memberName, memberType) in ValueMembers(symbol))
+        var fields = ValueMembers(symbol).Select(m =>
         {
-            var deep = IsUserStruct(memberType)
-                && memberType is not INamedTypeSymbol { IsReadOnly: true };
-            AppendLine(deep
-                ? $"c.{memberName} = {memberType.Name}.__copy(s.{memberName})"
-                : $"c.{memberName} = s.{memberName}");
-        }
-        AppendLine("return c");
+            var deep = IsUserStruct(m.Type)
+                && m.Type is not INamedTypeSymbol { IsReadOnly: true };
+            return deep
+                ? $"{m.Name} = {m.Type.Name}.__copy(s.{m.Name})"
+                : $"{m.Name} = s.{m.Name}";
+        });
+        AppendLine($"return {{{string.Join(", ", fields)}}}");
         _indent--;
         AppendLine("end");
         AppendLine();

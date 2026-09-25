@@ -326,84 +326,6 @@ public partial class LuaEmitter
         prop.AccessorList != null
         && prop.AccessorList.Accessors.All(a => a.Body == null && a.ExpressionBody == null);
 
-    private void EmitConstructor(SemanticModel model, string className,
-        ConstructorDeclarationSyntax? ctor,
-        List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)> fieldInits,
-        ITypeSymbol? baseClass)
-    {
-        var ctorParams = ctor?.ParameterList.Parameters
-            .Select(p => L(p.Identifier.ValueText)).ToList() ?? [];
-
-        AppendLine($"function {className}.new({string.Join(", ", ctorParams)})");
-        _indent++;
-        if (ctor != null)
-            EmitParameterDefaults(model, ctor.ParameterList);
-
-        if (ctor?.Initializer != null
-            && ctor.Initializer.IsKind(SyntaxKind.BaseConstructorInitializer))
-        {
-            var baseArgs = ctor.Initializer.ArgumentList.Arguments
-                .Select(a => VisitExpression(model, a.Expression));
-            var baseType = model.GetDeclaredSymbol(ctor)?.ContainingType?.BaseType;
-            if (baseType != null && baseType.SpecialType != SpecialType.System_Object)
-            {
-                AppendLine($"local self = {baseType.Name}.new({string.Join(", ", baseArgs)})");
-                AppendLine($"setmetatable(self, {className})");
-            }
-            else
-            {
-                AppendLine($"local self = setmetatable({{}}, {className})");
-            }
-        }
-        else if (baseClass != null)
-        {
-            // initializer なしでも C# は暗黙に base() を呼ぶ。基底の field
-            // initializer / constructor body を実行してから派生へ差し替える
-            // (this(...) initializer は TCS1001 済みで、ここでは base() 扱い)
-            AppendLine($"local self = {baseClass.Name}.new()");
-            AppendLine($"setmetatable(self, {className})");
-        }
-        else
-        {
-            AppendLine($"local self = setmetatable({{}}, {className})");
-        }
-        // reload migration 用の登録。base ctor 経由でも最派生 class が勝つ
-        // (同一 key への上書き)
-        if (EmitInstanceRegistry)
-            AppendLine($"__tcs_instances[self] = {className}");
-
-        foreach (var (fieldName, init, type) in fieldInits)
-        {
-            if (init != null)
-                AppendLine($"self.{fieldName} = {VisitExpression(model, init)}");
-            else
-                AppendLine($"self.{fieldName} = {GetDefaultValueForType(type!)}");
-        }
-
-        if (ctor?.Body != null)
-        {
-            if (!TryEmitStatsViaIl(model, ctor.Body.Statements))
-            {
-                LegacyBodies++;
-                foreach (var stmt in ctor.Body.Statements)
-                    VisitStatement(model, stmt);
-            }
-        }
-        else if (ctor?.ExpressionBody != null)
-        {
-            if (!TryEmitExprStatViaIl(model, ctor.ExpressionBody.Expression))
-            {
-                LegacyBodies++;
-                AppendLine(VisitExpression(model, ctor.ExpressionBody.Expression));
-            }
-        }
-
-        AppendLine("return self");
-        _indent--;
-        AppendLine("end");
-        AppendLine();
-    }
-
     private void VisitCustomProperty(SemanticModel model, string className,
         PropertyDeclarationSyntax prop, bool explicitSelf = false)
     {
@@ -494,17 +416,7 @@ public partial class LuaEmitter
         info.InstanceShape = string.Join("\n", fieldNames);
         info.DefinitionKeys.Add("new");
 
-        AppendLine($"function {name}.new({string.Join(", ", paramNames)})");
-        _indent++;
-        AppendLine($"local self = setmetatable({{}}, {name})");
-        if (EmitInstanceRegistry)
-            AppendLine($"__tcs_instances[self] = {name}");
-        for (var i = 0; i < paramNames.Count; i++)
-            AppendLine($"self.{fieldNames[i]} = {paramNames[i]}");
-        AppendLine("return self");
-        _indent--;
-        AppendLine("end");
-        AppendLine();
+        EmitRecordNew(name, paramNames, fieldNames);
 
         // __eq: value-based equality for record types
         if (paramNames.Count > 0)
