@@ -49,8 +49,18 @@ public sealed record IlUn(IlUnOp Op, IlExpr E) : IlExpr;
 
 public sealed record IlParen(IlExpr E) : IlExpr;
 
-/// <summary>条件式。現行出力互換の IIFE で render される。</summary>
-public sealed record IlTernary(IlExpr Cond, IlExpr T, IlExpr F) : IlExpr;
+/// <summary>条件式。Lua backend は文位置 (return / local 初期化 / local への
+/// 代入) では if 文へ statement 化し、式位置では分岐値が nil / false に
+/// なり得ない側があれば and/or、無ければ IIFE で render する。</summary>
+public sealed record IlTernary(IlExpr Cond, IlExpr T, IlExpr F) : IlExpr
+{
+    /// <summary>T が nil / false になり得ない (数値・enum・struct・生成式・
+    /// 非 null literal・文字列連結等)。builder が静的型から決める</summary>
+    public bool TNeverFalsy { get; init; }
+
+    /// <summary>F が nil / false になり得ない</summary>
+    public bool FNeverFalsy { get; init; }
+}
 
 /// <summary>解決済み callee 名での呼び出し: Callee(args)。
 /// callee は "print" / "Math.Min" / "__tcs_idiv" / "table.insert" 等。</summary>
@@ -72,9 +82,18 @@ public sealed record IlNewObj(string TypeName, ImmutableArray<IlExpr> Args) : Il
 public sealed record IlTable(ImmutableArray<IlTableEntry> Entries,
     string? ElementType = null, string? KeyType = null) : IlExpr;
 
-/// <summary>固定長配列の生成: new T[n] (il-spec §11)。dev backend は
-/// 空 table (要素は使用時に埋まる)、release backend は連続バッファ確保。</summary>
-public sealed record IlNewArray(string ElementType, IlExpr Length) : IlExpr;
+/// <summary>固定長配列の生成: new T[n] (il-spec §11: default 値で初期化)。
+/// Lua backend は table.create で確保して Fill (値型の default) か
+/// FreshStruct (要素ごとに新しい zero struct) で埋める。release backend は
+/// 連続バッファ確保 (zero 埋め)。</summary>
+public sealed record IlNewArray(string ElementType, IlExpr Length) : IlExpr
+{
+    /// <summary>要素の default 値 (数値 / bool / enum)。null は nil 要素</summary>
+    public IlLit? Fill { get; init; }
+
+    /// <summary>要素型が struct なら型名 (要素ごとに {Name}.new() で埋める)</summary>
+    public string? FreshStruct { get; init; }
+}
 
 public readonly record struct IlTableEntry(
     IlExpr? Key, IlExpr Value, string? NameKey = null);

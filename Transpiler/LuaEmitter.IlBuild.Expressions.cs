@@ -83,7 +83,12 @@ public partial class LuaEmitter
                 var t = BuildExpr(model, ternary.WhenTrue);
                 var f = BuildExpr(model, ternary.WhenFalse);
                 return cond == null || t == null || f == null
-                    ? null : new IlTernary(cond, t, f);
+                    ? null
+                    : new IlTernary(cond, t, f)
+                    {
+                        TNeverFalsy = IsNeverFalsy(model, ternary.WhenTrue),
+                        FNeverFalsy = IsNeverFalsy(model, ternary.WhenFalse),
+                    };
             }
             case InterpolatedStringExpressionSyntax interp:
                 return BuildInterpolatedString(model, interp);
@@ -124,8 +129,9 @@ public partial class LuaEmitter
             {
                 if (arr.Initializer == null)
                 {
-                    var elemType = (model.GetTypeInfo(arr).Type
-                        as IArrayTypeSymbol)?.ElementType.ToDisplayString();
+                    var elemSym = (model.GetTypeInfo(arr).Type
+                        as IArrayTypeSymbol)?.ElementType;
+                    var elemType = elemSym?.ToDisplayString();
                     var sizeExpr = arr.Type.RankSpecifiers.Count == 1
                         && arr.Type.RankSpecifiers[0].Sizes.Count == 1
                         && arr.Type.RankSpecifiers[0].Sizes[0]
@@ -133,7 +139,12 @@ public partial class LuaEmitter
                         ? arr.Type.RankSpecifiers[0].Sizes[0] : null;
                     if (elemType != null && sizeExpr != null
                         && BuildExpr(model, sizeExpr) is { } len)
-                        return new IlNewArray(elemType, len);
+                        return new IlNewArray(elemType, len)
+                        {
+                            Fill = ArrayFill(elemSym),
+                            FreshStruct = IsUserStruct(elemSym)
+                                ? elemSym!.Name : null,
+                        };
                     return new IlTable([], elemType);
                 }
                 return BuildArrayItems(model, arr.Initializer,
@@ -160,6 +171,13 @@ public partial class LuaEmitter
                 return null;
         }
     }
+
+    // new T[n] の要素 default (nil 以外の値型のみ。struct は FreshStruct)
+    private static IlLit? ArrayFill(ITypeSymbol? elementType) =>
+        IsUserStruct(elementType)
+            || GetDefaultValueForType(elementType) is "nil"
+            ? null
+            : new IlLit(GetDefaultValueForType(elementType));
 
     private IlExpr? BuildArrayItems(SemanticModel model,
         InitializerExpressionSyntax? initializer, string? elementType = null)

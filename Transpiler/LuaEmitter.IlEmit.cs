@@ -30,7 +30,7 @@ public partial class LuaEmitter
                 AppendLine($"{RenderIl(assign.Target)} = {RenderIl(assign.Value)}");
                 break;
             case IlCallStat call:
-                AppendLine(RenderIl(call.Call));
+                AppendLine(RenderIlCallStat(call));
                 break;
             case IlReturn ret:
                 AppendLine(ret.Value != null
@@ -144,6 +144,75 @@ public partial class LuaEmitter
         }
     }
 
+    // List.Add (IL は table.insert(t, v)) の文位置は `t[#t + 1] = v` で出し、
+    // global 参照と C 関数呼び出しを省く (issue #12)。List は null を保存
+    // しない (TCS1003) ので #t は要素数と一致する。`#t + 1` は v より先に
+    // 評価されるため、v が t を変え得ない (呼び出しを含まない) 式で、t を
+    // 2 回評価しても同じ (副作用のない place) 時だけ使う
+    private string RenderIlCallStat(IlCallStat call)
+    {
+        if (call.Call is IlCall
+            {
+                Callee: "table.insert", Args: [var list, var value],
+            }
+            && IsPureIlPlace(list) && IsCallFreeIl(value))
+        {
+            var target = RenderIl(list);
+            return $"{target}[#{target} + 1] = {RenderIl(value)}";
+        }
+        return RenderIl(call.Call);
+    }
+
+    private static bool IsPureIlPlace(IlExpr e) => e switch
+    {
+        IlVar => true,
+        IlField f => IsPureIlPlace(f.Recv),
+        IlIndex ix => IsPureIlPlace(ix.Recv) && IsCallFreeIl(ix.Idx),
+        IlParen p => IsPureIlPlace(p.E),
+        _ => false,
+    };
+
+    // 呼び出し (= 任意の副作用) を含まない式。struct copy / 型判定 / closure
+    // 生成は runtime helper の呼び出しだが副作用を持たない
+    private static bool IsCallFreeIl(IlExpr e) => e switch
+    {
+        IlLit or IlVar or IlClosure => true,
+        IlField f => IsCallFreeIl(f.Recv),
+        IlIndex ix => IsCallFreeIl(ix.Recv) && IsCallFreeIl(ix.Idx),
+        IlLen len => IsCallFreeIl(len.E),
+        IlBin bin => IsCallFreeIl(bin.L) && IsCallFreeIl(bin.R),
+        IlUn un => IsCallFreeIl(un.E),
+        IlParen p => IsCallFreeIl(p.E),
+        IlStructCopy c => IsCallFreeIl(c.E),
+        IlIsType t => IsCallFreeIl(t.E),
+        IlTable t => t.Entries.All(en =>
+            (en.Key == null || IsCallFreeIl(en.Key)) && IsCallFreeIl(en.Value)),
+        _ => false,
+    };
+
+    // TinySystem の Math facade のうち Lua 標準関数の素通しでしかないものは
+    // math.* を直接呼ぶ (facade の global 参照と 1 段の呼び出しを省く)。
+    // Round / Sign / Clamp は C# 意味論の実装を持つので facade のまま
+    private static string? DirectMathCall(string callee, string[] args) =>
+        callee switch
+        {
+            "Math.Min" or "Math.Max" or "Math.Abs" or "Math.Floor"
+                or "Math.Ceil" or "Math.Sqrt" or "Math.Sin" or "Math.Cos"
+                or "Math.Tan" or "Math.Exp" or "Math.Log" =>
+                $"math.{callee[5..].ToLowerInvariant()}({string.Join(", ", args)})",
+            "Math.Atan2" => $"math.atan({string.Join(", ", args)})",
+            "Math.Pow" when args.Length == 2 => $"({args[0]} ^ {args[1]})",
+            _ => null,
+        };
+
+    // new T[n]: table.create で array 部を確保し、値型は default で埋める
+    // (il-spec §11)。参照型要素は nil (= 未設定) のまま
+    private static string RenderNewArray(string length, string? fill,
+        string? freshStruct) =>
+        freshStruct != null ? $"__tcs_newarray({length}, nil, {freshStruct}.new)"
+        : fill != null ? $"__tcs_newarray({length}, {fill})"
+        : $"table.create({length})";
+
     private string RenderIlMultiAssign(IlMultiAssign multi) =>
         $"{(multi.Declare ? "local " : "")}" +
         $"{string.Join(", ", multi.Targets.Select(RenderIl))} = " +
@@ -163,7 +232,7 @@ public partial class LuaEmitter
         IlLocal local => $"local {local.Name}",
         IlAssign assign => $"{RenderIl(assign.Target)} = {RenderIl(assign.Value)}",
         IlMultiAssign multi => RenderIlMultiAssign(multi),
-        IlCallStat call => RenderIl(call.Call),
+        IlCallStat call => RenderIlCallStat(call),
         IlReturn { Value: not null } ret => $"return {RenderIl(ret.Value)}",
         IlReturn => "return",
         IlIf ifStat => RenderIlIfInline(ifStat),
@@ -298,11 +367,10 @@ public partial class LuaEmitter
         IlUn { Op: IlUnOp.Not } un => $"not {RenderIl(un.E)}",
         IlUn un => $"~{RenderIl(un.E)}",
         IlParen p => $"({RenderIl(p.E)})",
-        IlTernary t =>
-            $"(function() if {RenderIl(t.Cond)} then return {RenderIl(t.T)} " +
-            $"else return {RenderIl(t.F)} end end)()",
-        IlCall call =>
-            $"{call.Callee}({string.Join(", ", call.Args.Select(RenderIl))})",
+        IlTernary t => RenderIlTernary(t),
+        IlCall call => DirectMathCall(call.Callee,
+                [.. call.Args.Select(RenderIl)])
+            ?? $"{call.Callee}({string.Join(", ", call.Args.Select(RenderIl))})",
         IlDynCall dyn =>
             $"{RenderIl(dyn.Callee)}({string.Join(", ", dyn.Args.Select(RenderIl))})",
         IlInvoke inv =>
@@ -310,7 +378,8 @@ public partial class LuaEmitter
         IlNewObj obj =>
             $"{obj.TypeName}.new({string.Join(", ", obj.Args.Select(RenderIl))})",
         IlTable table => RenderIlTable(table),
-        IlNewArray => "{}",  // 長さは Lua 表現に現れない (legacy 互換)
+        IlNewArray arr => RenderNewArray(RenderIl(arr.Length), arr.Fill?.LuaText,
+            arr.FreshStruct),
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
         IlStructCopy copy => $"{copy.TypeName}.__copy({RenderIl(copy.E)})",
         IlIsLuaType isLua => $"type({RenderIl(isLua.E)}) == \"{isLua.LuaType}\"",
@@ -320,6 +389,30 @@ public partial class LuaEmitter
         _ => throw new InvalidOperationException(
             $"unhandled IL expression: {expr.GetType().Name}"),
     };
+
+    // 式位置の条件式。分岐値の片方が falsy になり得なければ and/or で
+    // closure を作らずに書ける: T 側なら `c and t or f`、F 側なら
+    // `not c and f or t`。F / T が literal false なら `c and t` /
+    // `not c and f`。どれも当てはまらない (bool / nullable 参照) 時だけ IIFE
+    private string RenderIlTernary(IlTernary t)
+    {
+        string Operand(IlExpr e) =>
+            e is IlBin { Op: IlBinOp.And or IlBinOp.Or } or IlTernary
+                ? $"({RenderIl(e)})" : RenderIl(e);
+        string Not(IlExpr e) =>
+            e is IlVar or IlLit or IlParen or IlCall
+                ? $"not {RenderIl(e)}" : $"not ({RenderIl(e)})";
+        if (t.TNeverFalsy)
+            return $"({Operand(t.Cond)} and {Operand(t.T)} or {Operand(t.F)})";
+        if (t.FNeverFalsy)
+            return $"({Not(t.Cond)} and {Operand(t.F)} or {Operand(t.T)})";
+        if (t.F is IlLit { LuaText: "false" })
+            return $"({Operand(t.Cond)} and {Operand(t.T)})";
+        if (t.T is IlLit { LuaText: "false" })
+            return $"({Not(t.Cond)} and {Operand(t.F)})";
+        return $"(function() if {RenderIl(t.Cond)} then return {RenderIl(t.T)} " +
+            $"else return {RenderIl(t.F)} end end)()";
+    }
 
     private string RenderIlClosure(IlClosure closure)
     {

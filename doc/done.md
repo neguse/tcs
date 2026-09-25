@@ -1609,3 +1609,14 @@
 - ctor 本文は IL を構築してから先頭を畳み、残りを emit する (IL 化できなければ従来どおり legacy)。LuaEmitter.cs が 800 行に近づいたため生成系を LuaEmitter.Construct.cs へ分離 (733 → 645 行)
 - 実測 (lua 5.5 64bit、2M 回): 3 field class の生成 ~400ns → ~190ns、2 field struct の copy ~240ns → ~138ns
 - 検証: ConstructorTableTests 10 本 (table 一括生成の形、副作用 initializer の宣言順 → 本文順、上書きされる副作用 initializer の評価、self を読む本文、参照型 field / collection initializer、派生 class、式本体 / optional parameter ctor、struct ctor と copy の独立性、ネスト struct の deep copy、record struct の positional + initializer) を TCS_DIFFERENTIAL (dotnet 実行との出力比較) 付きで green
+
+### T244: ホットパスの生成パターン改善 — List.Add / 条件式 / new T[n] / Math (issue #12 の 1-3・4 の一部) ✓ (2026-09-25)
+- (1) `List<T>.Add` の文位置を `table.insert(t, v)` から `t[#t + 1] = v` へ (IL は `table.insert` のまま、Lua 描画だけ。tcs2c は従来どおり)。List は null を保存しない (TCS1003) ので `#t` は要素数と一致。`#t + 1` が値より先に評価されるため、receiver が副作用のない place で値が呼び出しを含まない時だけ (引数評価が同じ List へ Add する `Xs.Add(Push(1))` は table.insert のまま)
+- (2) 条件式: 式位置の IIFE (評価ごとの closure 確保) を、分岐値が nil / false になり得ない側があれば `(c and t or f)` / `(not c and f or t)` で書く。判定は builder が静的型から IlTernary に載せる (数値・enum・struct・生成式・非 null literal・文字列連結/補間)。literal false の分岐は `(c and t)` / `(not c and f)`。bool / nullable 参照同士の分岐だけ IIFE が残る。文位置 (return / local 初期化 / local への代入) は入れ子の条件式も分岐ごとに再帰展開 (else 側は elseif へ平坦化) し、`return (c ? a : b)` の括弧も剥がして if 文にする
+- (3) `new T[n]` が `{}` (長さ 0・nil) だったのを il-spec §11 どおり default 初期化: `__tcs_newarray(n, v)` (Lua 5.5 の `table.create` で確保して埋める)、struct 要素は要素ごとに別の zero 値 (`__tcs_newarray(n, nil, S.new)`)、参照型要素は `table.create(n)`。IL / legacy / module prelude (`TinySystem.newarray`) の全経路
+- (4 の一部) Math facade のうち Lua 標準関数の素通しでしかないもの (Min/Max/Abs/Floor/Ceiling/Sqrt/Sin/Cos/Tan/Exp/Log/Atan2/Pow) を `math.*` / `^` で直接出す。Round / Sign / Clamp は C# 意味論を実装しているので facade のまま
+- 付随修正: enum 型 field / static / struct member / 配列要素の default が nil になっていた (`new A().S == State.Idle` が false になる silent wrong-code)。`GetDefaultValueForType` で enum と全整数型 (byte/short/ulong 等) を 0 にした
+- 実測 (lua 5.5 64bit、ループ 1 回あたり): 式位置の条件式 ~168ns → ~91ns、List.Add ~55ns → ~27ns、`Math.Sqrt` ~65ns → ~32ns
+- IlBuild.Expressions.cs が 800 行を超えたため条件式の builder を LuaEmitter.IlBuild.Ternary.cs へ分離
+- 検証: HotPathCodegenTests 9 本 (List.Add の形と意味、Add 引数が同じ List を変える場合の順序、式位置条件式の closure 除去、bool/nullable 分岐の値、入れ子条件式の文化、選ばれた分岐だけ評価、配列 default と Length、enum/小整数 field default、Math 直呼びと facade 残置) — 旧コードで 5 本 Red。TCS_DIFFERENTIAL 付きで green
+- 残課題: 参照型要素の `new string[n]` は nil 要素のため `Length` が 0 になる (Lua sequence で null を表せない既存の制約。TCS1003 は配列生成を診断していない)

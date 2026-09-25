@@ -263,6 +263,12 @@ public partial class LuaEmitter
                 .Select(e => VisitExpression(model, e));
             return $"{{{string.Join(", ", items)}}}";
         }
+        var elem = (model.GetTypeInfo(arr).Type as IArrayTypeSymbol)?.ElementType;
+        if (arr.Type.RankSpecifiers is [{ Sizes: [var size] }]
+            && size is not OmittedArraySizeExpressionSyntax)
+            return RenderNewArray(VisitExpression(model, size),
+                ArrayFill(elem)?.LuaText,
+                IsUserStruct(elem) ? elem!.Name : null);
         return "{}";
     }
 

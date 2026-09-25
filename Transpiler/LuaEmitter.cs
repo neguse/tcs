@@ -68,6 +68,13 @@ public partial class LuaEmitter
             // C# の `is T` は「T またはその派生」(il-spec §9)。継承は
             // instance の metatable = class table、class table の
             // metatable.__index = base で表現しているため chain を辿る。
+            // new T[n] (il-spec §11): 値型要素は default で埋める。struct は
+            // 要素ごとに別の zero 値 (make) を作る
+            AppendLine("local function __tcs_newarray(n, v, make)");
+            AppendLine("  local t = table.create(n)");
+            AppendLine("  for i = 1, n do t[i] = make and make() or v end");
+            AppendLine("  return t");
+            AppendLine("end");
             AppendLine("local function __tcs_is(x, T)");
             AppendLine("  local mt = getmetatable(x)");
             AppendLine("  while mt do");

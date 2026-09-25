@@ -77,7 +77,8 @@ public partial class LuaEmitter
                     "Ceiling" => "Ceil",
                     _ => methodName
                 };
-                return $"Math.{luaName}({string.Join(", ", args)})";
+                return DirectMathCall($"Math.{luaName}", [.. args])
+                    ?? $"Math.{luaName}({string.Join(", ", args)})";
             }
 
             if (IsEnvironmentGetEnv(symbol))

@@ -649,11 +649,17 @@ public partial class LuaEmitter
         {
             return $"{type.Name}.new()";
         }
+        // enum の default は underlying 整数の 0 (メンバー名の有無に依らない)
+        if (type?.TypeKind == TypeKind.Enum)
+            return "0";
         return type?.SpecialType switch
         {
             SpecialType.System_Boolean => "false",
             SpecialType.System_Int32 or SpecialType.System_Int64
-                or SpecialType.System_UInt32 or SpecialType.System_Single
+                or SpecialType.System_UInt32 or SpecialType.System_UInt64
+                or SpecialType.System_Int16 or SpecialType.System_UInt16
+                or SpecialType.System_Byte or SpecialType.System_SByte
+                or SpecialType.System_Single
                 or SpecialType.System_Double => "0",
             _ => "nil"
         };

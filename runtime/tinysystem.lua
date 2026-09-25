@@ -461,6 +461,14 @@ function TinySystem.ftoi(x)
   return i
 end
 
+-- new T[n] (il-spec §11)。値型要素は default v で、struct 要素は make() で
+-- 要素ごとに埋める。生成コードは __tcs_newarray global 経由でこちらを使う。
+function TinySystem.newarray(n, v, make)
+  local t = table.create(n)
+  for i = 1, n do t[i] = make and make() or v end
+  return t
+end
+
 -- C# の `is T` は「T またはその派生」。継承は instance の metatable =
 -- class table、class table の metatable.__index = base で表現しているため
 -- chain を辿る。生成コードは __tcs_is global 経由でこちらを使う。
