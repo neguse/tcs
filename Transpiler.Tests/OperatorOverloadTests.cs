@@ -243,6 +243,96 @@ public class OperatorOverloadTests
         Assert.Equal("25", result);
     }
 
+    // 基底クラスで宣言した operator は派生 instance でも使える (C# の
+    // overload 解決は静的)。Lua の metamethod は __index 継承されないため、
+    // 呼び出しサイトで宣言型の operator 関数を直接呼ぶ。
+    private const string InheritedOperatorSource = """
+        public class Money
+        {
+            public int Cents;
+
+            public Money(int cents)
+            {
+                Cents = cents;
+            }
+
+            public static Money operator +(Money a, Money b) => new Money(a.Cents + b.Cents);
+            public static Money operator -(Money a) => new Money(-a.Cents);
+            public static Money operator *(Money a, int k) => new Money(a.Cents * k);
+            public static Money operator *(Money a, Money b) => new Money(a.Cents * b.Cents);
+        }
+
+        public class Tip : Money
+        {
+            public Tip(int cents) : base(cents) { }
+        }
+        """;
+
+    [Fact]
+    public void BaseClassBinaryOperator_WorksOnDerivedInstances()
+    {
+        var result = TestHelper.TranspileAndRun(InheritedOperatorSource + """
+            public class T
+            {
+                public static int Test()
+                {
+                    var sum = new Tip(1) + new Tip(2);
+                    return sum.Cents;
+                }
+            }
+            """, "T.test()");
+        Assert.Equal("3", result);
+    }
+
+    [Fact]
+    public void BaseClassUnaryOperator_WorksOnDerivedInstances()
+    {
+        var result = TestHelper.TranspileAndRun(InheritedOperatorSource + """
+            public class T
+            {
+                public static int Test() => (-new Tip(5)).Cents;
+            }
+            """, "T.test()");
+        Assert.Equal("-5", result);
+    }
+
+    [Fact]
+    public void BaseClassOverloadedOperator_DispatchesStaticallyForDerived()
+    {
+        // 複数 overload の実行時 dispatcher は getmetatable(a) == Money で
+        // 判定するため派生 instance を取りこぼしていた
+        var result = TestHelper.TranspileAndRun(InheritedOperatorSource + """
+            public class T
+            {
+                public static int Test()
+                {
+                    var scaled = new Tip(3) * 4;
+                    var squared = new Tip(3) * new Tip(5);
+                    return scaled.Cents * 100 + squared.Cents;
+                }
+            }
+            """, "T.test()");
+        Assert.Equal("1215", result);
+    }
+
+    [Fact]
+    public void BaseClassOperator_CompoundAssignmentOnDerived()
+    {
+        var result = TestHelper.TranspileAndRun(InheritedOperatorSource + """
+            public class T
+            {
+                public static int Test()
+                {
+                    Money total = new Tip(1);
+                    total += new Tip(4);
+                    total *= 3;
+                    return total.Cents;
+                }
+            }
+            """, "T.test()");
+        Assert.Equal("15", result);
+    }
+
     [Fact]
     public void EqualityOperators_ReportUnsupportedSyntax()
     {

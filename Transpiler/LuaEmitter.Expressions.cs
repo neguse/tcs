@@ -178,6 +178,9 @@ public partial class LuaEmitter
         var left = VisitExpression(model, bin.Left);
         var right = VisitExpression(model, bin.Right);
 
+        if (UserOperatorCallee(model, bin) is { } opCallee)
+            return $"{opCallee}({left}, {right})";
+
         // C# の整数除算/剰余は 0 方向 truncation、float 剰余も truncated。
         // Lua の / (実数) と % (floor) では負数・整数の結果がずれる。
         if (bin.IsKind(SyntaxKind.DivideExpression)
@@ -190,7 +193,6 @@ public partial class LuaEmitter
             var type = model.GetTypeInfo(bin).Type;
             if (IsIntegralType(type)) return $"__tcs_irem({left}, {right})";
             if (IsFloatingType(type)) return $"math.fmod({left}, {right})";
-            // ユーザー定義 operator % は __mod metamethod に委ねる
         }
 
         // designation なしの `x is Type` は binary IsExpression として parse
@@ -282,6 +284,8 @@ public partial class LuaEmitter
     private string VisitPrefixUnary(SemanticModel model, PrefixUnaryExpressionSyntax prefix)
     {
         var operand = VisitExpression(model, prefix.Operand);
+        if (UserOperatorCallee(model, prefix) is { } opCallee)
+            return $"{opCallee}({operand})";
         return prefix.Kind() switch
         {
             SyntaxKind.UnaryMinusExpression => $"-{operand}",
@@ -355,11 +359,8 @@ public partial class LuaEmitter
 
     private string VisitCast(SemanticModel model, CastExpressionSyntax cast)
     {
-        var constant = model.GetConstantValue(cast);
-        if (constant.HasValue && constant.Value is int or long
-            && IsCharType(model.GetTypeInfo(cast.Expression).Type))
-            return Convert.ToString(constant.Value,
-                System.Globalization.CultureInfo.InvariantCulture)!;
+        if (FoldedIntegralCast(model, cast) is { } folded)
+            return folded;
         if (IsCharToIntCast(model, cast))
         {
             if (IsStringElementAccess(model, cast.Expression,
@@ -368,8 +369,30 @@ public partial class LuaEmitter
                     $"{VisitExpression(model, strIdx)} + 1)";
             return $"string.byte({VisitExpression(model, cast.Expression)})";
         }
-        return VisitExpression(model, cast.Expression);
+        var operand = VisitExpression(model, cast.Expression);
+        return IsFloatToIntCast(model, cast) ? $"__tcs_ftoi({operand})" : operand;
     }
+
+    // char / 浮動小数 → 整数の定数 cast を 10 進リテラルへ畳む
+    // (C# が変換後の値を定数として持つ)
+    private static string? FoldedIntegralCast(SemanticModel model,
+        CastExpressionSyntax cast)
+    {
+        var constant = model.GetConstantValue(cast);
+        var operand = model.GetTypeInfo(cast.Expression).Type;
+        return constant.HasValue && constant.Value is int or long
+            && (IsCharType(operand) || IsFloatingType(operand))
+            ? Convert.ToString(constant.Value,
+                System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+    }
+
+    /// <summary>(int)f 形の浮動小数→整数 cast か。il-spec §5 の 0 方向切り捨て
+    /// (変換不能は fault) を __tcs_ftoi で表す。</summary>
+    private static bool IsFloatToIntCast(SemanticModel model,
+        CastExpressionSyntax cast) =>
+        IsIntegralType(model.GetTypeInfo(cast.Type).Type)
+        && IsFloatingType(model.GetTypeInfo(cast.Expression).Type);
 
     private string VisitAssignment(SemanticModel model, AssignmentExpressionSyntax assign)
     {
@@ -481,6 +504,8 @@ public partial class LuaEmitter
     private string ApplyCompound(SemanticModel model,
         AssignmentExpressionSyntax assign, string op, string read, string right)
     {
+        if (UserOperatorCallee(model, assign) is { } opCallee)
+            return $"{opCallee}({read}, {right})";
         var type = model.GetTypeInfo(assign.Left).Type;
         return op switch
         {

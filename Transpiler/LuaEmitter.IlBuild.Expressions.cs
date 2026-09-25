@@ -55,12 +55,9 @@ public partial class LuaEmitter
                 return new IlVar("self");
             case CastExpressionSyntax cast:
             {
-                // (int)'a' 等の定数 cast は畳む
-                var constant = model.GetConstantValue(cast);
-                if (constant.HasValue && constant.Value is int or long
-                    && IsCharType(model.GetTypeInfo(cast.Expression).Type))
-                    return new IlLit(Convert.ToString(constant.Value,
-                        System.Globalization.CultureInfo.InvariantCulture)!);
+                // (int)'a' / (int)3.7f 等の定数 cast は畳む
+                if (FoldedIntegralCast(model, cast) is { } folded)
+                    return new IlLit(folded);
                 if (IsCharToIntCast(model, cast))
                 {
                     if (IsStringElementAccess(model, cast.Expression,
@@ -75,7 +72,10 @@ public partial class LuaEmitter
                     var ch = BuildExpr(model, cast.Expression);
                     return ch == null ? null : new IlCall("string.byte", [ch]);
                 }
-                return BuildExpr(model, cast.Expression);
+                var operand = BuildExpr(model, cast.Expression);
+                return operand != null && IsFloatToIntCast(model, cast)
+                    ? new IlCall("__tcs_ftoi", [operand])
+                    : operand;
             }
             case ConditionalExpressionSyntax ternary:
             {
@@ -270,6 +270,9 @@ public partial class LuaEmitter
                 : new IlParen(new IlUn(IlUnOp.Not, eqCall));
         }
 
+        if (UserOperatorCallee(model, bin) is { } opCallee)
+            return new IlCall(opCallee, [left, right]);
+
         if (bin.IsKind(SyntaxKind.DivideExpression)
             && IsIntegralType(model.GetTypeInfo(bin).Type))
             return new IlCall("__tcs_idiv", [left, right]);
@@ -367,6 +370,8 @@ public partial class LuaEmitter
     {
         var operand = BuildExpr(model, prefix.Operand);
         if (operand == null) return null;
+        if (UserOperatorCallee(model, prefix) is { } opCallee)
+            return new IlCall(opCallee, [operand]);
         return prefix.Kind() switch
         {
             SyntaxKind.UnaryMinusExpression => new IlUn(IlUnOp.Neg, operand),

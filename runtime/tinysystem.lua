@@ -451,6 +451,16 @@ function TinySystem.irem(a, b)
   return a - TinySystem.idiv(a, b) * b
 end
 
+-- f32 → i32 の明示 cast (il-spec §5)。0 方向切り捨て、NaN / i32 範囲外は
+-- fault。生成コードは __tcs_ftoi global 経由でこちらを使う。
+function TinySystem.ftoi(x)
+  local i = math.tointeger(x >= 0 and math.floor(x) or math.ceil(x))
+  if i == nil or i < -0x80000000 or i > 0x7fffffff then
+    error("float to int conversion overflow: " .. tostring(x))
+  end
+  return i
+end
+
 -- C# の `is T` は「T またはその派生」。継承は instance の metatable =
 -- class table、class table の metatable.__index = base で表現しているため
 -- chain を辿る。生成コードは __tcs_is global 経由でこちらを使う。

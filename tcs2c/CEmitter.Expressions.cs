@@ -328,6 +328,8 @@ internal sealed partial class CEmitter
             "__tcs_irem" => RenderOrderedCall("tcs_irem", type,
                 [(CType.I32, RenderExpr(call.Args[0])),
                  (CType.I32, RenderExpr(call.Args[1]))]),
+            "__tcs_ftoi" => RenderOrderedCall("tcs_ftoi", type,
+                [(CType.F32, RenderCoerced(call.Args[0], CType.F32))]),
             "print" => RenderPrint(call),
             "tostring" => RenderToString(call.Args[0]),
             "Dict.ContainsKey" => RenderDictSimple(call, "tcs_dict_contains"),
@@ -349,6 +351,12 @@ internal sealed partial class CEmitter
             RequireArity(call.Callee, call.Args.Length, 2);
             RequireType(CType.I32, TypeOf(call.Args[0]), call.Callee);
             RequireType(CType.I32, TypeOf(call.Args[1]), call.Callee);
+            return CType.I32;
+        }
+        if (call.Callee == "__tcs_ftoi")
+        {
+            RequireArity(call.Callee, call.Args.Length, 1);
+            RequireAssignable(CType.F32, TypeOf(call.Args[0]), call.Callee);
             return CType.I32;
         }
         if (call.Callee == "print")

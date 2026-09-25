@@ -472,6 +472,16 @@ internal sealed partial class CEmitter
             return left / right;
         }
 
+        /* f32 → i32 の明示 cast (il-spec §5): 0 方向切り捨て、NaN と
+           範囲外は fault。±2^31 は f32 で正確に表せるので境界比較は厳密 */
+        static int32_t
+        tcs_ftoi(float value)
+        {
+            if (!(value >= -2147483648.0f && value < 2147483648.0f))
+                tcs_fault("float-to-int");
+            return (int32_t)value;
+        }
+
         static int32_t
         tcs_irem(int32_t left, int32_t right)
         {

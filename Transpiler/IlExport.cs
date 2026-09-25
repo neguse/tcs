@@ -239,11 +239,12 @@ public static class IlExport
                     isGet ? [] : [propType]));
             }
         }
-        // user-defined operator は metamethod 名の static method として収載
+        // user-defined operator は Lua 関数名 (単一 overload は metamethod 名、
+        // 複数は __mul_1 等) の static method として収載。呼び出しサイトは
+        // IlCall("C.<name>") で静的に解決済み
         foreach (var op in cls.Members.OfType<OperatorDeclarationSyntax>())
         {
-            if (!TinyCsComplianceFacts.TryGetOperatorMetamethod(op,
-                    out var metamethod))
+            if (LuaEmitter.OperatorFunctionName(op) is not { } metamethod)
                 continue;
             IlBlock? opBody = null;
             if (op.Body != null)

@@ -5,6 +5,47 @@ namespace TinyCs;
 
 public partial class LuaEmitter
 {
+    /// <summary>operator 宣言の Lua 関数名。単一 overload は metamethod 名
+    /// そのもの、同じ metamethod の複数 overload は宣言順に `__mul_1`,
+    /// `__mul_2` ... (EmitOperatorGroup と同じ採番)。</summary>
+    internal static string? OperatorFunctionName(OperatorDeclarationSyntax op)
+    {
+        if (!TinyCsComplianceFacts.TryGetOperatorMetamethod(op,
+                out var metamethod)
+            || op.Parent is not TypeDeclarationSyntax owner)
+            return null;
+        var group = owner.Members.OfType<OperatorDeclarationSyntax>()
+            .Where(o => TinyCsComplianceFacts.TryGetOperatorMetamethod(o,
+                out var m) && m == metamethod)
+            .ToList();
+        return group.Count == 1
+            ? metamethod
+            : $"{metamethod}_{group.IndexOf(op) + 1}";
+    }
+
+    // C# の operator overload 解決は静的なので、呼び出しサイトで宣言型の
+    // operator 関数を直接呼ぶ (`Vec2.__mul_2(a, s)`)。metamethod 経由だと
+    // (1) 派生 instance の metatable に __add が無く (metamethod は __index
+    // 継承されない) 基底の operator が動かない、(2) 複数 overload の実行時
+    // 型分岐を毎回通る。参照専用型 (--ref) の operator は host 側の
+    // metamethod に委ねる (Lua 定義を持たないため)。
+    private string? UserOperatorCallee(SemanticModel model, ExpressionSyntax expr)
+    {
+        if (model.GetSymbolInfo(expr).Symbol is not IMethodSymbol
+            {
+                MethodKind: MethodKind.UserDefinedOperator,
+                ContainingType: { } owner,
+            } op
+            || IsReferenceOnlyType(owner))
+            return null;
+        var decl = op.DeclaringSyntaxReferences
+            .Select(r => r.GetSyntax()).OfType<OperatorDeclarationSyntax>()
+            .FirstOrDefault();
+        return decl != null && OperatorFunctionName(decl) is { } name
+            ? $"{TypeRef(owner)}.{name}"
+            : null;
+    }
+
     // User-defined operator overloads map to Lua metamethods on the class
     // table (which is also the instance metatable). Multiple C# overloads of
     // one operator share a single metamethod, so the metamethod dispatches on

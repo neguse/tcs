@@ -50,6 +50,16 @@ public partial class LuaEmitter
             AppendLine("local function __tcs_irem(a, b)");
             AppendLine("  return a - __tcs_idiv(a, b) * b");
             AppendLine("end");
+            // f32 → i32 の明示 cast (il-spec §5): 0 方向切り捨て。NaN と
+            // i32 範囲外は fault。-0x80000000 は lua32 / 64bit の両方で
+            // INT32_MIN になる (16 進整数リテラルは wrap する)
+            AppendLine("local function __tcs_ftoi(x)");
+            AppendLine("  local i = math.tointeger(x >= 0 and math.floor(x) or math.ceil(x))");
+            AppendLine("  if i == nil or i < -0x80000000 or i > 0x7fffffff then");
+            AppendLine("    error(\"float to int conversion overflow: \" .. tostring(x))");
+            AppendLine("  end");
+            AppendLine("  return i");
+            AppendLine("end");
             // C# の `is T` は「T またはその派生」(il-spec §9)。継承は
             // instance の metatable = class table、class table の
             // metatable.__index = base で表現しているため chain を辿る。

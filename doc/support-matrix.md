@@ -33,7 +33,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | class / enum / interface / record class | **Core** | editor 補完、型チェック、データ表現に必要 |
 | struct / record struct | **Core** | 値セマンティクス対応済み (T219b)。instance member / 値等価 / readonly copy 省略。C backend は素の C struct |
 | if / switch / loop / lambda / pattern | **Core** | ゲームロジックと小さな業務ロジックの表現力として必要 |
-| 演算子オーバーロード (算術) | **Core** | ベクトル/行列など math 型の表現に必要。二項 `+ - * / %` と単項 `-` だけを Lua metamethod へ写像し、変換演算子と `==`/`!=`/比較系は対象外 |
+| 演算子オーバーロード (算術) | **Core** | ベクトル/行列など math 型の表現に必要。二項 `+ - * / %` と単項 `-` を静的解決した関数呼び出しへ写像し (metamethod も併設)、変換演算子と `==`/`!=`/比較系は対象外 |
 | LINQ メソッドチェーン | **Core** | `Where`/`Select`/`Any`/`All`/`First`/`Last`/`OrderBy`/`Take`/`Skip`/集計の小核だけ即時評価で提供 |
 | ユーザー定義ジェネリクス | **Out** | 型消去 runtime と複雑さが釣り合わない。組み込み generic 型に限定 |
 | reflection / dynamic / expression tree | **Out** | Lua 5.5 backend と compact baseline に合わない |
@@ -206,7 +206,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | デストラクタ / ファイナライザ | **N/A** | | |
 | イベント | **-** | | |
 | インデクサ (`this[int]`) | **-** | | |
-| 演算子オーバーロード | **P** | Lua metamethod (`__add`/`__sub`/`__mul`/`__div`/`__mod`/`__unm`) | 二項 `+ - * / %` と単項 `-`。複数 overload は metamethod 内で実行時型分岐 (class は metatable、数値/文字列/bool は `type()`)。`==`/`!=`/比較系は TCS1001 (record の `__eq` のみ) |
+| 演算子オーバーロード | **P** | 呼び出しサイトで宣言型の operator 関数を直接呼ぶ (`Vec2.__add(a, b)`、複数 overload は `Vec2.__mul_2(a, s)`) | 二項 `+ - * / %` と単項 `-`。overload 解決は Roslyn の静的解決 (派生 instance にも基底の operator が効く)。class table には metamethod (`__add`/`__sub`/`__mul`/`__div`/`__mod`/`__unm`、複数 overload は実行時型分岐) も残し、Lua 側から直接演算する外部コード向けに互換を保つ。`==`/`!=`/比較系は TCS1001 (record の `__eq` のみ) |
 | 暗黙/明示変換演算子 | **-** | | TCS1001 |
 | ローカル関数 (C# 7) | **-** | | unsupported 診断あり |
 | 静的ローカル関数 (C# 8) | **-** | | unsupported 診断あり |
@@ -300,7 +300,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `? :` (三項) | **Y** | IIFE | falsy 安全 |
 | `??` (null 合体) | **Y** | `or` (bool? のみ nil 判定 IIFE — `or` だと false が fallback するため) | |
 | `?.` (null 条件アクセス, C# 6) | **Y** | IIFE nil チェック | String/List/Dict mapping 対応 |
-| `(T)x` (キャスト) | **Y** | 透過 (型消去) | |
+| `(T)x` (キャスト) | **Y** | 透過 (型消去)。浮動小数 → 整数は `__tcs_ftoi(x)` | 浮動小数 → 整数は 0 方向切り捨て (il-spec §5)、NaN / i32 範囲外は fault。定数 cast (`(int)3.7f`) は畳む |
 | `is null` / `is not null` | **Y** | `== nil` / `~= nil` | |
 | `is Type` | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定。designation なしの binary 形も対応 | |
 | `new T(args)` | **Y** | `T.new(args)` | |

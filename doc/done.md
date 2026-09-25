@@ -1577,3 +1577,12 @@
 - マシン側は dotnet-install.sh の per-user install (`~/.dotnet` + DOTNET_ROOT/PATH) に一本化し、SDK と workload の所有者を一人にした。README / CLAUDE.md に方針を明記
 - 検証: `~/.dotnet` の SDK 10.0.111 で pre-commit ゲート (run-tests.sh) 全通過 — MSBuildEnableWorkloadResolver 無効化なしで通ることを確認 (壊れた pacman 側 resolver を踏んでいない証明)。SDK 暗黙参照の追随で WasmCompiler の packages.lock.json が 10.0.11 に上がる (別コミット)
 - 残課題: workload set 版の pin (`sdk.workloadVersion`) は wasm-tools を実際に要求する lub 側で行う。Dependabot は workloadVersion の bump 未対応 (dependabot-core#13216) のため、workload set は SDK bump PR に乗せて手動更新
+
+### T240: float→int cast の欠落と基底クラス operator の派生適用 (issue #13) ✓ (2026-09-25)
+- `(int)f` (浮動小数 → 整数の明示 cast) が IL / legacy の両経路で素通しされ、Lua 出力で float のまま残っていた (警告なし)。il-spec §5 の「0 方向切り捨て、NaN / i32 範囲外は fault」を `__tcs_ftoi` として実装: 生成 chunk の local helper、module prelude 用の `TinySystem.ftoi` + `_G.__tcs_ftoi`、tcs2c の `tcs_ftoi` (fault kind `float-to-int`)。定数 cast (`(int)3.7f`) は char → int と同じく C# の定数値へ畳む
+- 基底クラスで宣言した operator が派生 instance で `attempt to perform arithmetic on a table value` になっていた (metamethod は `__index` 継承されない)。複数 overload の実行時 dispatcher も `getmetatable(a) == Base` で派生を取りこぼしていた。呼び出しサイトで Roslyn の解決済み operator の関数を直接呼ぶ静的解決に変更 (`Money.__add(a, b)` / overload は `Money.__mul_2(a, k)`)。二項・単項・複合代入 (lowered lvalue 含む)、IL / legacy の両方。参照専用型 (--ref) の operator は host の metamethod に委ねて従来どおり
+- metamethod 本体と dispatcher は class table に残す (Lua 側から直接演算する外部コード向けの互換)。IlExport の operator 収載名を Lua 関数名 (`__mul_1` 等) に揃えたことで、tcs2c でも class の operator overload が通常の static 呼び出しとして動くようになった
+- 検証: NumericConversionTests 6 本 + OperatorOverloadTests +4 (派生への二項/単項/overload/複合代入) Red→Green。tcs2c と Lua (lua32) で cast + operator overload のサンプル出力一致を手動確認、tcs2c digest 3/3 不変、spec conformance report 差分なし、全テスト green (root 実行で成立しない Cli_AtomicOutputReplace_RespectsUnixWritePermission を除く)
+- よかったこと: operator の静的解決は issue #12 の 5 (実行時振り分けの除去) と同じ変更で、バグ修正と性能改善が一度に片付いた
+- 判断: `(float)i` (整数 → 浮動小数) は今回触らない。暗黙変換 (`float f = i;`) も同じく Lua integer のまま流れるため、明示 cast だけ直すと不整合になる
+- 残課題: int → float 変換後も Lua integer のまま演算されるため、float として演算すべき積が i32 wrap しうる (`(float)a * b`)。暗黙変換と合わせて別途扱う
