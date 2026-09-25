@@ -45,6 +45,7 @@ public class Program
         bool checkNaming = true;
         bool snapshot = false;
         bool module = false;
+        bool hotReload = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -95,6 +96,10 @@ public class Program
             else if (args[i] == "--module")
             {
                 module = true;
+            }
+            else if (args[i] == "--hot-reload")
+            {
+                hotReload = true;
             }
             else if (!args[i].StartsWith('-'))
             {
@@ -156,7 +161,7 @@ public class Program
 
         var options = new BuildOptions(
             outputPath, entryClass, preludePath, emitSourceMap,
-            includeRuntime, checkNaming, snapshot, module);
+            includeRuntime, checkNaming, snapshot, module, hotReload);
         var conflict = FindOutputPathConflict(inputPaths, refPaths, options);
         if (conflict != null)
             return Error(conflict);
@@ -168,7 +173,8 @@ public class Program
 
     private sealed record BuildOptions(string? OutputPath, string? EntryClass,
         string? PreludePath, bool EmitSourceMap, bool IncludeRuntime,
-        bool CheckNaming, bool Snapshot = false, bool Module = false);
+        bool CheckNaming, bool Snapshot = false, bool Module = false,
+        bool HotReload = false);
 
     private static string? FindOutputPathConflict(
         IReadOnlyList<string> inputPaths, IReadOnlyList<string> refPaths,
@@ -236,7 +242,7 @@ public class Program
 
     private static void PrintUsage(TextWriter writer)
     {
-        writer.WriteLine("Usage: tcs <input.cs> [input2.cs ...] [--ref <ref.cs>] [-o <output.lua>] [--entry <Class>] [--module] [--prelude <shim.lua>] [--sourcemap] [--watch] [--no-runtime] [--no-naming-check]");
+        writer.WriteLine("Usage: tcs <input.cs> [input2.cs ...] [--ref <ref.cs>] [-o <output.lua>] [--entry <Class>] [--module] [--prelude <shim.lua>] [--sourcemap] [--watch] [--no-runtime] [--no-naming-check] [--hot-reload]");
         writer.WriteLine("       tcs check <input.cs> [input2.cs ...] [--ref <ref.cs>] [--no-naming-check]");
         writer.WriteLine("       tcs --map-stacktrace <output.lua.map> [trace.txt]");
         writer.WriteLine("       tcs --help");
@@ -250,6 +256,7 @@ public class Program
         writer.WriteLine("       --no-runtime                # omit embedded TinySystem runtime prelude");
         writer.WriteLine("       --snapshot                  # emit module-registry bridge snapshot (requires --entry)");
         writer.WriteLine("       --module                    # append 'return { Type = Type, ... }' so require() gets the defined types");
+        writer.WriteLine("       --hot-reload                # register instances in __tcs_instances for hot reload migration (dev only)");
     }
 
     private static int Error(string message)
@@ -374,7 +381,7 @@ public class Program
 
             var result = Transpiler.TranspileWithDiagnostics(sources, inputPaths.ToArray(),
                 refSources, options.EntryClass, options.CheckNaming,
-                module: options.Module);
+                module: options.Module, instanceRegistry: options.HotReload);
 
             if (!result.Success)
             {
@@ -433,7 +440,7 @@ public class Program
         string[]? refSources, BuildOptions options)
     {
         var session = new IncrementalCompilationSession(
-            refSources, options.CheckNaming);
+            refSources, options.CheckNaming, options.HotReload);
         session.OpenProject([.. inputPaths.Zip(sources,
             (p, s) => (p.Replace("\\", "/"), s))]);
         var (errors, warnings) = session.CollectDiagnostics();
@@ -585,7 +592,7 @@ public class Program
                 ? refPaths.Select(File.ReadAllText).ToArray() : null;
             var result = Transpiler.TranspileWithDiagnostics(sources, inputPaths.ToArray(),
                 refSources, options.EntryClass, options.CheckNaming,
-                module: options.Module);
+                module: options.Module, instanceRegistry: options.HotReload);
 
             if (!result.Success)
             {

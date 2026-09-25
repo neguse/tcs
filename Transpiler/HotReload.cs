@@ -13,8 +13,9 @@ namespace TinyCs;
 //     新 layout の table に組み直す (struct in struct は再帰)
 //   - migration 完了後、OnReload (Lua では on_reload) があれば instance ごとに 1 回呼ぶ
 //   - reload は frame 境界で行う前提 (実行中 frame の local は移行対象外)
-// 前提: v1 chunk を実行済みの同一 VM で、返り値の chunk を 1 つの chunk として
-// 実行する。record class は IlExport 対象外のため現時点では移行されない。
+// 前提: v1 chunk を instance registry 付き (Transpile の instanceRegistry /
+// CLI --hot-reload) で出力・実行済みの同一 VM で、返り値の chunk を 1 つの
+// chunk として実行する。record class は IlExport 対象外のため現時点では移行されない。
 // List<T> / Dictionary<K,V> 内の struct 値の再直列化は未対応 (需要待ち)。
 public static class HotReload
 {
@@ -28,7 +29,8 @@ public static class HotReload
     {
         var oldExport = IlExport.Export(v1Sources);
         var newExport = IlExport.Export(v2Sources);
-        var v2Lua = Transpiler.Transpile(v2Sources);
+        // reload 後に生成される instance も次の reload で移行できるよう登録する
+        var v2Lua = Transpiler.Transpile(v2Sources, instanceRegistry: true);
 
         var oldByName = oldExport.Classes.ToDictionary(c => c.Name);
         var pairs = newExport.Classes

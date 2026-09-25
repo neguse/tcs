@@ -44,11 +44,12 @@ dev backend の reload 機構が backend 間の意味論一致 (digest gate) を
   用途は「reload 起因の derived data 再構築」に限る旨をドキュメント化する
 - **reload で作られた状態はセッション限り**。cold start との互換 (セーブ
   データ等) は migration の要求に含めない
-- **性能**: registry のコストは dev のみ。dev 性能の KPI floor は実機級
-  10ms/frame (perf/README) に置いているため、構築頻度の高い workload での
-  registry overhead を perf harness で実測する (未測 — 現 kernel は class
-  構築を含まない。spawn_churn の class 版変種を追加して測る)。floor を
-  圧迫する場合は transpile option 化 (dev 既定 on) を検討
+- **性能**: registry は transpile option (`--hot-reload` / `Transpile(...,
+  instanceRegistry: true)`) で、既定 off (T242)。実ゲーム (1 frame 約 2.5 万
+  個の短命 object) で登録 1 行がスクリプト時間の 17〜19% を占め、3 field
+  class の生成は登録あり約 530ns / なし約 340ns (issue #9 の実測、native
+  Lua 5.5 -O2)。reload chunk (HotReload.EmitReloadChunk) の v2 出力は常に
+  登録付きで、reload 後の生成物も次の reload で移行される
 
 ## 3. release backend の reload — 技術オプション (D6)
 
@@ -127,8 +128,8 @@ reload をどのレベルでも難しくしない。
 restart とした。以下の 3 点でこの前提が変わったため、dev では shape 変更を
 live 側へ緩和する:
 
-1. **weak instance registry** (il-design §6、実装済み) — 生存 instance を
-   構築時 class 付きで列挙できる
+1. **weak instance registry** (il-design §6、実装済み。`--hot-reload` で
+   有効) — 生存 instance を構築時 class 付きで列挙できる
 2. **two-phase migration** (§7) — 評価と適用を分離し、エラー時は一切
    mutate せずに abort できる (§11.4 transaction と両立)
 3. **conservative restart detector** (§6) — schema 経由で到達できない
@@ -301,8 +302,8 @@ index で既に解決しており、chunk backend (UC1) の driver も同じ方�
 - 既存 static initializer 変更を検出しない (§5.2 の restart 条件を素通し)
 - struct table の static merge なし (struct static 値が reload で消える)
 - enum metadata / `[RenamedFrom]` / initializerHash が IlExport にない
-- registry overhead の実測なし (§2 の class 構築 workload が perf harness に
-  未収載)
+- registry overhead は perf harness に未収載 (issue #9 の外部実測で既定 off
+  に倒した。§2 参照)
 - namespace は現 emitter がフラット global に emit するためそのまま動くが、
   emitter が実 namespace 対応した時点で alias 解決 (§11 の global alias) に
   追従する必要がある

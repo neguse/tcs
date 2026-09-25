@@ -49,9 +49,13 @@ public static class Transpiler
 
     public static string Transpile(string csharpSource) => Transpile([csharpSource]);
 
-    public static string Transpile(string[] csharpSources)
+    /// <param name="instanceRegistry">hot reload 用の weak instance registry
+    /// (`__tcs_instances`) を出す。reload chunk を当てる v1 出力に要る</param>
+    public static string Transpile(string[] csharpSources,
+        bool instanceRegistry = false)
     {
-        var result = TranspileWithDiagnostics(csharpSources);
+        var result = TranspileWithDiagnostics(csharpSources,
+            instanceRegistry: instanceRegistry);
         if (!result.Success)
             throw new InvalidOperationException(
                 string.Join("\n", result.Errors));
@@ -61,7 +65,8 @@ public static class Transpiler
     public static TranspileResult TranspileWithDiagnostics(string[] csharpSources,
         string[]? filePaths = null, string[]? referenceSources = null,
         string? entryClass = null, bool checkNaming = true,
-        MetadataReference[]? references = null, bool module = false)
+        MetadataReference[]? references = null, bool module = false,
+        bool instanceRegistry = false)
     {
         var trees = csharpSources.Select((s, i) =>
             CSharpSyntaxTree.ParseText(s, path: filePaths != null && i < filePaths.Length
@@ -118,7 +123,7 @@ public static class Transpiler
                 tree, model));
         }
 
-        var emitter = new LuaEmitter();
+        var emitter = new LuaEmitter { EmitInstanceRegistry = instanceRegistry };
         foreach (var refTree in refTrees)
             emitter.ReferenceTrees.Add(refTree);
         if (hasTopLevelStatements)

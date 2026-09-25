@@ -1595,3 +1595,9 @@
 - 検証: SubsetDiagnosticTests +4 (caller info 各属性)、LocalKeywordNameTests 14 本 (issue の再現、`local_` との非衝突、closure 捕捉と書き戻し、method/ctor/operator/optional parameter、foreach/numeric for/lambda、while lowering される捕捉 for 変数、is/switch 式/switch 文の designation、out var、record 分解、top-level、legacy fallback 経路、診断なし、member は診断維持) — fix 前 12 本 Red。LuaIdentifierTests / analyzer テストの local 系診断期待を新方針へ更新
 - spec conformance sweep が副作用を検出: `attributes.md:CallerArgumentAttr2` は変数名 `local` の診断で Diag だっただけで、写像で通るようになると `[CallerArgumentExpression]` の未対応 (呼び出しサイトでの引数注入を再現しない) が silent wrong-code (Bug) として露出した。caller info 4 属性を TCS1001 `CallerInfoAttribute` で診断 (`[Conditional]` と同じ扱い)。baseline: CallerArgumentAttr1 が InCompile → Diag、Attr2 は Diag 維持、Bug ゼロ
 - 判断: 読みやすさ優先の `local_` 形 (ソース全体の識別子集合を見て `_` を重ねる) も検討したが、incremental / IlExport / static helper のすべてに識別子集合を配る必要があり、衝突しない保証も compilation 単位になる。prefix 予約なら純関数で済み、既存 temp の方針とも揃う
+
+### T242: `__tcs_instances` への登録を既定で出さない (issue #9) ✓ (2026-09-25)
+- class / record の生成ごとに出ていた `__tcs_instances[self] = C` (weak key の ephemeron 登録) と header の registry 宣言を opt-in 化。`LuaEmitter.EmitInstanceRegistry` (既定 false) を追加し、`Transpiler.Transpile(..., instanceRegistry: true)` / `TranspileWithDiagnostics(..., instanceRegistry:)` / CLI `--hot-reload` / `IncrementalCompilationSession(instanceRegistry:)` (snapshot 経路) で有効化する
+- 読むのは reload chunk だけ (出荷経路に読み手なし) なので、`HotReload.EmitReloadChunk` の v2 出力は常に登録付き。reload 後に生成した instance も次の reload で移行される。module registry の host 所有 guard は無害なので据え置き
+- 検証: InstanceRegistryTests 4 本 (既定出力に registry なし + 実行、opt-in で class/record 登録、CLI `--hot-reload`、reload 後生成物の再 reload 移行)。HotReloadTests / FuzzReloadTests は v1 を instanceRegistry 付きで出力するよう変更し全 green
+- 判断: issue の「リロード時だけ列挙する方式」(registry を持たず reload 時に到達可能な object graph を walk する) は、global / upvalue / closure からの到達経路を網羅する必要があり dev 機構の複雑さが跳ねる。まず opt-in 化で出荷コストをゼロにし、列挙方式は実導線 (T220 残) の需要で判断する

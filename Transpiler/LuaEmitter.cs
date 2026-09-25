@@ -26,6 +26,11 @@ public partial class LuaEmitter
     // Lua definition, so `new` on them must produce a plain table.
     public HashSet<SyntaxTree> ReferenceTrees { get; } = [];
 
+    // hot reload (il-design §6) の weak instance registry を出すか。登録は
+    // 生成ごとの ephemeron 挿入 + GC 走査のコストがあり、読むのは reload
+    // chunk (HotReload.EmitReloadChunk) だけなので既定は off (issue #9)。
+    public bool EmitInstanceRegistry { get; init; }
+
     private bool IsReferenceOnlyType(ITypeSymbol? type) =>
         type != null && type.DeclaringSyntaxReferences
             .Any(r => ReferenceTrees.Contains(r.SyntaxTree));
@@ -86,8 +91,9 @@ public partial class LuaEmitter
             // hot reload (il-design §6): 生存インスタンスの weak registry。
             // reload chunk と共有するため global。key = instance (weak)、
             // value = 構築時の class table (reload 後も identity 不変)
-            AppendLine("__tcs_instances = __tcs_instances or "
-                + "setmetatable({}, { __mode = \"k\" })");
+            if (EmitInstanceRegistry)
+                AppendLine("__tcs_instances = __tcs_instances or "
+                    + "setmetatable({}, { __mode = \"k\" })");
             _headerEmitted = true;
         }
         var root = tree.GetCompilationUnitRoot();
@@ -363,7 +369,8 @@ public partial class LuaEmitter
         }
         // reload migration 用の登録。base ctor 経由でも最派生 class が勝つ
         // (同一 key への上書き)
-        AppendLine($"__tcs_instances[self] = {className}");
+        if (EmitInstanceRegistry)
+            AppendLine($"__tcs_instances[self] = {className}");
 
         foreach (var (fieldName, init, type) in fieldInits)
         {
@@ -490,7 +497,8 @@ public partial class LuaEmitter
         AppendLine($"function {name}.new({string.Join(", ", paramNames)})");
         _indent++;
         AppendLine($"local self = setmetatable({{}}, {name})");
-        AppendLine($"__tcs_instances[self] = {name}");
+        if (EmitInstanceRegistry)
+            AppendLine($"__tcs_instances[self] = {name}");
         for (var i = 0; i < paramNames.Count; i++)
             AppendLine($"self.{fieldNames[i]} = {paramNames[i]}");
         AppendLine("return self");

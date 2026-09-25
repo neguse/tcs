@@ -117,6 +117,10 @@ interface / `--ref` 型 / 曖昧な simple 名はエラーになる。
 `--snapshot` とは併用しない)。
 `--prelude <shim.lua>` は任意のユーザー Lua (host API を tcs stub の形に
 橋渡しする shim など) を出力の先頭に前置する。
+`--hot-reload` は hot reload の instance migration 用に、class / record の
+生成時に weak instance registry (`__tcs_instances`) へ登録するコードを出す
+(開発時専用)。登録は生成ごとの ephemeron 挿入と GC 走査のコストがあるため
+既定では出さない。
 
 output / source map のパスが入力・`--ref`・`--prelude` と同じ実体
 (symlink / hardlink 含む) になる場合は、書き込み前にエラーにして

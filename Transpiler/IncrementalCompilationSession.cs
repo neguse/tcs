@@ -69,6 +69,7 @@ public sealed class SessionUpdateResult
 public sealed class IncrementalCompilationSession
 {
     private readonly bool _checkNaming;
+    private readonly bool _instanceRegistry;
     private readonly SyntaxTree[] _refTrees;
     private readonly List<string> _refFixedDiagnosticErrors = [];
 
@@ -88,9 +89,10 @@ public sealed class IncrementalCompilationSession
     public int Revision { get; private set; }
 
     public IncrementalCompilationSession(string[]? referenceSources = null,
-        bool checkNaming = true)
+        bool checkNaming = true, bool instanceRegistry = false)
     {
         _checkNaming = checkNaming;
+        _instanceRegistry = instanceRegistry;
         _refTrees = referenceSources?.Select(s => CSharpSyntaxTree.ParseText(s))
             .ToArray() ?? [];
     }
@@ -175,7 +177,8 @@ public sealed class IncrementalCompilationSession
         var paths = _moduleOrder.ToArray();
         var refs = _refTrees.Select(t => t.GetText().ToString()).ToArray();
         return Transpiler.TranspileWithDiagnostics(sources, paths,
-            refs.Length > 0 ? refs : null, entryClass, _checkNaming);
+            refs.Length > 0 ? refs : null, entryClass, _checkNaming,
+            instanceRegistry: _instanceRegistry);
     }
 
     public IReadOnlyList<SessionModuleArtifact> Artifacts =>
@@ -410,7 +413,7 @@ public sealed class IncrementalCompilationSession
     private SessionModuleArtifact EmitModule(CSharpCompilation comp, string path,
         SyntaxTree tree)
     {
-        var emitter = new LuaEmitter();
+        var emitter = new LuaEmitter { EmitInstanceRegistry = _instanceRegistry };
         foreach (var rt in _refTrees)
             emitter.ReferenceTrees.Add(rt);
         var model = comp.GetSemanticModel(tree);
@@ -453,7 +456,7 @@ public sealed class IncrementalCompilationSession
             return null;
         var (_, start, length) = prev.MethodRanges[idx];
 
-        var emitter = new LuaEmitter();
+        var emitter = new LuaEmitter { EmitInstanceRegistry = _instanceRegistry };
         foreach (var rt in _refTrees)
             emitter.ReferenceTrees.Add(rt);
         var model = comp.GetSemanticModel(tree);
