@@ -24,15 +24,13 @@ function M.new(host)
   host.__tcs_instances = host.__tcs_instances
     or setmetatable({}, { __mode = "k" })
   -- module 専用 read-only _ENV。emitted type alias → host global の順で
-  -- 解決し、未宣言 global への write は error (§11)。
+  -- 解決し、未宣言 global への write は error (§11)。解決は Lua 関数の
+  -- __index でなく「alias 解決済み table → host」の table 連鎖で行い、
+  -- module コードの global 参照ごとの関数呼び出しを避ける (issue #12)。
+  -- resolved は alias / types を変えるたびに sync_resolved で追随させる
+  self.resolved = setmetatable({}, { __index = host })
   self.env = setmetatable({}, {
-    __index = function(_, k)
-      local id = self.alias[k]
-      if id then
-        return self.types[id]
-      end
-      return host[k]
-    end,
+    __index = self.resolved,
     __newindex = function(_, k, v)
       if k == "__tcs_instances" then
         host[k] = v
@@ -42,6 +40,12 @@ function M.new(host)
     end,
   })
   return self
+end
+
+-- alias (Lua global 名) 1 つ分の resolved を alias / types の現在値に合わせる
+local function sync_resolved(self, name)
+  local id = self.alias[name]
+  rawset(self.resolved, name, id and self.types[id] or nil)
 end
 
 local function keyset(list)
@@ -115,6 +119,7 @@ local function tx_rollback(self, tx)
   end
   for name, rec in pairs(tx.alias) do
     self.alias[name] = rec.value -- 新規なら nil に戻る
+    sync_resolved(self, name)
   end
 end
 
@@ -248,6 +253,7 @@ function Registry:applyBatch(batch)
           new_types[t.id] = true
           tx.created_types[t.id] = true
         end
+        sync_resolved(self, t.name)
         local prev_meta = find_type_meta(prev, t.id)
         local prev_statics = prev_meta and keyset_statics(prev_meta) or {}
         for _, s in ipairs(t.statics or {}) do

@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace TinyCs;
@@ -6,6 +7,87 @@ namespace TinyCs;
 // 名前の写像 (LuaNaming) を emit の各所から引くための helper。
 public partial class LuaEmitter
 {
+    // 型 table を chunk の local に置く (issue #12)。method 本文からの型参照
+    // (`V.new` / static field) が _ENV lookup でなく upvalue になる。宣言は
+    // local へ代入してから同名 global にも publish する (他 chunk / host から
+    // の参照は従来どおり)。hot reload (EmitInstanceRegistry) は reload chunk
+    // が global を旧 identity へ付け替えて method 本文の参照を旧 table へ
+    // 解決させる設計なので使わない。module artifact 経路も使わない
+    public bool CacheTypeLocals { get; init; }
+    private readonly HashSet<string> _typeLocals = new(StringComparer.Ordinal);
+
+    // Lua の local 上限 (関数あたり 200) に対する余裕。top-level 文の local と
+    // --prelude の local も同じ chunk に載るため、型数と top-level 文の local
+    // 数の合計がこれを超える program では使わない (global 参照のまま)
+    private const int MaxChunkLocalsForTypeCache = 120;
+
+    private void EmitTypeLocals(CSharpCompilation compilation)
+    {
+        if (!CacheTypeLocals || EmitInstanceRegistry) return;
+        var names = new List<string>();
+        var topLevelLocals = 0;
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            if (ReferenceTrees.Contains(tree)) continue;
+            var root = tree.GetCompilationUnitRoot();
+            foreach (var type in TypeTableDeclarations(root.Members))
+            {
+                var name = type.Identifier.ValueText;
+                if (!names.Contains(name)) names.Add(name);
+            }
+            topLevelLocals += root.Members.OfType<GlobalStatementSyntax>()
+                .SelectMany(g => g.DescendantNodes())
+                .Count(n => n is VariableDeclaratorSyntax
+                    or ForEachStatementSyntax
+                    or SingleVariableDesignationSyntax);
+        }
+        if (names.Count == 0
+            || names.Count + topLevelLocals > MaxChunkLocalsForTypeCache)
+            return;
+        _typeLocals.UnionWith(names);
+        // 右辺は chunk 実行開始時の global (未 emit の型は従来の global 参照と
+        // 同じ値になる)。emit する型は宣言サイトで新しい table に差し替わる
+        var list = string.Join(", ", names);
+        AppendLine($"local {list} = {list}");
+    }
+
+    // global table として emit される宣言 (namespace は透過)。診断済みの
+    // 宣言は emit されないので除く。名前が Lua の識別子にならないものも除く
+    private static IEnumerable<BaseTypeDeclarationSyntax> TypeTableDeclarations(
+        IEnumerable<MemberDeclarationSyntax> members)
+    {
+        foreach (var member in members)
+        {
+            switch (member)
+            {
+                case BaseNamespaceDeclarationSyntax ns:
+                    foreach (var inner in TypeTableDeclarations(ns.Members))
+                        yield return inner;
+                    break;
+                case ClassDeclarationSyntax or RecordDeclarationSyntax
+                    or StructDeclarationSyntax or EnumDeclarationSyntax
+                    when !TinyCsComplianceFacts.TryGetUnsupportedSyntax(member, out _)
+                        && IsPlainLuaName(((BaseTypeDeclarationSyntax)member)
+                            .Identifier.ValueText):
+                    yield return (BaseTypeDeclarationSyntax)member;
+                    break;
+            }
+        }
+    }
+
+    private static bool IsPlainLuaName(string s) =>
+        s.Length > 0 && (char.IsAsciiLetter(s[0]) || s[0] == '_')
+        && s.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
+        && LuaNaming.Local(s) == s;
+
+    // 型 table の宣言。chunk local 化している型は global へも publish する
+    private void EmitTypeTable(string name)
+    {
+        AppendLine($"{name} = {{}}");
+        if (_typeLocals.Contains(name))
+            AppendLine($"_ENV.{name} = {name}");
+    }
+
     /// <summary>local 束縛 (local / parameter / pattern 等) の Lua 側表記。</summary>
     private static string L(string csharpName) => LuaNaming.Local(csharpName);
 

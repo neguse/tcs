@@ -1620,3 +1620,11 @@
 - IlBuild.Expressions.cs が 800 行を超えたため条件式の builder を LuaEmitter.IlBuild.Ternary.cs へ分離
 - 検証: HotPathCodegenTests 9 本 (List.Add の形と意味、Add 引数が同じ List を変える場合の順序、式位置条件式の closure 除去、bool/nullable 分岐の値、入れ子条件式の文化、選ばれた分岐だけ評価、配列 default と Length、enum/小整数 field default、Math 直呼びと facade 残置) — 旧コードで 5 本 Red。TCS_DIFFERENTIAL 付きで green
 - 残課題: 参照型要素の `new string[n]` は nil 要素のため `Length` が 0 になる (Lua sequence で null を表せない既存の制約。TCS1003 は配列生成を診断していない)
+
+### T245: 型 table の chunk local 化と module env の table 連鎖解決 (issue #12 の 4) ✓ (2026-09-25)
+- plain 出力 (Transpile / CLI 通常 build) で、emit する型 table を chunk 冒頭の `local Counter, T = Counter, T` に置き、宣言サイトは local へ代入してから `_ENV.Counter = Counter` で global にも publish する。method 本文の型参照 (`V.new`、static field) が _ENV lookup でなく upvalue になる。host / 別 chunk からの global 参照は従来どおり
+- 対象外: hot reload build (`--hot-reload` / instanceRegistry) — reload chunk は global を旧 identity へ付け替えて v2 method 本文の global 参照を旧 table へ解決させる設計なので、upvalue に固定すると壊れる。module artifact (snapshot / incremental) 経路 — define chunk は registry env で解決する。Lua の local 上限 (200/関数) に対して、型数 + top-level 文の local 数が 120 を超える program も global のまま。診断済みで emit されない型・Lua 識別子にならない名前は含めない
+- module mode: registry の read-only `_ENV` の `__index` を Lua 関数から「alias 解決済み table (`resolved`) → host」の table 連鎖へ変更。module コードの global read (型 / `math` / `print` / runtime table) ごとの Lua 関数呼び出しが消える。`resolved` は declare 時と rollback 時に alias / types へ追随 (sync_resolved)
+- 実測 (lua 5.5 64bit、型参照 2 回 + 生成 1 回のループ): global 198ns / upvalue 175ns、module env は関数 __index 271ns → table 連鎖 203ns
+- 検証: HotPathCodegenTests +4 (local 化と global publish の両立 — 別 chunk から `_G.T` を呼べる、hot reload build は global のまま、130 型で fallback、registry env が table __index で型 → host を解決)、module / incremental / transaction 系 39 本 green
+- issue #12 は T240 (5: operator の静的解決) / T244 (1-3、4 の Math) / T245 (4 の残り) で全項目対応

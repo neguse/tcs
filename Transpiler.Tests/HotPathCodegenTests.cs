@@ -272,4 +272,92 @@ public class HotPathCodegenTests
         Assert.Equal("12|24|2",
             TestHelper.TranspileAndRunWithRuntime(source, "T.Test(4)"));
     }
+
+    private const string TypeLocalSource = """
+        namespace Game.Core
+        {
+            public class Counter
+            {
+                public static int Total;
+                public int N;
+
+                public Counter(int n)
+                {
+                    N = n;
+                    Total += n;
+                }
+            }
+        }
+
+        public static class T
+        {
+            public static int Test()
+            {
+                var a = new Game.Core.Counter(2);
+                var b = new Game.Core.Counter(3);
+                return Game.Core.Counter.Total * 10 + a.N + b.N;
+            }
+        }
+        """;
+
+    [Fact]
+    public void TypeTables_AreChunkLocalsAndStillPublishedAsGlobals()
+    {
+        var lua = Transpiler.Transpile(TypeLocalSource);
+
+        Assert.Contains("local Counter, T = Counter, T", lua);
+        // 別 chunk (host) からは従来どおり global で引ける
+        var script = $"assert(load({EscapeLong(lua)}))()\n" +
+            "print(_G.T.test(), rawget(_G, 'Counter') ~= nil)";
+        Assert.Equal("55\ttrue", TestHelper.RunLua(script).Trim());
+    }
+
+    [Fact]
+    public void TypeTables_StayGlobalForHotReloadBuilds()
+    {
+        var lua = Transpiler.Transpile([TypeLocalSource], instanceRegistry: true);
+
+        Assert.DoesNotContain("local Counter", lua);
+        Assert.DoesNotContain("_ENV.Counter", lua);
+        Assert.Equal("55", TestHelper.RunLua(lua + "\nprint(T.test())").Trim());
+    }
+
+    [Fact]
+    public void TypeTables_TooManyTypes_FallBackToGlobals()
+    {
+        // Lua の local 上限 (200/関数) に近づく program では local 化しない
+        var types = string.Concat(Enumerable.Range(0, 130)
+            .Select(i => $"public class C{i} {{ public static int V = {i}; }}\n"));
+        var lua = Transpiler.Transpile(types +
+            "public static class T { public static int Test() => C129.V + C0.V; }");
+
+        Assert.DoesNotContain("local C0", lua);
+        Assert.Equal("129", TestHelper.RunLua(lua + "\nprint(T.test())").Trim());
+    }
+
+    [Fact]
+    public void ModuleRegistryEnv_ResolvesTypesThenHostWithoutFunctionIndex()
+    {
+        var registry = TestHelper.FindProjectFile(LuaRuntime.RegistryRelativePath);
+        var output = TestHelper.RunLua($$"""
+            local Reg = dofile("{{registry}}")
+            local reg = Reg.new(_G)
+            local mt = getmetatable(reg.env)
+            print(type(mt.__index))
+            reg:applyBatch({ revision = 1, modules = { {
+              id = "m", hash = "h1",
+              types = { { id = "m#Box", name = "Box", kind = "class",
+                statics = {}, keys = { "__index", "get" } } },
+              define = function(_ENV)
+                Box.__index = Box
+                function Box.get() return math.max(1, 2) end
+              end,
+              inits = {}, initfns = {} } } })
+            print(reg.env.Box.get(), reg.env.print == print, reg.env.Missing)
+            """);
+
+        Assert.Equal("table\n2\ttrue\tnil", output.Trim().Replace("\r", ""));
+    }
+
+    private static string EscapeLong(string lua) => $"[==[{lua}]==]";
 }

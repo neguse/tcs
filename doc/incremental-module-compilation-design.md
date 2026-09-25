@@ -326,7 +326,7 @@ static initializer と top-level statement は descriptor 評価時には実行�
 
 browser/watch の主経路は、全 `_G` recursive merge ではなく `ModuleRegistry.applyBatch(batch)` を使う。
 
-descriptor chunk は module 専用の read-only `_ENV` で load する。名前解決は「registry の emitted type alias → TinySystem/runtime global → host global」の順とし、未宣言 global への write は error にする。生成 method closure もこの環境を capture するため、`Foo.new`、`Base.Method`、`Math.*` など現行 emitter の global read は stable registry table へ解決される。実 `_G` alias は legacy linked output の互換層に限定する。
+descriptor chunk は module 専用の read-only `_ENV` で load する。名前解決は「registry の emitted type alias → TinySystem/runtime global → host global」の順とし、未宣言 global への write は error にする。生成 method closure もこの環境を capture するため、`Foo.new`、`Base.Method`、`Math.*` など現行 emitter の global read は stable registry table へ解決される。解決は Lua 関数の `__index` でなく「alias 解決済み table (`registry.resolved`) → host」の table 連鎖で行い、global read ごとの関数呼び出しを避ける (T245)。`resolved` は alias / types の変更 (declare と rollback) のたびに追随させる。実 `_G` alias は legacy linked output の互換層に限定する。
 
 ### 11.1 三段階 apply
 

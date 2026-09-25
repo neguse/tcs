@@ -123,7 +123,11 @@ public static class Transpiler
                 tree, model));
         }
 
-        var emitter = new LuaEmitter { EmitInstanceRegistry = instanceRegistry };
+        var emitter = new LuaEmitter
+        {
+            EmitInstanceRegistry = instanceRegistry,
+            CacheTypeLocals = true,
+        };
         foreach (var refTree in refTrees)
             emitter.ReferenceTrees.Add(refTree);
         if (hasTopLevelStatements)

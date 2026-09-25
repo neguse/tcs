@@ -101,6 +101,7 @@ public partial class LuaEmitter
             if (EmitInstanceRegistry)
                 AppendLine("__tcs_instances = __tcs_instances or "
                     + "setmetatable({}, { __mode = \"k\" })");
+            EmitTypeLocals(compilation);
             _headerEmitted = true;
         }
         var root = tree.GetCompilationUnitRoot();
@@ -202,7 +203,7 @@ public partial class LuaEmitter
         _currentType = info;
 
         var declStart = _sb.Length;
-        AppendLine($"{name} = {{}}");
+        EmitTypeTable(name);
         info.DeclRanges.Add((declStart, _sb.Length - declStart));
         AppendLine($"{name}.__index = {name}");
         info.DefinitionKeys.Add("__index");
@@ -407,7 +408,7 @@ public partial class LuaEmitter
         _currentType = info;
 
         var declStart = _sb.Length;
-        AppendLine($"{name} = {{}}");
+        EmitTypeTable(name);
         info.DeclRanges.Add((declStart, _sb.Length - declStart));
         AppendLine($"{name}.__index = {name}");
         info.DefinitionKeys.Add("__index");
@@ -468,7 +469,7 @@ public partial class LuaEmitter
         var info = new EmittedTypeInfo { Name = name, Kind = "enum" };
         EmittedTypes.Add(info);
         var declStart = _sb.Length;
-        AppendLine($"{name} = {{}}");
+        EmitTypeTable(name);
         info.DeclRanges.Add((declStart, _sb.Length - declStart));
         int value = 0;
         foreach (var member in enumDecl.Members)
