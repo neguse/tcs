@@ -16,9 +16,12 @@ public partial class LuaEmitter
         var name = structDecl.Identifier.ValueText;
         var symbol = model.GetDeclaredSymbol(structDecl);
         EmitTypeTable(name);
+        var statics = CollectStaticFields(model, structDecl.Members);
+        EmitStaticPreZero(name, statics, null);
         AppendLine();
         EmitStructNew(name, symbol);
         EmitStructCopyFunction(name, symbol);
+        EmitStructAssignFunction(name, symbol);
 
         var ctor = structDecl.Members.OfType<ConstructorDeclarationSyntax>()
             .FirstOrDefault(c => !c.Modifiers.Any(SyntaxKind.StaticKeyword)
@@ -27,6 +30,7 @@ public partial class LuaEmitter
             EmitStructCtor(model, name, structDecl, ctor);
 
         EmitStructMembers(model, name, structDecl.Members);
+        EmitStaticInitializers(model, name, statics, null);
     }
 
     // record struct。struct の emit の上に positional primary ctor
@@ -39,6 +43,8 @@ public partial class LuaEmitter
         var name = rec.Identifier.ValueText;
         var symbol = model.GetDeclaredSymbol(rec);
         EmitTypeTable(name);
+        var statics = CollectStaticFields(model, rec.Members);
+        EmitStaticPreZero(name, statics, null);
         AppendLine();
         EmitStructNew(name, symbol);
 
@@ -65,6 +71,7 @@ public partial class LuaEmitter
         }
 
         EmitStructCopyFunction(name, symbol);
+        EmitStructAssignFunction(name, symbol);
 
         // 値等価。ネスト struct 値は推移的に field 展開する (struct は
         // 循環できないので停止する)
@@ -82,6 +89,7 @@ public partial class LuaEmitter
         AppendLine();
 
         EmitStructMembers(model, name, rec.Members);
+        EmitStaticInitializers(model, name, statics, null);
     }
 
     // zero 初期化コンストラクタ。`new S()` / default(S) / field default が通る
@@ -105,23 +113,24 @@ public partial class LuaEmitter
         return table;
     }
 
-    // instance member の emit。override (ToString 等) は診断済み (Shared facts)
-    // なので emit しない
+    // member の emit。instance は明示 self の自由関数、static は self なしの
+    // 関数。operator は呼び出しサイトが静的に解決する関数 (`S.__add`) だけで、
+    // metatable が無いので metamethod 用の実行時 dispatcher は作らない。
+    // override (ToString 等) は診断済み (Shared facts) なので emit しない
     private void EmitStructMembers(SemanticModel model, string name,
         IEnumerable<MemberDeclarationSyntax> members)
     {
+        var operators = new List<OperatorDeclarationSyntax>();
         foreach (var member in members)
         {
             switch (member)
             {
                 case MethodDeclarationSyntax method
-                    when !method.Modifiers.Any(SyntaxKind.StaticKeyword)
-                        && !method.Modifiers.Any(SyntaxKind.OverrideKeyword):
+                    when !method.Modifiers.Any(SyntaxKind.OverrideKeyword):
                     VisitMethod(model, name, method, explicitSelf: true);
                     break;
                 case PropertyDeclarationSyntax prop
-                    when !IsAutoProperty(prop) && prop.AccessorList != null
-                        && !prop.Modifiers.Any(SyntaxKind.StaticKeyword):
+                    when !IsAutoProperty(prop) && prop.AccessorList != null:
                     VisitCustomProperty(model, name, prop, explicitSelf: true);
                     break;
                 case PropertyDeclarationSyntax prop
@@ -129,8 +138,37 @@ public partial class LuaEmitter
                     VisitExpressionBodiedProperty(model, name, prop,
                         explicitSelf: true);
                     break;
+                case OperatorDeclarationSyntax op
+                    when TinyCsComplianceFacts.TryGetOperatorMetamethod(op, out _):
+                    operators.Add(op);
+                    break;
             }
         }
+        EmitOperators(model, name, operators, runtimeDispatch: false);
+    }
+
+    // ref parameter への代入 (`p = v`) の書き戻し先。呼び出し側の値 (table) を
+    // 保ったまま field を in-place で上書きする。mutable な struct member は
+    // 再帰的に in-place (その table への ref も新しい値を見る)、readonly
+    // struct の member は不変値なので参照を差し替える。readonly struct 自体は
+    // ref parameter を持てない (Shared facts) ので作らない
+    private void EmitStructAssignFunction(string name, INamedTypeSymbol? symbol)
+    {
+        if (symbol is { IsReadOnly: true }) return;
+        _currentType?.DefinitionKeys.Add("__assign");
+        AppendLine($"function {name}.__assign(d, s)");
+        _indent++;
+        foreach (var (memberName, memberType) in ValueMembers(symbol))
+        {
+            var deep = IsUserStruct(memberType)
+                && memberType is not INamedTypeSymbol { IsReadOnly: true };
+            AppendLine(deep
+                ? $"{memberType.Name}.__assign(d.{memberName}, s.{memberName})"
+                : $"d.{memberName} = s.{memberName}");
+        }
+        _indent--;
+        AppendLine("end");
+        AppendLine();
     }
 
     // field / property initializer は明示 ctor 実行時のみ走る (C# 11 意味論)
@@ -298,27 +336,99 @@ public partial class LuaEmitter
         // `new S(args)` は S.ctor の IlCall に降りるが、結果は常に fresh
         if (src is BaseObjectCreationExpressionSyntax)
             return built;
+        if (IsFreshUserCallResult(model, src))
+            return built;
         return new IlStructCopy(built, type!.Name);
+    }
+
+    // source で宣言した method / operator の戻り値は callee の return (copy
+    // 地点) で copy 済み (または fresh) なので、呼び出し側で重ねて copy
+    // しない (`p = p + v` の確保を 1 回にする)。runtime / BCL / --ref の関数
+    // (List.FirstOrDefault 等) は要素 alias を返し得るので対象外
+    private bool IsFreshUserCallResult(SemanticModel model, ExpressionSyntax src)
+    {
+        while (src is ParenthesizedExpressionSyntax paren)
+            src = paren.Expression;
+        if (src is not (InvocationExpressionSyntax or BinaryExpressionSyntax
+                or PrefixUnaryExpressionSyntax))
+            return false;
+        return model.GetSymbolInfo(src).Symbol is IMethodSymbol
+            {
+                MethodKind: MethodKind.Ordinary or MethodKind.UserDefinedOperator,
+            } method
+            && method.DeclaringSyntaxReferences.Length > 0
+            && !IsReferenceOnlyType(method.ContainingType);
+    }
+
+    // struct 値をその場で書き換える代入先: ref parameter と struct method の
+    // `this`。Lua の local を差し替えても呼び出し側へ届かないため、
+    // 型名を返して S.__assign(target, value) の in-place 書き戻しにさせる
+    private static string? ByReferenceStructTarget(SemanticModel model,
+        ExpressionSyntax target)
+    {
+        while (target is ParenthesizedExpressionSyntax paren)
+            target = paren.Expression;
+        var type = target switch
+        {
+            IdentifierNameSyntax id when model.GetSymbolInfo(id).Symbol
+                is IParameterSymbol { RefKind: RefKind.Ref } p => p.Type,
+            ThisExpressionSyntax => model.GetTypeInfo(target).Type,
+            _ => null,
+        };
+        return IsUserStruct(type) ? type!.Name : null;
     }
 
     // struct method/accessor の receiver 規則: C# の「変数」
     // (local / param / field / 配列要素 / this) なら直渡しで変異が変数に残り、
     // rvalue (property / List indexer / 呼び出し結果等) はコピーへの変異 =
     // 捨てられる。どちらも C# と一致する
+    // in / ref readonly parameter は読み取り専用の変数で、C# は変更系 member
+    // 呼び出しを防御コピーに対して行う (その field 経由の呼び出しも同じ)
     private static bool IsStructVariableReceiver(SemanticModel model,
         ExpressionSyntax expr) => expr switch
     {
         ThisExpressionSyntax => true,
-        IdentifierNameSyntax id => model.GetSymbolInfo(id).Symbol
-            is ILocalSymbol or IParameterSymbol or IFieldSymbol,
+        IdentifierNameSyntax id => model.GetSymbolInfo(id).Symbol switch
+        {
+            IParameterSymbol p => p.RefKind
+                is not (RefKind.In or RefKind.RefReadOnlyParameter),
+            ILocalSymbol or IFieldSymbol => true,
+            _ => false,
+        },
         MemberAccessExpressionSyntax ma =>
-            model.GetSymbolInfo(ma).Symbol is IFieldSymbol,
+            model.GetSymbolInfo(ma).Symbol is IFieldSymbol
+            && !IsReadOnlyParameterRooted(model, ma.Expression),
         ElementAccessExpressionSyntax ea =>
             model.GetSymbolInfo(ea).Symbol is not IPropertySymbol,
         ParenthesizedExpressionSyntax paren =>
             IsStructVariableReceiver(model, paren.Expression),
         _ => false,
     };
+
+    private static bool IsReadOnlyParameterRooted(SemanticModel model,
+        ExpressionSyntax expr)
+    {
+        while (true)
+        {
+            switch (expr)
+            {
+                case ParenthesizedExpressionSyntax paren:
+                    expr = paren.Expression;
+                    continue;
+                case MemberAccessExpressionSyntax ma
+                    when model.GetSymbolInfo(ma).Symbol is IFieldSymbol:
+                    expr = ma.Expression;
+                    continue;
+                case IdentifierNameSyntax id:
+                    return model.GetSymbolInfo(id).Symbol is IParameterSymbol
+                    {
+                        RefKind: RefKind.In or RefKind.RefReadOnlyParameter,
+                    };
+                default:
+                    return false;
+            }
+        }
+    }
 
     private IlExpr StructReceiverArg(SemanticModel model,
         ExpressionSyntax recvSyntax, IlExpr recv) =>

@@ -217,7 +217,7 @@ dotnet run --project Transpiler -- src/*.cs -o out.lua --watch
 ### tcs analyzer PoC
 
 Rider などの C# IDE 上で tcs 非準拠コードを警告するための Roslyn Analyzer PoC。
-現時点では `struct`, `record struct`, `partial` 型, `lock`, `nameof`, `try/catch`, `throw`, local function, list pattern、未対応 BCL API / 未対応 core library member、collection への null 保存を `TCS1001` / `TCS1002` / `TCS1003` として報告する。
+現時点では struct の未対応 member (override / indexer 等)、値型以外の `ref` parameter、`partial` 型, `lock`, `nameof`, `try/catch`, `throw`, local function, list pattern、未対応 BCL API / 未対応 core library member、collection への null 保存を `TCS1001` / `TCS1002` / `TCS1003` として報告する (`struct` / `record struct` 自体は対応済み — instance / static member・算術 operator・`ref` / `in` parameter を含む)。
 同じ共有ルールを `tcs check` と transpiler warning でも使う。
 
 ```bash

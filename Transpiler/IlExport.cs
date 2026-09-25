@@ -34,7 +34,9 @@ public sealed record IlFieldInfo(string Name, string Type, bool IsStatic,
     IlExpr? Init = null);
 
 /// <summary>method body の IL。Body が null なら IL 未対応 (診断構文等) で
-/// backend は対象外にできる。</summary>
+/// backend は対象外にできる。ParameterTypes の `ref T` は参照渡し (struct の
+/// ref parameter。Lua backend は table を共有する) — 値渡し前提の backend は
+/// 拒否すること。</summary>
 public sealed record IlMethodInfo(
     string Name,
     bool IsStatic,
@@ -61,6 +63,11 @@ public sealed record IlExportResult(
 
 public static class IlExport
 {
+    // parameter の型表記。struct の ref parameter は `ref ` を前置して参照
+    // 渡しであることを backend へ伝える (in は値渡しと観測等価なので素の型)
+    private static string ParameterTypeText(IParameterSymbol p) =>
+        (p.RefKind == RefKind.Ref ? "ref " : "") + p.Type.ToDisplayString();
+
     public static IlExportResult Export(string[] csharpSources)
     {
         var trees = csharpSources
@@ -208,7 +215,7 @@ public static class IlExport
                 ctorSymbol == null
                     ? []
                     : [.. ctorSymbol.Parameters
-                        .Select(p => p.Type.ToDisplayString())],
+                        .Select(ParameterTypeText)],
                 emitter.ExportStatsIl(model, ctorDecl.Body?.Statements),
                 baseArgs);
         }
@@ -261,7 +268,7 @@ public static class IlExport
                 opSymbol == null
                     ? []
                     : [.. opSymbol.Parameters
-                        .Select(p => p.Type.ToDisplayString())]));
+                        .Select(ParameterTypeText)]));
         }
         foreach (var method in cls.Members.OfType<MethodDeclarationSyntax>())
         {
@@ -279,7 +286,7 @@ public static class IlExport
                 methodSymbol == null
                     ? []
                     : [.. methodSymbol.Parameters
-                        .Select(p => p.Type.ToDisplayString())]));
+                        .Select(ParameterTypeText)]));
         }
 
         return new IlClassInfo(cls.Identifier.ValueText, baseName,

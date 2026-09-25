@@ -112,6 +112,11 @@ internal sealed class ContractFacts
     public CType MapType(string displayName)
     {
         var text = displayName.Trim();
+        // 参照渡し parameter (IlExport の `ref T`) は未対応: 値渡しで出すと
+        // callee の書き込みが呼び出し側へ届かない silent wrong-code になる
+        if (text.StartsWith("ref ", StringComparison.Ordinal))
+            throw new Tcs2cException(
+                $"ref parameter is not supported by tcs2c: {text}");
         if (text.StartsWith("global::", StringComparison.Ordinal))
             text = text[8..];
         if (text.EndsWith("[]", StringComparison.Ordinal))

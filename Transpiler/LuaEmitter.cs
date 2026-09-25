@@ -221,34 +221,23 @@ public partial class LuaEmitter
         AppendLine();
 
         var fieldInits = new List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)>();
-        var staticFieldInits = new List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)>();
+        var staticFieldInits = CollectStaticFields(model, cls.Members);
         ConstructorDeclarationSyntax? ctor = null;
 
         foreach (var member in cls.Members)
         {
             switch (member)
             {
-                case FieldDeclarationSyntax field:
-                    var isStatic = field.Modifiers.Any(SyntaxKind.StaticKeyword)
-                        || field.Modifiers.Any(SyntaxKind.ConstKeyword);
+                case FieldDeclarationSyntax field
+                    when !IsStaticMember(field):
                     var typeInfo = model.GetTypeInfo(field.Declaration.Type);
                     foreach (var v in field.Declaration.Variables)
-                    {
-                        if (isStatic)
-                        {
-                            staticFieldInits.Add((N(v.Identifier.ValueText), v.Initializer?.Value,
-                                typeInfo.Type));
-                        }
-                        else
-                            fieldInits.Add((N(v.Identifier.ValueText), v.Initializer?.Value,
-                                typeInfo.Type));
-                    }
+                        fieldInits.Add((N(v.Identifier.ValueText), v.Initializer?.Value,
+                            typeInfo.Type));
                     break;
-                case PropertyDeclarationSyntax prop when IsAutoProperty(prop):
-                    var propTarget = prop.Modifiers.Any(SyntaxKind.StaticKeyword)
-                        ? staticFieldInits
-                        : fieldInits;
-                    propTarget.Add((N(prop.Identifier.ValueText), prop.Initializer?.Value,
+                case PropertyDeclarationSyntax prop
+                    when IsAutoProperty(prop) && !IsStaticMember(prop):
+                    fieldInits.Add((N(prop.Identifier.ValueText), prop.Initializer?.Value,
                         model.GetTypeInfo(prop.Type).Type));
                     break;
                 case ConstructorDeclarationSyntax c:
@@ -258,38 +247,7 @@ public partial class LuaEmitter
             }
         }
 
-        // C# は static field を default 値で事前初期化してから initializer を
-        // 宣言順に実行する (循環参照 `a = b + 1; b = a + 1` が nil にならない)。
-        // pre-zero は declare 側の意味論なので DeclRanges に載せ、hot apply の
-        // define チャンクに含めない (live 値を上書きしないため)。
-        var preZeroStart = _sb.Length;
-        foreach (var (fieldName, _, type) in staticFieldInits)
-        {
-            var defaultValue = GetDefaultValueForType(type!);
-            if (defaultValue != "nil")
-                AppendLine($"{name}.{fieldName} = {defaultValue}");
-        }
-        if (_sb.Length > preZeroStart)
-            info.DeclRanges.Add((preZeroStart, _sb.Length - preZeroStart));
-
-        // Emit static fields on the class table
-        foreach (var (fieldName, init, type) in staticFieldInits)
-        {
-            var initStart = _sb.Length;
-            if (init != null)
-                AppendLine($"{name}.{fieldName} = {VisitExpression(model, init)}");
-            else
-                AppendLine($"{name}.{fieldName} = {GetDefaultValueForType(type!)}");
-            // 定数/default だけを副作用なし (pure) とし、hot apply での新規
-            // field 初期化を許す。それ以外の initializer 変更は restart 境界。
-            var pure = init == null || model.GetConstantValue(init).HasValue;
-            info.StaticFields.Add(new StaticFieldMeta(fieldName,
-                GetDefaultValueForType(type),
-                init == null ? "<default>"
-                    : ModuleArtifactText.Sha256(init.ToString()),
-                pure, initStart, _sb.Length - initStart));
-        }
-        if (staticFieldInits.Count > 0) AppendLine();
+        EmitStaticPreZero(name, staticFieldInits, info);
 
         info.InstanceShape = string.Join("\n", fieldInits.Select(f =>
             f.Name + "=" + (f.Init?.ToString() ?? GetDefaultValueForType(f.Type))));
@@ -327,6 +285,7 @@ public partial class LuaEmitter
         }
 
         EmitOperators(model, name, operators);
+        EmitStaticInitializers(model, name, staticFieldInits, info);
         _currentType = null;
     }
 
@@ -391,7 +350,11 @@ public partial class LuaEmitter
         _currentType?.DefinitionKeys.Add($"get_{propName}");
         AppendLine($"function {className}{separator}get_{propName}({selfParam})");
         _indent++;
-        AppendLine($"return {VisitExpression(model, prop.ExpressionBody!.Expression)}");
+        if (!TryEmitReturnViaIl(model, prop.ExpressionBody!.Expression))
+        {
+            LegacyBodies++;
+            AppendLine($"return {VisitExpression(model, prop.ExpressionBody.Expression)}");
+        }
         _indent--;
         AppendLine("end");
         AppendLine();

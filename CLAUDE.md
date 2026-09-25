@@ -152,7 +152,7 @@ support-matrix / README / design doc、歴史は done.md と git log。
 | C#                  | Lua 5.5                            |
 |---------------------|------------------------------------|
 | class               | table + metatable                  |
-| struct / record struct | plain table + copy 地点で型別 `__copy`（instance member は静的自由関数、readonly は copy 省略。static member / operator / override は TCS1001） |
+| struct / record struct | plain table + copy 地点で型別 `__copy`（member は静的自由関数、operator は呼び出しサイトで静的解決、ref parameter は `__assign` で in-place、readonly は copy 省略。override / indexer は TCS1001） |
 | enum                | integer 定数テーブル                |
 | method              | function(self, ...)                |
 | static method       | function(...)                      |
@@ -252,6 +252,6 @@ Clang AST → TypeRegistry → ModuleSpec（既存IR）
 
 - dotnet と Lua の数値精度差異（double vs Lua number）
 - 文字列: C# は UTF-16、Lua は バイト列（UTF-8前提）
-- struct / record struct: 値セマンティクス対応済み (T219b)。static member / operator / override (ToString 等) はサブセット外
+- struct / record struct: 値セマンティクス対応済み (T219b)。static member / 算術 operator / ref・in parameter も対応 (T246)。override (ToString 等) / indexer はサブセット外
 - null vs nil: C# の null は Lua の nil にマップ
 - 型消去: ジェネリクスはコンパイル時のみ、Lua出力には型情報なし

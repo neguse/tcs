@@ -236,11 +236,11 @@ public class StructSemanticsTests
 
     // static member は引き続きサブセット外 (対応したのは instance member のみ)
     [Fact]
-    public void StructStaticMember_ReportsDiagnostic()
+    public void StructOverrideMember_ReportsDiagnostic()
     {
         var result = Transpiler.TranspileWithDiagnostics([Vec.Replace(
             "public float Y;",
-            "public float Y; public static int Make() { return 1; }")]);
+            "public float Y; public override string ToString() { return \"v\"; }")]);
         Assert.Contains(result.Warnings,
             w => w.Contains("StructMember"));
     }

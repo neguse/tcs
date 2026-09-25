@@ -440,16 +440,10 @@ public partial class LuaEmitter
                     earlyMethod);
         }
 
-        if (invocation.ArgumentList.Arguments
-            .Any(a => !a.RefKindKeyword.IsKind(SyntaxKind.None)))
-            return null;
-        var args = new List<IlExpr>();
-        foreach (var a in invocation.ArgumentList.Arguments)
-        {
-            var built = BuildExpr(model, a.Expression);
-            if (built == null) return null;
-            args.Add(WrapStructCopy(model, a.Expression, built));
-        }
+        var args = BuildArgs(model,
+            model.GetSymbolInfo(invocation).Symbol as IMethodSymbol,
+            invocation.ArgumentList.Arguments);
+        if (args == null) return null;
         var argArr = args.ToImmutableArray();
 
         if (invocation.Expression is MemberAccessExpressionSyntax ma)
@@ -715,15 +709,12 @@ public partial class LuaEmitter
         }
 
         if (typeSymbol == null) return null;
-        var args = new List<IlExpr>();
-        foreach (var a in argumentList ?? [])
-        {
-            if (!a.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
-            var built = BuildExpr(model, a.Expression);
-            if (built == null) return null;
-            // ctor 引数も by-value (il-spec §10 の引数 copy 地点)
-            args.Add(WrapStructCopy(model, a.Expression, built));
-        }
+        // ctor 引数も by-value (il-spec §10 の引数 copy 地点)
+        var args = argumentList is { } argList
+            ? BuildArgs(model,
+                model.GetSymbolInfo(creation).Symbol as IMethodSymbol, argList)
+            : [];
+        if (args == null) return null;
         if (IsReferenceOnlyType(typeSymbol))
             // ctor 引数つきは legacy が警告する経路 — fallback
             return args.Count > 0
@@ -736,40 +727,5 @@ public partial class LuaEmitter
         return initializer != null
             ? BuildObjectInitializerExpr(model, ctor, initializer)
             : ctor;
-    }
-
-    // Dictionary.TryGetValue(key, out v) — legacy IIFE の写像
-    private IlExpr? BuildDictTryGetValue(SemanticModel model,
-        InvocationExpressionSyntax invocation, MemberAccessExpressionSyntax ma,
-        IMethodSymbol methodSym)
-    {
-        if (invocation.ArgumentList.Arguments.Count != 2) return null;
-        var keyArg = invocation.ArgumentList.Arguments[0];
-        var outArg = invocation.ArgumentList.Arguments[1];
-        if (!keyArg.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
-        var key = BuildExpr(model, keyArg.Expression);
-        var recv = BuildExpr(model, ma.Expression);
-        if (key == null || recv == null) return null;
-        IlExpr? target = outArg.Expression switch
-        {
-            DeclarationExpressionSyntax decl =>
-                new IlVar(VisitDeclarationExpression(decl)),
-            IdentifierNameSyntax id => new IlVar(L(id.Identifier.ValueText)),
-            _ => null,
-        };
-        if (target == null) return null;
-        var defaultValue = GetDefaultValueForType(
-            methodSym.Parameters.Length > 1
-                ? methodSym.Parameters[1].Type : null);
-        // multi-return intrinsic (il-spec §13)。nil 比較の desugar を IL に
-        // 残さない (C backend が「nil = 不在」を型付けできないため)
-        return new IlIife([
-            new IlMultiAssign(
-                [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
-                [new IlCall("Dict.TryGet",
-                    [recv, key, new IlLit(defaultValue)])],
-                Declare: true),
-            new IlAssign(target, new IlVar("__tcs_v")),
-            new IlReturn(new IlVar("__tcs_found"))]);
     }
 }

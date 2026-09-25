@@ -60,7 +60,13 @@ public static partial class TinyCsComplianceFacts
         };
 
     public static bool TryGetUnsupportedSyntax(SyntaxNode node,
-        out string syntaxName)
+        out string syntaxName) =>
+        TryGetUnsupportedSyntaxCore(node, null, out syntaxName);
+
+    // model があれば型に依存する緩和 (struct の ref parameter) を適用する。
+    // model なしの判定は保守側 (緩和しない)
+    private static bool TryGetUnsupportedSyntaxCore(SyntaxNode node,
+        SemanticModel? model, out string syntaxName)
     {
         syntaxName = node switch
         {
@@ -216,8 +222,13 @@ public static partial class TinyCsComplianceFacts
             ParameterSyntax param
                 when param.Modifiers.Any(SyntaxKind.OutKeyword)
                     => "OutParameter",
+            // mutable な struct の ref parameter は対応: table (struct 値) を
+            // そのまま渡し、field 書き込みは呼び出し側の値へ届く。parameter
+            // 自体への代入は S.__assign で in-place に書き戻す
             ParameterSyntax param
                 when param.Modifiers.Any(SyntaxKind.RefKeyword)
+                    && !IsMutableSourceStruct(
+                        model?.GetDeclaredSymbol(param)?.Type)
                     => "RefParameter",
             // params の展開呼び出し (F(1,2,3) → 配列 pack) は未実装で、展開形の
             // 呼び出しが先頭引数だけ束縛される silent wrong-code になる。
@@ -294,24 +305,37 @@ public static partial class TinyCsComplianceFacts
             && assignment.Left == node;
     }
 
-    // struct instance member は静的自由関数へ emit できる。
-    // パラメータなし明示 ctor は `new S()` (zero 値) と衝突するため除外。
-    // override (ToString/Equals/GetHashCode) は呼び出しが tostring 等の
-    // 動的経路に乗り metatable なしでは差し替えられないため除外。
-    // static member / operator / indexer / event 等はサブセット外のまま
+    // struct の member は静的自由関数へ emit できる (instance は明示 self)。
+    // static method / property / field と算術 operator (+ - * / % と単項 -) も
+    // 対応 — 呼び出しサイトが静的型から `S.M(...)` / `S.__add(a, b)` を直接
+    // 呼ぶので metatable は要らない。パラメータなし明示 ctor は `new S()`
+    // (zero 値) と衝突するため除外。override (ToString/Equals/GetHashCode) は
+    // 呼び出しが tostring 等の動的経路に乗り metatable なしでは差し替えられ
+    // ないため除外。indexer / event 等はサブセット外のまま
     private static bool IsSupportedStructMember(MemberDeclarationSyntax member)
         => member switch
         {
             MethodDeclarationSyntax m =>
-                !m.Modifiers.Any(SyntaxKind.StaticKeyword)
-                && !m.Modifiers.Any(SyntaxKind.OverrideKeyword),
-            PropertyDeclarationSyntax p =>
-                !p.Modifiers.Any(SyntaxKind.StaticKeyword),
+                !m.Modifiers.Any(SyntaxKind.OverrideKeyword),
+            PropertyDeclarationSyntax => true,
+            OperatorDeclarationSyntax op => TryGetOperatorMetamethod(op, out _),
             ConstructorDeclarationSyntax c =>
                 !c.Modifiers.Any(SyntaxKind.StaticKeyword)
                 && c.ParameterList.Parameters.Count > 0,
             _ => false,
         };
+
+    // ref parameter を許す struct: source 宣言の非 readonly struct。
+    // readonly struct は値を共有する (copy 省略) ので in-place 書き戻しできない
+    private static bool IsMutableSourceStruct(ITypeSymbol? type) =>
+        type is INamedTypeSymbol
+        {
+            TypeKind: TypeKind.Struct,
+            SpecialType: SpecialType.None,
+            IsReadOnly: false,
+        } named
+        && named.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T
+        && named.Locations.Any(l => l.IsInSource);
 
     public static bool TryGetUnsupportedSyntax(IOperation? operation,
         out string syntaxName)
@@ -325,7 +349,7 @@ public static partial class TinyCsComplianceFacts
     public static bool TryGetUnsupportedSyntax(SyntaxNode node,
         SemanticModel model, out string syntaxName)
     {
-        if (TryGetUnsupportedSyntax(node, out syntaxName)) return true;
+        if (TryGetUnsupportedSyntaxCore(node, model, out syntaxName)) return true;
 
         // top-level statements の暗黙パラメータ args。Lua 出力に定義が存在せず
         // 実行時 nil になる (command line は host の責務)。lambda 等の自前

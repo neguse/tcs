@@ -28,49 +28,59 @@ public class TinyCsComplianceAnalyzerTests
     }
 
     [Fact]
-    public async Task StructDeclaration_InstanceMembersClean_StaticReports()
+    public async Task StructDeclaration_MembersClean_OverrideReports()
     {
-        // instance member (method/property/ctor) は許可、
-        // static member は引き続き拒否
+        // instance / static member (method/property/field/ctor)、算術 operator、
+        // mutable struct の ref / in parameter は許可。override は引き続き拒否
         var clean = await AnalyzeAsync("""
             public struct Vec2
             {
                 public int X;
+                public static readonly Vec2 Zero = new Vec2(0);
+                public static int Count;
                 public Vec2(int x) { X = x; }
                 public int Twice() { return X * 2; }
                 public int P { get; set; }
+                public static int Make() { return 1; }
+                public static Vec2 operator +(Vec2 a, Vec2 b) => new Vec2(a.X + b.X);
+                public static Vec2 operator -(Vec2 a) => new Vec2(-a.X);
+                public static void Bump(ref Vec2 v, in Vec2 by) { v.X += by.X; }
             }
             """);
         Assert.Empty(clean);
 
-        var withStatic = await AnalyzeAsync("""
+        var withOverride = await AnalyzeAsync("""
             public struct Vec2
             {
                 public int X;
-                public static int Make() { return 1; }
+                public override string ToString() { return "v"; }
             }
             """);
-        var diagnostic = Assert.Single(withStatic);
+        var diagnostic = Assert.Single(withOverride);
         Assert.Equal(TinyCsDiagnosticIds.UnsupportedSyntax, diagnostic.Id);
         Assert.Contains("StructMember", diagnostic.GetMessage());
     }
 
     [Fact]
-    public async Task RecordStruct_IsClean_StaticMemberReports()
+    public async Task RecordStruct_IsClean_OverrideReports()
     {
-        // record struct は対応済み。static member は struct と同じ規則
+        // record struct は対応済み。member は struct と同じ規則
         var clean = await AnalyzeAsync("""
-            public readonly record struct Vec2(int X, int Y);
+            public readonly record struct Vec2(int X, int Y)
+            {
+                public static Vec2 Make() => new Vec2(1, 2);
+                public static Vec2 operator *(Vec2 a, int k) => new Vec2(a.X * k, a.Y * k);
+            }
             """);
         Assert.Empty(clean);
 
-        var withStatic = await AnalyzeAsync("""
+        var withOverride = await AnalyzeAsync("""
             public record struct Vec2(int X, int Y)
             {
-                public static int Make() { return 1; }
+                public override string ToString() => "v";
             }
             """);
-        var diagnostic = Assert.Single(withStatic);
+        var diagnostic = Assert.Single(withOverride);
         Assert.Equal(TinyCsDiagnosticIds.UnsupportedSyntax, diagnostic.Id);
         Assert.Contains("StructMember", diagnostic.GetMessage());
     }

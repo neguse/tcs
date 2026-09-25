@@ -69,6 +69,85 @@ public partial class LuaEmitter
                 .Select(e => $"{e.Name} = {e.Value}")) + "}";
     }
 
+    private static bool IsStaticMember(MemberDeclarationSyntax member) =>
+        member.Modifiers.Any(SyntaxKind.StaticKeyword)
+        || member.Modifiers.Any(SyntaxKind.ConstKeyword);
+
+    // static field (const / static auto property 含む) を宣言順に集める
+    private List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)>
+        CollectStaticFields(SemanticModel model,
+            IEnumerable<MemberDeclarationSyntax> members)
+    {
+        var statics = new List<(string, ExpressionSyntax?, ITypeSymbol?)>();
+        foreach (var member in members)
+        {
+            switch (member)
+            {
+                case FieldDeclarationSyntax field when IsStaticMember(field):
+                    var type = model.GetTypeInfo(field.Declaration.Type).Type;
+                    foreach (var v in field.Declaration.Variables)
+                        statics.Add((N(v.Identifier.ValueText),
+                            v.Initializer?.Value, type));
+                    break;
+                case PropertyDeclarationSyntax prop
+                    when IsAutoProperty(prop) && IsStaticMember(prop):
+                    statics.Add((N(prop.Identifier.ValueText),
+                        prop.Initializer?.Value,
+                        model.GetTypeInfo(prop.Type).Type));
+                    break;
+            }
+        }
+        return statics;
+    }
+
+    // C# は static field を default 値で事前初期化してから initializer を
+    // 宣言順に実行する (循環参照 `a = b + 1; b = a + 1` が nil にならない)。
+    // pre-zero は declare 側の意味論なので DeclRanges に載せ、hot apply の
+    // define チャンクに含めない (live 値を上書きしないため)。
+    // struct 型の default (`S.new()`) は S の関数定義を要するので、ここでは
+    // literal だけを置き、struct 値は initializer の直前 (関数定義の後) で入れる
+    private void EmitStaticPreZero(string name,
+        List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)> statics,
+        EmittedTypeInfo? info, bool structValues = false)
+    {
+        var preZeroStart = _sb.Length;
+        foreach (var (fieldName, _, type) in statics)
+        {
+            var defaultValue = GetDefaultValueForType(type!);
+            if (defaultValue != "nil" && IsUserStruct(type) == structValues)
+                AppendLine($"{name}.{fieldName} = {defaultValue}");
+        }
+        if (_sb.Length > preZeroStart)
+            info?.DeclRanges.Add((preZeroStart, _sb.Length - preZeroStart));
+    }
+
+    // static initializer は型の関数定義 (ctor / method / operator) の後に
+    // 置く。`static V Zero = new V(0, 0)` のように自型の関数を呼ぶ
+    // initializer が、定義前の nil を呼ばないようにする
+    private void EmitStaticInitializers(SemanticModel model, string name,
+        List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)> statics,
+        EmittedTypeInfo? info)
+    {
+        EmitStaticPreZero(name, statics, info, structValues: true);
+        foreach (var (fieldName, init, type) in statics)
+        {
+            var initStart = _sb.Length;
+            if (init != null)
+                AppendLine($"{name}.{fieldName} = {VisitExpression(model, init)}");
+            else
+                AppendLine($"{name}.{fieldName} = {GetDefaultValueForType(type!)}");
+            // 定数/default だけを副作用なし (pure) とし、hot apply での新規
+            // field 初期化を許す。それ以外の initializer 変更は restart 境界。
+            var pure = init == null || model.GetConstantValue(init).HasValue;
+            info?.StaticFields.Add(new StaticFieldMeta(fieldName,
+                GetDefaultValueForType(type),
+                init == null ? "<default>"
+                    : ModuleArtifactText.Sha256(init.ToString()),
+                pure, initStart, _sb.Length - initStart));
+        }
+        if (statics.Count > 0) AppendLine();
+    }
+
     private void EmitConstructor(SemanticModel model, string className,
         ConstructorDeclarationSyntax? ctor,
         List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)> fieldInits,

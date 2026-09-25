@@ -1628,3 +1628,15 @@
 - 実測 (lua 5.5 64bit、型参照 2 回 + 生成 1 回のループ): global 198ns / upvalue 175ns、module env は関数 __index 271ns → table 連鎖 203ns
 - 検証: HotPathCodegenTests +4 (local 化と global publish の両立 — 別 chunk から `_G.T` を呼べる、hot reload build は global のまま、130 型で fallback、registry env が table __index で型 → host を解決)、module / incremental / transaction 系 39 本 green
 - issue #12 は T240 (5: operator の静的解決) / T244 (1-3、4 の Math) / T245 (4 の残り) で全項目対応
+
+### T246: struct の static member・算術 operator・ref / in parameter (issue #11) ✓ (2026-09-25)
+- struct / record struct で static method / property / field (readonly・const 含む) と算術 operator (`+ - * / %`、単項 `-`) を解禁。metatable を持たないので、operator は T240 の静的解決で呼び出しサイトが `Vec3.__add(a, b)` / overload は `Vec3.__mul_2(a, s)` を直接呼ぶ (struct には実行時 dispatcher を作らない)。override (ToString 等) / indexer は引き続き TCS1001
+- `ref` parameter: mutable な source struct 型に限り解禁。呼び出し側の値 (table) をそのまま渡すので field 書き込みは届き、parameter 自体への代入 (`c = v` / `c += d`) は型別 `S.__assign(d, s)` で呼び出し側の table を in-place 上書きする (mutable な struct member は再帰的に in-place — 外側を置き換えた後も内側 member への ref が新しい値を見る)。struct method の `this = ...` も同じ経路 (従来は self の差し替えで呼び出し側に届かなかった)。int / class 参照 / readonly struct の ref は TCS1001 のまま (型依存の判定なので analyzer も SemanticModel 付きの共有ルールを呼ぶように変更)
+- `in` / `ref readonly` parameter: struct は copy せずに渡す。callee での変更系 member 呼び出しは C# と同じく防御コピーに対して行う (in parameter とその field 経由の receiver を「変数でない」扱いに)
+- copy の重複除去: source の method / operator の戻り値は callee の return (copy 地点) で copy 済みなので、呼び出し側で重ねて copy しない (`var c = a + b` は `Vec3.__add(a, b)` 1 回の確保)。これに合わせて式本体 (method / operator / property) の return も copy 地点として扱う
+- 付随修正 (既存バグ): (1) class の static initializer が ctor / method 定義より前に出ていたため `public static V Zero = new V(1, 2)` が `attempt to call a nil value (field 'new')` で落ちた — static 初期化を型の関数定義の後へ移動 (literal の pre-zero は従来位置、struct 値の pre-zero は初期化直前)。(2) 式本体 property (`Identity => new Quat(1f, 0f)`) が legacy 経路で struct の引数付き生成を `S.new(args)` (zero 値) にしていた — 式本体 property を IL 経由にし、legacy の生成も `S.ctor` へ
+- tcs2c: struct の member / operator は従来どおり明示エラー。ref parameter は値渡しで出ると黙って誤るため、IlExport が ParameterTypes に `ref T` を残し tcs2c が拒否する
+- analyzer demo の struct 診断例を static method (解禁) から override ToString (未対応) へ差し替え (TCS1001 x5 を維持)
+- 検証: StructMemberTests 10 本 (static readonly / counter / const / static property / operator 二項・単項・overload・複合代入、自型 ctor を呼ぶ static initializer、operator 結果の copy 省略、readonly struct / record struct の operator、ref の field 書き込み・全体代入・配列要素・class field・転送、ネスト struct の in-place 代入と alias、in の防御コピー、this 代入、class の static 初期化順、非 struct の ref は診断維持) を TCS_DIFFERENTIAL 付きで green。IlExportTests +1、analyzer / Diagnostic / CLI テストの期待を新方針へ更新。tcs2c digest 3/3 不変
+- 判断: ref の全体代入は「呼び出し側 table の in-place 上書き」で表し、Lua 側に参照 (box / getter-setter ペア) を導入しなかった。struct 値は copy 意味論で各 place が固有の table を持つので、table 自体が place の identity になる。int 等の ref は place が table を持たないため同じ手が使えず、別設計 (multi-return 化等) が要る
+- 残課題 → tasks.md T247: スカラー置換 (struct の local / 引数 / 戻り値を複数 local / 複数戻り値へ展開)、user method の out parameter、struct の override、非 struct の ref

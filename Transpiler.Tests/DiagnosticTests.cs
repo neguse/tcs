@@ -178,21 +178,24 @@ public class DiagnosticTests
     // record struct は対応済み。static member は struct と同じく
     // サブセット外のまま
     [Fact]
-    public void RecordStruct_IsClean_StaticMemberReportsWarning()
+    public void RecordStruct_IsClean_OverrideReportsWarning()
     {
         var clean = Transpiler.TranspileWithDiagnostics(["""
-            public readonly record struct Vec2(int X, int Y);
-            """]);
-        Assert.DoesNotContain(clean.Warnings,
-            w => w.Contains("RecordStruct") || w.Contains("StructMember"));
-
-        var withStatic = Transpiler.TranspileWithDiagnostics(["""
-            public record struct Vec2(int X, int Y)
+            public readonly record struct Vec2(int X, int Y)
             {
                 public static int Make() { return 1; }
             }
             """]);
-        AssertUnsupportedWarning(withStatic, "StructMember");
+        Assert.DoesNotContain(clean.Warnings,
+            w => w.Contains("RecordStruct") || w.Contains("StructMember"));
+
+        var withOverride = Transpiler.TranspileWithDiagnostics(["""
+            public record struct Vec2(int X, int Y)
+            {
+                public override string ToString() => "v";
+            }
+            """]);
+        AssertUnsupportedWarning(withOverride, "StructMember");
     }
 
     [Fact]

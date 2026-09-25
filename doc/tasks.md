@@ -66,6 +66,18 @@ hot reload の fuzz は compat 文法の拡張が一巡してから独立に起�
 
 ---
 
+## 性能トラック (issue #9-#12 の後続)
+
+- [ ] **T247** (P2): struct のスカラー置換 — struct の local / 引数 / 戻り値を
+      複数の local / 複数戻り値へ展開し、数学型の演算で table を確保しない
+      (issue #11 の長期提案。実測: 演算子で新 object 確保 567ns / その場書き換え
+      50ns / object なし 11ns)。前提として escape 解析 (field / List / closure へ
+      流れない local の判定) が要る。あわせて user method の out parameter
+      (multi-return 化)、struct の override (ToString)、非 struct の ref は
+      需要が出たら同じ枠で検討
+
+---
+
 - lub 検証トラックの追加サンプル移植・Useful 層追加は需要駆動
 - 診断一致 (analyzer / check / transpiler) とファイルサイズ (600/800 行) は
   run-tests の恒常ゲートで守る

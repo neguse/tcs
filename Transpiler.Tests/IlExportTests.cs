@@ -217,4 +217,26 @@ public class IlExportTests
         Assert.NotNull(add.Body);
         Assert.Equal(2, add.ParameterTypes.Length);
     }
+
+    [Fact]
+    public void Export_RefStructParameterIsMarkedByReference()
+    {
+        // 値渡し前提の backend (tcs2c) が ref parameter を拒否できるよう、
+        // 型表記に `ref ` を残す (in は値渡しと観測等価なので素の型)
+        var result = IlExport.Export(["""
+            public struct Cell
+            {
+                public int V;
+            }
+
+            public static class Ops
+            {
+                public static void Bump(ref Cell c, in Cell by) { c.V += by.V; }
+            }
+            """]);
+
+        var ops = Assert.Single(result.Classes, c => c.Name == "Ops");
+        var bump = Assert.Single(ops.Methods, m => m.Name == "bump");
+        Assert.Equal(["ref Cell", "Cell"], bump.ParameterTypes.ToArray());
+    }
 }

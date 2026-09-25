@@ -32,7 +32,10 @@ public partial class LuaEmitter
             return EmitRefTypeTable(model, creation.Initializer);
         }
 
-        var ctor = $"{typeName}.new({string.Join(", ", args)})";
+        // struct の明示 ctor は S.ctor (zero 初期化 + 本文)。`new S()` は zero 値
+        var ctor = IsUserStruct(typeSymbol) && args.Count > 0
+            ? $"{typeName}.ctor({string.Join(", ", args)})"
+            : $"{typeName}.new({string.Join(", ", args)})";
         return creation.Initializer != null
             ? EmitObjectInitializer(model, ctor, creation.Initializer)
             : ctor;

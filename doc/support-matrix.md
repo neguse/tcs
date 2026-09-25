@@ -31,7 +31,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 |------|:------:|------|
 | 基本型・nullable・リテラル | **Core** | 日常的な C# の型チェックと値表現を保つ |
 | class / enum / interface / record class | **Core** | editor 補完、型チェック、データ表現に必要 |
-| struct / record struct | **Core** | 値セマンティクス対応済み (T219b)。instance member / 値等価 / readonly copy 省略。C backend は素の C struct |
+| struct / record struct | **Core** | 値セマンティクス対応済み (T219b)。instance / static member・算術 operator・`ref` / `in` parameter (T246) / 値等価 / readonly copy 省略。C backend は素の C struct (member / operator / ref は明示エラー) |
 | if / switch / loop / lambda / pattern | **Core** | ゲームロジックと小さな業務ロジックの表現力として必要 |
 | 演算子オーバーロード (算術) | **Core** | ベクトル/行列など math 型の表現に必要。二項 `+ - * / %` と単項 `-` を静的解決した関数呼び出しへ写像し (metamethod も併設)、変換演算子と `==`/`!=`/比較系は対象外 |
 | LINQ メソッドチェーン | **Core** | `Where`/`Select`/`Any`/`All`/`First`/`Last`/`OrderBy`/`Take`/`Skip`/集計の小核だけ即時評価で提供 |
@@ -150,7 +150,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 型 | 状態 | Lua マッピング | 備考 |
 |----|:----:|--------------|------|
 | `class` | **Y** | table + metatable | |
-| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数。static member / operator / override はサブセット外 |
+| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は明示 self の静的自由関数、static member は型 table 上。算術 operator (`+ - * / %`、単項 `-`) は呼び出しサイトが `S.__add(a, b)` を静的に呼ぶ。override (ToString 等) / indexer はサブセット外 |
 | `record` / `record class` | **P** | table + metatable | positional record |
 | `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= と with 式。readonly (record) struct は copy 全省略 |
 | `interface` | **P** | 出力なし | Roslyn 型チェックのみ |
@@ -179,7 +179,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 機能 | 状態 | 備考 |
 |------|:----:|------|
 | `class` 宣言 | **Y** | |
-| `struct` 宣言 | **Y** | field / instance method / property / 単一のパラメータ付き ctor |
+| `struct` 宣言 | **Y** | field / instance・static の method・property / static field (readonly・const 含む) / 算術 operator / 単一のパラメータ付き ctor |
 | `record` 宣言 (C# 9) | **P** | positional record |
 | `record struct` 宣言 (C# 10) | **Y** | readonly 含む。Equals/GetHashCode/ToString 呼びは対象外 |
 | `interface` 宣言 | **Y** | 出力なし |
@@ -423,10 +423,10 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 
 | 修飾子 | 状態 | 備考 |
 |--------|:----:|------|
-| `ref` | **-** | ユーザー定義メソッドの宣言は TCS1001 (`RefParameter`) |
+| `ref` | **P** | mutable な struct 型の parameter は対応 (T246): 値 (table) をそのまま渡し、field 書き込みと parameter への代入 (`S.__assign` による in-place 上書き) が呼び出し側に届く。それ以外の型 (int / class 参照 / readonly struct 等) は TCS1001 (`RefParameter`)。tcs2c は明示エラー |
 | `out` | **-** | ユーザー定義メソッドの宣言は TCS1001 (`OutParameter`)。`--ref` host メソッドの out multi-return のみ対応 |
-| `in` (C# 7.2) | **-** | |
-| `ref readonly` (C# 12) | **-** | |
+| `ref readonly` (C# 12) | **Y** | `in` と同じ |
+| `in` parameter (C# 7.2) | **Y** | struct は copy せずに渡す。変更系 member 呼び出しは C# と同じく防御コピーに対して行う。他の型は値渡しと同じ |
 | `params` | **-** | |
 | `this` (拡張メソッド) | **-** | |
 | `scoped` (C# 11) | **-** | |
@@ -494,7 +494,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 6.0 | 2015 | `?.`, `$""`, `nameof`, 式本体, `using static` | **P** |
 | 7.0 | 2017 | タプル, パターンマッチング, ローカル関数, `out var`, throw 式 | **P** |
 | 7.1 | 2017 | `default` リテラル, async Main | **-** |
-| 7.2 | 2017 | `readonly struct`, `ref struct`, `in`, `Span` | **-** |
+| 7.2 | 2017 | `readonly struct`, `ref struct`, `in`, `Span` | **P** (`readonly struct` / `in`) |
 | 7.3 | 2018 | タプル `==`/`!=`, unmanaged 制約 | **-** |
 | 8.0 | 2019 | switch 式, NRT, `??=`, using 宣言, Index/Range, デフォルトIF実装 | **P** |
 | 9.0 | 2020 | record, `init`, トップレベル文, 関係/論理パターン, target-typed new | **P** |
@@ -903,7 +903,7 @@ LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in
 | 機能 | 状態 | 備考 |
 |------|:----:|------|
 | C# コンパイルエラー報告 | **Y** | ソース位置付き |
-| 未対応構文の警告 | **Y** | TCS1001 / analyzer と transpiler/check で共有 (`struct` / `record struct` / `partial` 型 / `lock` / `nameof` など) |
+| 未対応構文の警告 | **Y** | TCS1001 / analyzer と transpiler/check で共有 (struct の override / indexer / `partial` 型 / `lock` / `nameof` など) |
 | 未対応 BCL API の警告 | **Y** | TCS1002 / analyzer と transpiler/check で共有。core API allowlist は完全シグネチャ単位で、member 外に加えて名前だけ一致する未実装 overload も検出する。完全修飾型qualifierはmemberとして重複診断しない |
 | collection null 保存の警告 | **Y** | TCS1003 / analyzer と transpiler で共有 |
 | 複数ファイル入力 | **Y** | 共有 Compilation でクロスファイル参照 |

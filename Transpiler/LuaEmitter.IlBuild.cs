@@ -31,7 +31,9 @@ public partial class LuaEmitter
             && BuildExpr(model, method.ExpressionBody.Expression) is { } expr)
         {
             var acc = new List<IlStat>();
-            AddReturnStat(acc, expr, method.ExpressionBody.Expression);
+            AddReturnStat(acc, WrapStructCopy(model,
+                method.ExpressionBody.Expression, expr),
+                method.ExpressionBody.Expression);
             return new IlBlock([.. acc]);
         }
         return null;
@@ -83,6 +85,9 @@ public partial class LuaEmitter
         if (IlDisabled) return false;
         var built = BuildExpr(model, expr);
         if (built == null) return false;
+        // 式本体の return も copy 地点 (呼び出し側は user method の戻り値を
+        // fresh とみなして copy しない)
+        built = WrapStructCopy(model, expr, built);
         IlBodies++;
         var acc = new List<IlStat>();
         AddReturnStat(acc, built, expr);
@@ -467,6 +472,12 @@ public partial class LuaEmitter
             var target = BuildExpr(model, assign.Left);
             var value = BuildExpr(model, assign.Right);
             if (target == null || value == null) return false;
+            if (ByReferenceStructTarget(model, assign.Left) is { } assignType)
+            {
+                acc.Add(new IlCallStat(new IlCall($"{assignType}.__assign",
+                    [target, value])) { Origin = origin });
+                return true;
+            }
             value = WrapStructCopy(model, assign.Right, value);
             // target が純 local なら条件式 RHS を if 文へ (target の
             // 評価が存在しないため cond 先行評価でも順序が変わらない)
@@ -501,7 +512,10 @@ public partial class LuaEmitter
         if (read == null || right == null) return false;
         var applied = BuildCompoundValue(model, assign, op, read, right);
         if (applied == null) return false;
-        acc.Add(new IlAssign(read, applied) { Origin = origin });
+        acc.Add(ByReferenceStructTarget(model, assign.Left) is { } compoundType
+            ? new IlCallStat(new IlCall($"{compoundType}.__assign", [read, applied]))
+                { Origin = origin }
+            : new IlAssign(read, applied) { Origin = origin });
         return true;
     }
 

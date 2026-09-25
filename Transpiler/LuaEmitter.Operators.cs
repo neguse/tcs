@@ -51,20 +51,25 @@ public partial class LuaEmitter
     // one operator share a single metamethod, so the metamethod dispatches on
     // runtime operand types: metatable identity for class/record instances,
     // type() for primitives.
+    // runtimeDispatch: class / record は metamethod としても働くよう、複数
+    // overload の実行時型分岐 dispatcher を metamethod 名で置く。struct は
+    // metatable を持たず呼び出しサイトの静的解決だけなので作らない
     private void EmitOperators(SemanticModel model, string className,
-        List<OperatorDeclarationSyntax> operators)
+        List<OperatorDeclarationSyntax> operators, bool runtimeDispatch = true)
     {
         foreach (var group in operators
             .GroupBy(op => TinyCsComplianceFacts.TryGetOperatorMetamethod(op,
                 out var metamethod) ? metamethod : "")
             .Where(g => g.Key.Length > 0))
         {
-            EmitOperatorGroup(model, className, group.Key, [.. group]);
+            EmitOperatorGroup(model, className, group.Key, [.. group],
+                runtimeDispatch);
         }
     }
 
     private void EmitOperatorGroup(SemanticModel model, string className,
-        string metamethod, List<OperatorDeclarationSyntax> overloads)
+        string metamethod, List<OperatorDeclarationSyntax> overloads,
+        bool runtimeDispatch)
     {
         if (overloads.Count == 1)
         {
@@ -77,6 +82,7 @@ public partial class LuaEmitter
             EmitOperatorFunction(model, className, $"{metamethod}_{i + 1}",
                 overloads[i]);
         }
+        if (!runtimeDispatch) return;
 
         // All overloads of one metamethod share the same arity
         // (binary metamethods vs __unm), so a common parameter list works.

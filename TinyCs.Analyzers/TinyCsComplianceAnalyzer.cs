@@ -60,7 +60,7 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeSyntax(SyntaxNodeAnalysisContext context)
     {
         if (!TinyCsComplianceFacts.TryGetUnsupportedSyntax(context.Node,
-            out var syntaxName))
+            context.SemanticModel, out var syntaxName))
         {
             return;
         }

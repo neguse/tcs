@@ -104,8 +104,8 @@ goto は無い。例外機構は無い — try / throw はサブセット外（T
 - 仮想呼び出し: 単一継承、override は実行時型で解決
 - class の参照比較（operator 定義が無い `==`）は identity 比較
 
-## 10. place と値型（M5 v1 で「データ struct」= field のみを有効化。
-member 付き struct / record struct は引き続きサブセット外）
+## 10. place と値型（struct / record struct。instance / static member・
+算術 operator・`ref` / `in` parameter を含む。override / indexer は対象外）
 
 place = 格納場所。変数、フィールド path、配列/List 要素 path の 3 種。
 
@@ -119,6 +119,14 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
 - struct 配列の要素は互いに独立した place。連続メモリ配置は backend 表現の
   自由であり IL の意味論ではない
 - 値型の `==` は operator 定義がある場合のみ（既定の構造等価は v0 に無い）
+- struct の `ref` parameter は呼び出し側の place そのものを渡す（copy
+  しない）。callee の field への store と parameter 自体への代入は呼び出し
+  側の place に届く（代入は全 field の in-place 上書き。mutable な struct
+  member は再帰的に in-place）。`in` / `ref readonly` parameter も copy
+  せずに渡し、callee は変更できない — 変更系 member の呼び出しは C# と同じく
+  防御コピーに対して行う。struct method の `this` への代入も in-place 上書き
+- source で宣言した method / operator の戻り値は callee の return（copy
+  地点 3）で copy 済みなので、呼び出し側で重ねて copy しない
 
 ## 11. 配列・List・Dictionary・string
 
