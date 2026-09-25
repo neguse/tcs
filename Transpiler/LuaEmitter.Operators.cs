@@ -146,7 +146,7 @@ public partial class LuaEmitter
         SetSource(op);
         _currentType?.DefinitionKeys.Add(luaName);
         var paramNames = op.ParameterList.Parameters
-            .Select(p => p.Identifier.ValueText).ToList();
+            .Select(p => L(p.Identifier.ValueText)).ToList();
         AppendLine($"function {className}.{luaName}({string.Join(", ", paramNames)})");
         _indent++;
 

@@ -1,7 +1,9 @@
 namespace TinyCs.Tests;
 
 // C# では合法でも Lua 出力を壊す識別子の扱い:
-// - Lua 5.5 予約語 (end, repeat, ...) と同名の宣言は TCS1001 で拒否する
+// - Lua 5.5 予約語 (end, repeat, ...) と同名の member / 型宣言は TCS1001 で拒否する
+// - local 束縛 (local / parameter / foreach / pattern / out var / lambda) の
+//   予約語は __tcs_kw_ 前置で写す (LocalKeywordNameTests)
 // - verbatim 識別子 (@float 等) は ValueText (@ なし) で emit する
 public class LuaIdentifierTests
 {
@@ -41,36 +43,6 @@ public class LuaIdentifierTests
     }
 
     [Fact]
-    public void LocalNamedLuaKeyword_ReportsUnsupportedSyntax()
-    {
-        var result = Transpiler.TranspileWithDiagnostics(["""
-            public class Runner
-            {
-                public int Run()
-                {
-                    var repeat = 3;
-                    return repeat;
-                }
-            }
-            """], checkNaming: false);
-
-        AssertLuaKeywordWarning(result, "repeat");
-    }
-
-    [Fact]
-    public void ParameterNamedLuaKeyword_ReportsUnsupportedSyntax()
-    {
-        var result = Transpiler.TranspileWithDiagnostics(["""
-            public class Timer
-            {
-                public int Wait(int then) => then;
-            }
-            """], checkNaming: false);
-
-        AssertLuaKeywordWarning(result, "then");
-    }
-
-    [Fact]
     public void EnumMemberNamedLuaKeyword_ReportsUnsupportedSyntax()
     {
         var result = Transpiler.TranspileWithDiagnostics(["""
@@ -94,56 +66,6 @@ public class LuaIdentifierTests
             """], checkNaming: false);
 
         AssertLuaKeywordWarning(result, "local");
-    }
-
-    [Fact]
-    public void ForEachVariableNamedLuaKeyword_ReportsUnsupportedSyntax()
-    {
-        var result = Transpiler.TranspileWithDiagnostics(["""
-            using System.Collections.Generic;
-
-            public class Walker
-            {
-                public int Sum(List<int> values)
-                {
-                    var total = 0;
-                    foreach (var elseif in values) total += elseif;
-                    return total;
-                }
-            }
-            """], checkNaming: false);
-
-        AssertLuaKeywordWarning(result, "elseif");
-    }
-
-    [Fact]
-    public void PatternDesignationNamedLuaKeyword_ReportsUnsupportedSyntax()
-    {
-        var result = Transpiler.TranspileWithDiagnostics(["""
-            public class Matcher
-            {
-                public int Read(object value)
-                {
-                    if (value is int function) return function;
-                    return 0;
-                }
-            }
-            """], checkNaming: false);
-
-        AssertLuaKeywordWarning(result, "function");
-    }
-
-    [Fact]
-    public void VerbatimLuaKeyword_ReportsUnsupportedSyntax()
-    {
-        var result = Transpiler.TranspileWithDiagnostics(["""
-            public class Turn
-            {
-                public int Wait(int @end) => @end;
-            }
-            """], checkNaming: false);
-
-        AssertLuaKeywordWarning(result, "end");
     }
 
     [Fact]

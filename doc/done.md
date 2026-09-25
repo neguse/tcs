@@ -1586,3 +1586,12 @@
 - よかったこと: operator の静的解決は issue #12 の 5 (実行時振り分けの除去) と同じ変更で、バグ修正と性能改善が一度に片付いた
 - 判断: `(float)i` (整数 → 浮動小数) は今回触らない。暗黙変換 (`float f = i;`) も同じく Lua integer のまま流れるため、明示 cast だけ直すと不整合になる
 - 残課題: int → float 変換後も Lua integer のまま演算されるため、float として演算すべき積が i32 wrap しうる (`(float)a * b`)。暗黙変換と合わせて別途扱う
+
+### T241: Lua 予約語と同名の local 束縛を安全な識別子へ写す (issue #7) ✓ (2026-09-25)
+- `var local = 1;` が `local local = 1` として出力され構文エラーになっていた (TCS1001 警告は出るが exit 0)。local 束縛 (local 変数 / parameter / foreach 変数 / for 変数 / pattern designation / out var / 分解代入の変数 / lambda parameter / record・struct の ctor parameter / optional parameter の default 補完) の Lua 予約語を `LuaNaming.Local` で `__tcs_kw_<name>` へ写す。IL builder・legacy visitor・IlExport (tcs2c の parameter 名) の全経路が同じ写像を通るので、宣言・参照・closure 内参照で一貫する
+- 衝突回避は既存の temp 名と同じ「`__tcs_` prefix 予約」で構造的に保証 (ソース側の `__tcs_*` 宣言は ReservedIdentifier の TCS1001)。`local_` / `local__` を同時に使っても衝突しない
+- 準拠ルール (analyzer / check / transpiler 共有) は local 束縛の予約語を TCS1001 対象から外した。型・method・property・field・enum member・positional record parameter (property でもある) は従来どおり診断。`self` / `__tcs_` prefix の予約も維持
+- `global` は Lua 5.5 の予約語 (LUA_COMPAT_GLOBAL ビルドでのみ名前として通る) なので local 側では常に写す。member 側の `LuaNaming.Member` は host API の名前を変えないよう据え置き
+- 検証: SubsetDiagnosticTests +4 (caller info 各属性)、LocalKeywordNameTests 14 本 (issue の再現、`local_` との非衝突、closure 捕捉と書き戻し、method/ctor/operator/optional parameter、foreach/numeric for/lambda、while lowering される捕捉 for 変数、is/switch 式/switch 文の designation、out var、record 分解、top-level、legacy fallback 経路、診断なし、member は診断維持) — fix 前 12 本 Red。LuaIdentifierTests / analyzer テストの local 系診断期待を新方針へ更新
+- spec conformance sweep が副作用を検出: `attributes.md:CallerArgumentAttr2` は変数名 `local` の診断で Diag だっただけで、写像で通るようになると `[CallerArgumentExpression]` の未対応 (呼び出しサイトでの引数注入を再現しない) が silent wrong-code (Bug) として露出した。caller info 4 属性を TCS1001 `CallerInfoAttribute` で診断 (`[Conditional]` と同じ扱い)。baseline: CallerArgumentAttr1 が InCompile → Diag、Attr2 は Diag 維持、Bug ゼロ
+- 判断: 読みやすさ優先の `local_` 形 (ソース全体の識別子集合を見て `_` を重ねる) も検討したが、incremental / IlExport / static helper のすべてに識別子集合を配る必要があり、衝突しない保証も compilation 単位になる。prefix 予約なら純関数で済み、既存 temp の方針とも揃う

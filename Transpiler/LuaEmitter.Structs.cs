@@ -49,11 +49,11 @@ public partial class LuaEmitter
             var paramNames = parameterList.Parameters
                 .Select(p => p.Identifier.ValueText).ToList();
             _currentType?.DefinitionKeys.Add("ctor");
-            AppendLine($"function {name}.ctor({string.Join(", ", paramNames)})");
+            AppendLine($"function {name}.ctor({string.Join(", ", paramNames.Select(L))})");
             _indent++;
             AppendLine($"local self = {name}.new()");
             foreach (var p in paramNames)
-                AppendLine($"self.{N(p)} = {p}");
+                AppendLine($"self.{N(p)} = {L(p)}");
             EmitMemberInitializers(model, rec.Members);
             AppendLine("return self");
             _indent--;
@@ -155,7 +155,7 @@ public partial class LuaEmitter
     {
         SetSource(ctor);
         var ctorParams = ctor.ParameterList.Parameters
-            .Select(p => p.Identifier.ValueText).ToList();
+            .Select(p => L(p.Identifier.ValueText)).ToList();
         _currentType?.DefinitionKeys.Add("ctor");
         AppendLine($"function {name}.ctor({string.Join(", ", ctorParams)})");
         _indent++;

@@ -534,14 +534,16 @@ public class TinyCsComplianceAnalyzerTests
             .Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax)
             .ToArray();
 
-        Assert.Equal(4, syntaxDiagnostics.Length);
+        // member (field / method) は診断、local 束縛 (local / parameter) は
+        // emitter が安全な名前へ写すので診断しない
+        Assert.Equal(2, syntaxDiagnostics.Length);
         Assert.Contains(syntaxDiagnostics,
             d => d.GetMessage().Contains("LuaKeywordIdentifier(until)"));
         Assert.Contains(syntaxDiagnostics,
             d => d.GetMessage().Contains("LuaKeywordIdentifier(end)"));
-        Assert.Contains(syntaxDiagnostics,
+        Assert.DoesNotContain(syntaxDiagnostics,
             d => d.GetMessage().Contains("LuaKeywordIdentifier(repeat)"));
-        Assert.Contains(syntaxDiagnostics,
+        Assert.DoesNotContain(syntaxDiagnostics,
             d => d.GetMessage().Contains("LuaKeywordIdentifier(nil)"));
     }
 

@@ -6,6 +6,9 @@ namespace TinyCs;
 // 名前の写像 (LuaNaming) を emit の各所から引くための helper。
 public partial class LuaEmitter
 {
+    /// <summary>local 束縛 (local / parameter / pattern 等) の Lua 側表記。</summary>
+    private static string L(string csharpName) => LuaNaming.Local(csharpName);
+
     /// <summary>member 名の Lua 側表記。</summary>
     private static string N(string csharpName) => LuaNaming.Member(csharpName);
 

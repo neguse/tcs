@@ -97,6 +97,8 @@ public partial class LuaEmitter
             return $"{TypeRef(sp.ContainingType)}.{N(sp)}";
         if (symbol is INamedTypeSymbol namedType)
             return TypeRef(namedType);
+        if (symbol is ILocalSymbol or IParameterSymbol)
+            return L(id.Identifier.ValueText);
         return id.Identifier.ValueText;
     }
 
@@ -614,7 +616,7 @@ public partial class LuaEmitter
     private static string VisitDeclarationExpression(DeclarationExpressionSyntax declaration) =>
         declaration.Designation switch
         {
-            SingleVariableDesignationSyntax single => single.Identifier.ValueText,
+            SingleVariableDesignationSyntax single => L(single.Identifier.ValueText),
             DiscardDesignationSyntax => "_",
             _ => "_"
         };
@@ -628,7 +630,7 @@ public partial class LuaEmitter
         {
             DeclarationExpressionSyntax declaration =>
                 VisitDeclarationExpression(declaration),
-            IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+            IdentifierNameSyntax identifier => L(identifier.Identifier.ValueText),
             _ => null
         };
     }

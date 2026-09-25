@@ -477,6 +477,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `#nullable` (C# 8) | **-** | |
 | `#pragma` | **-** | |
 | `[Attribute]` | **-** | Roslyn はパース、トランスパイラ無視 |
+| `[Conditional]` / caller info 属性 (`[CallerArgumentExpression]` / `[CallerMemberName]` / `[CallerLineNumber]` / `[CallerFilePath]`) | **-** | TCS1001 `ConditionalAttribute` / `CallerInfoAttribute`。呼び出し削除・呼び出しサイトでの引数注入という意味論を持ち、無視すると silent に挙動が変わるため |
 | `///` XML ドキュメント | **N/A** | |
 
 ---
@@ -539,9 +540,10 @@ using(宣言)  virtual(部分)  volatile  yield
 
 | 識別子 | 状態 | 備考 |
 |--------|:----:|------|
-| Lua 5.5 予約語と同名の宣言 (`end`, `repeat`, `until`, `global` 等) | **-** | TCS1001 `LuaKeywordIdentifier(name)`。emit すると不正 Lua になるため拒否 (自動リネームなし) |
+| Lua 5.5 予約語と同名の local 束縛 (local 変数 / parameter / foreach / pattern designation / out var / lambda parameter) | **Y** | `__tcs_kw_` を前置して emit (`local` → `__tcs_kw_local`)。`__tcs_` prefix は予約名なので元のソースの名前 (`local_` 等) と衝突しない。宣言・参照・closure 内参照で同じ写像 |
+| Lua 5.5 予約語と同名の型 / member 宣言 (`end`, `repeat`, `until`, `global` 等。positional record parameter は property なので member 扱い) | **-** | TCS1001 `LuaKeywordIdentifier(name)`。emit すると不正 Lua になるため拒否 (自動リネームなし) |
 | `self` / `__tcs_` prefix と同名の宣言 | **-** | TCS1001 `ReservedIdentifier(name)`。`self` は Lua method receiver、`__tcs_*` は generated temp を壊すため拒否 |
-| verbatim 識別子 (`@float`, `@out` 等) | **Y** | ValueText (`@` なし) で emit。`@end` 等 Lua 予約語になるものは上記 TCS1001 |
+| verbatim 識別子 (`@float`, `@out` 等) | **Y** | ValueText (`@` なし) で emit。`@end` 等 Lua 予約語になるものは上記 (local 束縛なら写像、型 / member なら TCS1001) |
 
 ---
 

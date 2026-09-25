@@ -241,6 +241,9 @@ public static partial class TinyCsComplianceFacts
                     => "MultipleConstructors",
             // Declared identifiers that reach Lua output. Verbatim forms
             // (@end) are compared by ValueText, matching the emitter.
+            // local 束縛 (local / parameter / foreach / designation) の Lua
+            // 予約語は emitter が __tcs_kw_ 前置で写すので対象外
+            // (LuaNaming.Local)。self / __tcs_ prefix は引き続き予約。
             BaseTypeDeclarationSyntax type
                 when IsUnsafeLuaIdentifier(type.Identifier)
                     => UnsafeLuaIdentifierName(type.Identifier),
@@ -254,16 +257,23 @@ public static partial class TinyCsComplianceFacts
                 when IsUnsafeLuaIdentifier(enumMember.Identifier)
                     => UnsafeLuaIdentifierName(enumMember.Identifier),
             VariableDeclaratorSyntax variable
-                when IsUnsafeLuaIdentifier(variable.Identifier)
+                when IsUnsafeLuaIdentifier(variable.Identifier,
+                    localBinding: variable.Parent?.Parent
+                        is not BaseFieldDeclarationSyntax)
                     => UnsafeLuaIdentifierName(variable.Identifier),
+            // positional record の parameter は property (member) でもある
             ParameterSyntax param
-                when IsUnsafeLuaIdentifier(param.Identifier)
+                when IsUnsafeLuaIdentifier(param.Identifier,
+                    localBinding: param.Parent?.Parent
+                        is not TypeDeclarationSyntax)
                     => UnsafeLuaIdentifierName(param.Identifier),
             ForEachStatementSyntax forEach
-                when IsUnsafeLuaIdentifier(forEach.Identifier)
+                when IsUnsafeLuaIdentifier(forEach.Identifier,
+                    localBinding: true)
                     => UnsafeLuaIdentifierName(forEach.Identifier),
             SingleVariableDesignationSyntax designation
-                when IsUnsafeLuaIdentifier(designation.Identifier)
+                when IsUnsafeLuaIdentifier(designation.Identifier,
+                    localBinding: true)
                     => UnsafeLuaIdentifierName(designation.Identifier),
             _ => "",
         };
@@ -341,6 +351,32 @@ public static partial class TinyCsComplianceFacts
             })
         {
             syntaxName = "ConditionalAttribute";
+            return true;
+        }
+
+        // caller info 属性 ([CallerArgumentExpression] / [CallerMemberName] /
+        // [CallerLineNumber] / [CallerFilePath]) は C# コンパイラが呼び出し
+        // サイトで引数を注入する意味論。tcs は注入しないため default 値
+        // (nil) が silent に届く
+        if (node is AttributeSyntax callerInfo
+            && model.GetSymbolInfo(callerInfo).Symbol is IMethodSymbol
+            {
+                ContainingType.Name: "CallerArgumentExpressionAttribute"
+                    or "CallerMemberNameAttribute"
+                    or "CallerLineNumberAttribute"
+                    or "CallerFilePathAttribute",
+                ContainingType.ContainingNamespace:
+                {
+                    Name: "CompilerServices",
+                    ContainingNamespace:
+                    {
+                        Name: "Runtime",
+                        ContainingNamespace.Name: "System",
+                    },
+                }
+            })
+        {
+            syntaxName = "CallerInfoAttribute";
             return true;
         }
 
@@ -431,8 +467,10 @@ public static partial class TinyCsComplianceFacts
 
     // Lua 予約語に加え、`self` (Lua method receiver) と `__tcs_` prefix
     // (generated temp) を emit 側の予約名として宣言サイトで拒否する。
-    private static bool IsUnsafeLuaIdentifier(SyntaxToken identifier) =>
-        LuaKeywords.Contains(identifier.ValueText)
+    // local 束縛の Lua 予約語は emitter が安全な名前へ写すので許す。
+    private static bool IsUnsafeLuaIdentifier(SyntaxToken identifier,
+        bool localBinding = false) =>
+        (!localBinding && LuaKeywords.Contains(identifier.ValueText))
         || identifier.ValueText == "self"
         || identifier.ValueText.StartsWith("__tcs_", StringComparison.Ordinal);
 

@@ -226,7 +226,7 @@ public partial class LuaEmitter
             case IPropertySymbol { IsStatic: true, ContainingType: not null } sp:
                 return new IlField(new IlVar(TypeRef(sp.ContainingType)), N(sp));
             case ILocalSymbol or IParameterSymbol:
-                return new IlVar(name);
+                return new IlVar(L(name));
             case INamedTypeSymbol named:
                 return new IlVar(TypeRef(named));
             case INamespaceSymbol:
@@ -736,7 +736,7 @@ public partial class LuaEmitter
         {
             DeclarationExpressionSyntax decl =>
                 new IlVar(VisitDeclarationExpression(decl)),
-            IdentifierNameSyntax id => new IlVar(id.Identifier.ValueText),
+            IdentifierNameSyntax id => new IlVar(L(id.Identifier.ValueText)),
             _ => null,
         };
         if (target == null) return null;

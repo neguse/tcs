@@ -9,6 +9,7 @@ namespace TinyCs;
 ///   member:  BeginPass → begin_pass、ColorEdit3 → color_edit3、_hp → _hp
 ///   const:   Depth24Stencil8 → DEPTH24_STENCIL8 (enum メンバ)
 ///   keyword: End → end_ (Lua の予約語には `_` を後置)
+///   local:   C# 名のまま。Lua 予約語だけ __tcs_kw_ を前置 (local → __tcs_kw_local)
 /// 参照専用型 (--ref) の static アクセスは入れ子の型名を全小文字で `.` 結合し
 /// (Lub.Gfx → lub.gfx)、入れ子 enum は親の下に平らに置く
 /// (Lub.Gfx.PixelFormat.Rgba8 → lub.gfx.RGBA8)。ユーザ型の型名は写さない。
@@ -31,6 +32,17 @@ public static class LuaNaming
     }
 
     public static string Const(string name) => ToSnake(name).ToUpperInvariant();
+
+    /// <summary>local 束縛 (local 変数 / parameter / foreach 変数 / pattern
+    /// designation / out var / lambda parameter) の Lua 側名。C# 名のまま出し、
+    /// Lua 予約語だけ `__tcs_kw_` を前置する。`__tcs_` prefix は emit 側の
+    /// 予約名 (宣言は TCS1001) なので、元のソースのどの名前 (`local_` 等) とも
+    /// 構造的に衝突しない。宣言・参照・closure 内参照はすべてこの写像を通る。
+    /// `global` は Lua 5.5 の予約語 (LUA_COMPAT_GLOBAL ビルドでのみ非予約)
+    /// なので local 側では常に写す。</summary>
+    public static string Local(string name) =>
+        LuaKeywords.Contains(name) || name == "global"
+            ? "__tcs_kw_" + name : name;
 
     /// <summary>symbol の種類で member / const を選ぶ (enum メンバは const)。
     /// source に宣言の無い symbol (BCL / TinySystem の metadata) は runtime 側の

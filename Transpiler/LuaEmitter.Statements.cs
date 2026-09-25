@@ -37,7 +37,7 @@ public partial class LuaEmitter
                 {
                     var init = v.Initializer != null
                         ? $" = {VisitExpression(model, v.Initializer.Value)}" : "";
-                    AppendLine($"local {v.Identifier.ValueText}{init}");
+                    AppendLine($"local {L(v.Identifier.ValueText)}{init}");
                 }
                 break;
             case ExpressionStatementSyntax exprStmt
@@ -310,7 +310,7 @@ public partial class LuaEmitter
             {
                 var init = v.Initializer != null
                     ? $" = {VisitExpression(model, v.Initializer.Value)}" : "";
-                AppendLine($"local {v.Identifier.ValueText}{init}");
+                AppendLine($"local {L(v.Identifier.ValueText)}{init}");
             }
 
         var label = PushContinueLabel();
@@ -387,7 +387,7 @@ public partial class LuaEmitter
         if (limit == null) return false;
 
         var label = PushContinueLabel();
-        AppendLine($"for {varName} = {start}, {limit} do");
+        AppendLine($"for {L(varName)} = {start}, {limit} do");
         _indent++;
         VisitBlock(model, forStmt.Statement);
         EmitContinueLabel(label);
@@ -518,7 +518,7 @@ public partial class LuaEmitter
         {
             var dp = (DeclarationPatternSyntax)label.Pattern;
             var sv = (SingleVariableDesignationSyntax)dp.Designation!;
-            AppendLine($"local {sv.Identifier.ValueText} = __tcs_sw");
+            AppendLine($"local {L(sv.Identifier.ValueText)} = __tcs_sw");
         }
 
         // 生テキストで包む (IlRepeat/VisitDoWhile と違い continue label を
@@ -588,7 +588,7 @@ public partial class LuaEmitter
 
         var names = pvd.Variables
             .Select(v => v is SingleVariableDesignationSyntax sv
-                ? sv.Identifier.ValueText : "_").ToList();
+                ? L(sv.Identifier.ValueText) : "_").ToList();
         EmitDeconstruction(model, rhs, names, declare: true);
     }
 
@@ -639,7 +639,7 @@ public partial class LuaEmitter
 
     private void VisitForEach(SemanticModel model, ForEachStatementSyntax foreachStmt)
     {
-        var varName = foreachStmt.Identifier.ValueText;
+        var varName = L(foreachStmt.Identifier.ValueText);
         if (TryGetEnumerateRunesReceiver(model, foreachStmt.Expression)
             is { } runesRecv)
         {

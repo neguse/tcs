@@ -141,8 +141,8 @@ public partial class LuaEmitter
             .OfType<DeclarationPatternSyntax>()
             .Where(dp => dp.Designation is SingleVariableDesignationSyntax))
         {
-            var name = ((SingleVariableDesignationSyntax)dp.Designation!)
-                .Identifier.ValueText;
+            var name = L(((SingleVariableDesignationSyntax)dp.Designation!)
+                .Identifier.ValueText);
             stats.Add(new IlLocal(name, sw));
         }
 
@@ -183,7 +183,7 @@ public partial class LuaEmitter
         if (isPattern.Pattern is DeclarationPatternSyntax
             { Designation: SingleVariableDesignationSyntax sv } dp)
         {
-            var name = sv.Identifier.ValueText;
+            var name = L(sv.Identifier.ValueText);
             var check = BuildTypeCheck(new IlVar(name),
                 model.GetTypeInfo(dp.Type).Type, FormatTypeReference(dp.Type));
             return check == null ? null : new IlIife([
@@ -223,8 +223,8 @@ public partial class LuaEmitter
                 { Designation: SingleVariableDesignationSyntax }))
         {
             var dp = (DeclarationPatternSyntax)label.Pattern;
-            var name = ((SingleVariableDesignationSyntax)dp.Designation!)
-                .Identifier.ValueText;
+            var name = L(((SingleVariableDesignationSyntax)dp.Designation!)
+                .Identifier.ValueText);
             products.Add(new IlLocal(name, sw) { Origin = switchStmt });
         }
 
@@ -325,11 +325,11 @@ public partial class LuaEmitter
         var (paramList, exprBody, block) = lambda switch
         {
             SimpleLambdaExpressionSyntax simple => (
-                ImmutableArray.Create(simple.Parameter.Identifier.ValueText),
+                ImmutableArray.Create(L(simple.Parameter.Identifier.ValueText)),
                 simple.ExpressionBody, simple.Block),
             ParenthesizedLambdaExpressionSyntax paren => (
                 [.. paren.ParameterList.Parameters
-                    .Select(p => p.Identifier.ValueText)],
+                    .Select(p => L(p.Identifier.ValueText))],
                 paren.ExpressionBody, paren.Block),
             _ => default,
         };
@@ -339,7 +339,8 @@ public partial class LuaEmitter
         {
             var body = BuildExpr(model, exprBody);
             if (body == null) return null;
-            var locals = IsPatternDesignationNames(exprBody).ToImmutableArray();
+            var locals = IsPatternDesignationNames(exprBody).Select(L)
+                .ToImmutableArray();
             return new IlClosure(paramList, null, body, locals);
         }
         if (block == null) return null;

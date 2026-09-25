@@ -326,7 +326,7 @@ public partial class LuaEmitter
         ITypeSymbol? baseClass)
     {
         var ctorParams = ctor?.ParameterList.Parameters
-            .Select(p => p.Identifier.ValueText).ToList() ?? [];
+            .Select(p => L(p.Identifier.ValueText)).ToList() ?? [];
 
         AppendLine($"function {className}.new({string.Join(", ", ctorParams)})");
         _indent++;
@@ -479,10 +479,11 @@ public partial class LuaEmitter
 
         // Positional record: parameter list → constructor + properties
         var paramNames = rec.ParameterList?.Parameters
-            .Select(p => p.Identifier.ValueText).ToList() ?? [];
+            .Select(p => L(p.Identifier.ValueText)).ToList() ?? [];
         // positional parameter は Lua の local としては C# 名のまま、field
         // としては写像後の名前で持つ
-        var fieldNames = paramNames.Select(N).ToList();
+        var fieldNames = rec.ParameterList?.Parameters
+            .Select(p => N(p.Identifier.ValueText)).ToList() ?? [];
         info.InstanceShape = string.Join("\n", fieldNames);
         info.DefinitionKeys.Add("new");
 
@@ -597,7 +598,7 @@ public partial class LuaEmitter
         var methodName = N(method.Identifier.ValueText);
         var isStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword);
         var paramNames = method.ParameterList.Parameters
-            .Select(p => p.Identifier.ValueText).ToList();
+            .Select(p => L(p.Identifier.ValueText)).ToList();
         var sep = isStatic || explicitSelf ? "." : ":";
         if (explicitSelf && !isStatic)
             paramNames.Insert(0, "self");
@@ -650,7 +651,7 @@ public partial class LuaEmitter
             if (parameter.Default is null) continue;
             var value = VisitExpression(model, parameter.Default.Value);
             if (value == "nil") continue;
-            var paramName = parameter.Identifier.ValueText;
+            var paramName = L(parameter.Identifier.ValueText);
             AppendLine($"if {paramName} == nil then {paramName} = {value} end");
         }
     }

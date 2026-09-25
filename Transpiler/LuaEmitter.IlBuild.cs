@@ -149,7 +149,7 @@ public partial class LuaEmitter
                 var targets = pvd.Variables
                     .Select(IlExpr (v) => new IlVar(
                         v is SingleVariableDesignationSyntax sv
-                            ? sv.Identifier.ValueText : "_"))
+                            ? L(sv.Identifier.ValueText) : "_"))
                     .ToList();
                 return BuildDeconstructionInto(model, rhs, targets,
                     declare: true, stmt, acc);
@@ -172,8 +172,8 @@ public partial class LuaEmitter
                     // 初期化子の条件式を statement 化 (return 位置と同方針)
                     if (init is IlTernary lt)
                     {
-                        var varNode = new IlVar(v.Identifier.ValueText);
-                        acc.Add(new IlLocal(v.Identifier.ValueText, null,
+                        var varNode = new IlVar(L(v.Identifier.ValueText));
+                        acc.Add(new IlLocal(L(v.Identifier.ValueText), null,
                             declaredType) { Origin = stmt });
                         acc.Add(new IlIf(
                             [(lt.Cond, new IlBlock([new IlAssign(varNode, lt.T)]))],
@@ -185,8 +185,8 @@ public partial class LuaEmitter
                         && TryGetValueChainShape(li, out var liSetup,
                             out var liChain, out var liTail, out _))
                     {
-                        var varNode = new IlVar(v.Identifier.ValueText);
-                        acc.Add(new IlLocal(v.Identifier.ValueText, null,
+                        var varNode = new IlVar(L(v.Identifier.ValueText));
+                        acc.Add(new IlLocal(L(v.Identifier.ValueText), null,
                             declaredType) { Origin = stmt });
                         foreach (var st in liSetup)
                             acc.Add(st with { Origin = stmt });
@@ -196,7 +196,7 @@ public partial class LuaEmitter
                             : new IlAssign(varNode, liTail!) { Origin = stmt });
                         continue;
                     }
-                    acc.Add(new IlLocal(v.Identifier.ValueText, init,
+                    acc.Add(new IlLocal(L(v.Identifier.ValueText), init,
                         declaredType) { Origin = stmt });
                 }
                 return true;
@@ -244,7 +244,7 @@ public partial class LuaEmitter
                 return BuildForInto(model, forStmt, acc);
             case ForEachStatementSyntax foreachStmt:
             {
-                var varName = foreachStmt.Identifier.ValueText;
+                var varName = L(foreachStmt.Identifier.ValueText);
                 if (TryGetEnumerateRunesReceiver(model, foreachStmt.Expression)
                     is { } runesRecv)
                 {
@@ -358,7 +358,7 @@ public partial class LuaEmitter
                 var targets = pvd.Variables
                     .Select(IlExpr (v) => new IlVar(
                         v is SingleVariableDesignationSyntax sv
-                            ? sv.Identifier.ValueText : "_"))
+                            ? L(sv.Identifier.ValueText) : "_"))
                     .ToList();
                 return BuildDeconstructionInto(model, rhs, targets,
                     declare: true, origin, acc);
@@ -565,7 +565,7 @@ public partial class LuaEmitter
                 if (v.Initializer != null
                     && (init = BuildExpr(model, v.Initializer.Value)) == null)
                     return false;
-                acc.Add(new IlLocal(v.Identifier.ValueText, init)
+                acc.Add(new IlLocal(L(v.Identifier.ValueText), init)
                     { Origin = forStmt });
             }
 
@@ -624,7 +624,8 @@ public partial class LuaEmitter
             SyntaxKind.LessThanOrEqualExpression => end,
             _ => null,
         };
-        return limit == null ? null : new IlNumericFor(varName, start, limit, body);
+        return limit == null
+            ? null : new IlNumericFor(L(varName), start, limit, body);
     }
 
     // return 位置の値を statement 化込みで追加する共通経路
@@ -763,6 +764,7 @@ public partial class LuaEmitter
             .Where(name => !string.IsNullOrEmpty(name))
             .Select(name => name!)
             .Concat(patternScopes.SelectMany(IsPatternDesignationNames))
+            .Select(L)
             .Distinct()
             .ToList();
     }

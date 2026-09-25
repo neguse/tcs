@@ -204,7 +204,7 @@ public static class IlExport
             }
             ctor = new IlCtorInfo(
                 [.. ctorDecl.ParameterList.Parameters
-                    .Select(p => p.Identifier.ValueText)],
+                    .Select(p => LuaNaming.Local(p.Identifier.ValueText))],
                 ctorSymbol == null
                     ? []
                     : [.. ctorSymbol.Parameters
@@ -255,7 +255,7 @@ public static class IlExport
             var opSymbol = model.GetDeclaredSymbol(op);
             methods.Add(new IlMethodInfo(metamethod, true,
                 [.. op.ParameterList.Parameters
-                    .Select(p => p.Identifier.ValueText)],
+                    .Select(p => LuaNaming.Local(p.Identifier.ValueText))],
                 opBody,
                 opSymbol?.ReturnType.ToDisplayString() ?? "?",
                 opSymbol == null
@@ -273,7 +273,7 @@ public static class IlExport
                     : LuaNaming.Member(method.Identifier.ValueText),
                 method.Modifiers.Any(SyntaxKind.StaticKeyword),
                 [.. method.ParameterList.Parameters
-                    .Select(p => p.Identifier.ValueText)],
+                    .Select(p => LuaNaming.Local(p.Identifier.ValueText))],
                 body,
                 methodSymbol?.ReturnType.ToDisplayString() ?? "void",
                 methodSymbol == null

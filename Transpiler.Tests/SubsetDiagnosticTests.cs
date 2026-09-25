@@ -91,6 +91,31 @@ public class SubsetDiagnosticTests
         AssertUnsupportedWarning(result, "ConditionalAttribute");
     }
 
+    // caller info 属性は呼び出しサイトでの引数注入 (C# コンパイラの意味論)
+    // を tcs が再現しないため、default 値が silent に届く
+    [Theory]
+    [InlineData("CallerArgumentExpression(\"val\")")]
+    [InlineData("CallerMemberName")]
+    [InlineData("CallerLineNumber")]
+    [InlineData("CallerFilePath")]
+    public void CallerInfoAttribute_ReportsWarning(string attribute)
+    {
+        var type = attribute == "CallerLineNumber" ? "int" : "string?";
+        var initial = attribute == "CallerLineNumber" ? "0" : "null";
+        var result = Transpiler.TranspileWithDiagnostics([$$"""
+            #nullable enable
+            using System.Runtime.CompilerServices;
+
+            public class T
+            {
+                public static void M(int val = 0,
+                    [{{attribute}}] {{type}} text = {{initial}}) { }
+            }
+            """]);
+
+        AssertUnsupportedWarning(result, "CallerInfoAttribute");
+    }
+
     [Fact]
     public void OtherAttributes_AreNotFlagged()
     {
@@ -105,6 +130,8 @@ public class SubsetDiagnosticTests
         Assert.True(result.Success);
         Assert.DoesNotContain(result.Warnings,
             w => w.Contains("ConditionalAttribute"));
+        Assert.DoesNotContain(result.Warnings,
+            w => w.Contains("CallerInfoAttribute"));
     }
 
     [Fact]

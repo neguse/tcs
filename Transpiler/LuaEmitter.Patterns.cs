@@ -10,7 +10,7 @@ public partial class LuaEmitter
     private string VisitSimpleLambda(SemanticModel model,
         SimpleLambdaExpressionSyntax lambda)
     {
-        var param = lambda.Parameter.Identifier.ValueText;
+        var param = L(lambda.Parameter.Identifier.ValueText);
         if (lambda.ExpressionBody != null)
             return $"function({param}) {LambdaPatternLocals(lambda.ExpressionBody)}return " +
                    $"{VisitExpression(model, lambda.ExpressionBody)} end";
@@ -21,7 +21,7 @@ public partial class LuaEmitter
         ParenthesizedLambdaExpressionSyntax lambda)
     {
         var parameters = string.Join(", ",
-            lambda.ParameterList.Parameters.Select(p => p.Identifier.ValueText));
+            lambda.ParameterList.Parameters.Select(p => L(p.Identifier.ValueText)));
         if (lambda.ExpressionBody != null)
             return $"function({parameters}) {LambdaPatternLocals(lambda.ExpressionBody)}return " +
                    $"{VisitExpression(model, lambda.ExpressionBody)} end";
@@ -35,7 +35,7 @@ public partial class LuaEmitter
     // pre-pass が無いため、function 冒頭で local 宣言する
     private static string LambdaPatternLocals(ExpressionSyntax body)
     {
-        var names = IsPatternDesignationNames(body).ToList();
+        var names = IsPatternDesignationNames(body).Select(L).ToList();
         return names.Count > 0 ? $"local {string.Join(", ", names)}; " : "";
     }
 
@@ -92,7 +92,7 @@ public partial class LuaEmitter
             .Select(a => a.Pattern)
             .OfType<DeclarationPatternSyntax>()
             .Where(dp => dp.Designation is SingleVariableDesignationSyntax)
-            .Select(dp => $"local {((SingleVariableDesignationSyntax)dp.Designation!).Identifier.ValueText} = __tcs_sw; "));
+            .Select(dp => $"local {L(((SingleVariableDesignationSyntax)dp.Designation!).Identifier.ValueText)} = __tcs_sw; "));
 
         return $"(function() local __tcs_sw = {governing}; {bindings}" +
             $"{string.Join(" ", parts)} end end)()";
@@ -177,7 +177,7 @@ public partial class LuaEmitter
         if (isPattern.Pattern is DeclarationPatternSyntax
             { Designation: SingleVariableDesignationSyntax sv } dp)
         {
-            var name = sv.Identifier.ValueText;
+            var name = L(sv.Identifier.ValueText);
             var check = EmitTypeCheck(name, model.GetTypeInfo(dp.Type).Type,
                 FormatTypeReference(dp.Type));
             return $"(function() {name} = {expr}; return {check} end)()";
