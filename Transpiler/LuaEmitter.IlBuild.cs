@@ -263,7 +263,9 @@ public partial class LuaEmitter
                 acc.Add(typeName.StartsWith(
                         "System.Collections.Generic.Dictionary")
                     ? new IlForeachDict(varName, coll, body) { Origin = stmt }
-                    : new IlForeachList(varName, coll, body) { Origin = stmt });
+                    : new IlForeachList(varName, coll, body,
+                        Array: model.GetTypeInfo(foreachStmt.Expression).Type
+                            is IArrayTypeSymbol) { Origin = stmt });
                 return true;
             }
             case BlockSyntax block:

@@ -668,6 +668,13 @@ public partial class LuaEmitter
             _indent--;
             AppendLine("end");
         }
+        else if (typeInfo.Type is IArrayTypeSymbol)
+        {
+            EmitArrayForeachHead(varName, collection);
+            VisitBlock(model, foreachStmt.Statement);
+            EmitContinueLabel(label);
+            EmitArrayForeachTail();
+        }
         else
         {
             AppendLine($"for _, {varName} in ipairs({collection}) do");

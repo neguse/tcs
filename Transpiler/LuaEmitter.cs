@@ -62,6 +62,26 @@ public partial class LuaEmitter
             AppendLine("  end");
             AppendLine("  return false");
             AppendLine("end");
+            // new T[n] (il-spec §11): 要素を default(T) で埋め、長さを field `n`
+            // に持つ (参照型要素の null = nil 穴があっても Length / foreach が
+            // 崩れない)。d が関数なら要素ごとに呼ぶ factory (struct は要素が
+            // 互いに独立した値、il-spec §10)。
+            AppendLine("local function __tcs_newarr(n, d)");
+            AppendLine("  if n < 0 then error(\"negative-array-length\", 2) end");
+            AppendLine("  local a = table.create(n, 1)");
+            AppendLine("  if type(d) == \"function\" then");
+            AppendLine("    for i = 1, n do a[i] = d() end");
+            AppendLine("  elseif d ~= nil then");
+            AppendLine("    for i = 1, n do a[i] = d end");
+            AppendLine("  end");
+            AppendLine("  a.n = n");
+            AppendLine("  return a");
+            AppendLine("end");
+            // runtime が返す sequence を配列にする (string.Split の string[])
+            AppendLine("local function __tcs_toarr(t)");
+            AppendLine("  t.n = #t");
+            AppendLine("  return t");
+            AppendLine("end");
             // f32 の shortest round-trip 10 進表記 (il-spec §13)。Lua 既定の
             // %.14g は余分な桁を出すため、%.6g/%.8g/%.9g の順で round-trip
             // する最短を選ぶ (binary32 は 9 桁で常に round-trip する)

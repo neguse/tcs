@@ -30,8 +30,10 @@ public sealed record IlField(IlExpr Recv, string Name) : IlExpr;
 /// <summary>要素 place: recv[idx]。PlusOne は 0-based→1-based 変換 (List/array)。</summary>
 public sealed record IlIndex(IlExpr Recv, IlExpr Idx, bool PlusOne) : IlExpr;
 
-/// <summary>長さ: #e (List.Count / string.Length / array.Length)。</summary>
-public sealed record IlLen(IlExpr E) : IlExpr;
+/// <summary>長さ: #e (List.Count / string.Length)。Array は固定長配列の
+/// Length で、Lua backend は長さ field `e.n` を読む (il-spec §11。null 要素の
+/// nil 穴があっても長さが崩れない)。</summary>
+public sealed record IlLen(IlExpr E, bool Array = false) : IlExpr;
 
 public enum IlBinOp
 {
@@ -68,13 +70,18 @@ public sealed record IlNewObj(string TypeName, ImmutableArray<IlExpr> Args) : Il
 
 /// <summary>table 構築 (List / Dict リテラル / ref-type option table)。
 /// Key があれば [k]=v、NameKey があれば name=v、どちらも無ければ配列項。
-/// ElementType は配列/List リテラルの要素型 (C backend 用 metadata)。</summary>
+/// ElementType は配列/List リテラルの要素型 (C backend 用 metadata)。
+/// Array は配列リテラルで、Lua backend は長さ field `n` を足す。</summary>
 public sealed record IlTable(ImmutableArray<IlTableEntry> Entries,
-    string? ElementType = null, string? KeyType = null) : IlExpr;
+    string? ElementType = null, string? KeyType = null, bool Array = false)
+    : IlExpr;
 
 /// <summary>固定長配列の生成: new T[n] (il-spec §11)。dev backend は
-/// 空 table (要素は使用時に埋まる)、release backend は連続バッファ確保。</summary>
-public sealed record IlNewArray(string ElementType, IlExpr Length) : IlExpr;
+/// 要素を default(T) で埋め長さ field `n` を持つ table (LuaDefault は要素の
+/// default の Lua 式。struct は要素ごとに生成する factory `S.new`)、release
+/// backend は連続バッファ確保。</summary>
+public sealed record IlNewArray(string ElementType, IlExpr Length,
+    string LuaDefault = "nil") : IlExpr;
 
 public readonly record struct IlTableEntry(
     IlExpr? Key, IlExpr Value, string? NameKey = null);
@@ -137,8 +144,10 @@ public sealed record IlRepeat(IlBlock Body, IlExpr Cond) : IlStat;
 public sealed record IlNumericFor(
     string Var, IlExpr Start, IlExpr Limit, IlBlock Body) : IlStat;
 
-/// <summary>foreach (List/array): for _, v in ipairs(coll)。</summary>
-public sealed record IlForeachList(string Var, IlExpr Coll, IlBlock Body) : IlStat;
+/// <summary>foreach (List/array): for _, v in ipairs(coll)。Array は固定長配列で、
+/// Lua backend は長さ field `n` までの数値 for にする (nil 要素で止まらない)。</summary>
+public sealed record IlForeachList(string Var, IlExpr Coll, IlBlock Body,
+    bool Array = false) : IlStat;
 
 /// <summary>foreach (Dictionary): pairs + KeyValuePair table 合成。</summary>
 public sealed record IlForeachDict(string Var, IlExpr Coll, IlBlock Body) : IlStat;

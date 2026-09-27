@@ -43,17 +43,17 @@ assembly 参照で直接消費する。
 | IlVar(name) | local / parameter / 型名参照 | name |
 | IlField(recv, name) | field place 読み (il-spec §10) | recv.name |
 | IlIndex(recv, idx, plusOne) | 要素 place。plusOne=0-based→1-based | recv[idx + 1] |
-| IlLen(e) | List.Count / string.Length / array.Length | #e |
+| IlLen(e, array) | List.Count / string.Length / array.Length。array は配列の Length | #e (array は e.n) |
 | IlBin(op, l, r) | 型解決済み二項演算 (§4-6)。op に DivInt/RemInt は無い — それらは IlCall("__tcs_idiv"/"__tcs_irem") | l op r |
 | IlUn(op, e) | Neg / Not / BitNot | -e 等 |
 | IlParen(e) | 括弧 (評価順は §4 で規定済み — 表示用) | (e) |
 | IlTernary(c, t, f) | 条件式 | IIFE |
-| IlCall(callee, args) | 解決済み callee 名の呼び出し。callee は "Class.Method" / intrinsic 名 (§13: print, Math.*, String.*, List.*, Dict.*, table.*, string.format, tostring, math.fmod, \_\_tcs_idiv, \_\_tcs_irem) | callee(args) |
+| IlCall(callee, args) | 解決済み callee 名の呼び出し。callee は "Class.Method" / intrinsic 名 (§13: print, Math.*, String.*, List.*, Dict.*, table.*, string.format, tostring, math.fmod, \_\_tcs_idiv, \_\_tcs_irem, \_\_tcs_toarr) | callee(args) |
 | IlDynCall(callee, args) | 式 callee の呼び出し (delegate 変数等) | callee(args) |
 | IlInvoke(recv, m, args) | インスタンスメソッド (仮想解決は実行時型 §9) | recv:m(args) |
 | IlNewObj(type, args) | class 生成 (§9: default 初期化→ctor) | Type.new(args) |
-| IlTable(entries, elemType?) | List/Dict/option table リテラル。entry = 配列項 / [k]=v / name=v。elemType は配列/List の要素型 metadata | {…} |
-| IlNewArray(elemType, length) | 固定長配列生成 (§11)。release は連続バッファ確保 | {} |
+| IlTable(entries, elemType?, keyType?, array) | List/Dict/option table リテラル。entry = 配列項 / [k]=v / name=v。elemType は配列/List の要素型 metadata。array は配列リテラル | {…} (array は {…, n = k}) |
+| IlNewArray(elemType, length, luaDefault) | 固定長配列生成 (§11)。要素は default(T) (luaDefault。struct は要素ごとの factory `S.new`)。release は連続バッファ確保 | \_\_tcs_newarr(length, luaDefault) |
 | IlStructCopy(e, typeName) | 値型の copy 地点 (§10)。型別 copy 関数で struct-in-struct を再帰 copy。C backend は素の値代入で良い | typeName..".\_\_copy(e)" |
 | IlIsType(e, typeRef) | class 型 test (T またはその派生、null 偽 §9) | \_\_tcs_is(e, T) |
 | IlIsLuaType(e, luaType) | プリミティブ型 test | type(e) == "…" |
@@ -74,7 +74,7 @@ assembly 参照で直接消費する。
 | IlWhile(cond, body, trailer?, scopeBody) | while。trailer は for 脱糖の incrementors。scopeBody は continue label のための body スコープ隔離 |
 | IlRepeat(body, cond) | do-while |
 | IlNumericFor(var, start, limit, body) | 数値 for 最適化形。「制御変数が捕捉されず bound 不変」と builder が証明済みの場合のみ現れる。C backend は素の for へ (while + 単一変数と観測等価) |
-| IlForeachList(var, coll, body) | List/array の foreach (反復変数は反復ごと §7) |
+| IlForeachList(var, coll, body, array) | List/array の foreach (反復変数は反復ごと §7)。array は配列で、Lua では長さ field `n` までの数値 for |
 | IlForeachDict(var, coll, body) | Dictionary の foreach (KeyValuePair 相当) |
 | IlForPairs(k, v?, coll, body) | 汎用 pairs (List.Clear の lowering 産物) |
 | IlBreak / IlContinue / IlReturn(value?) | 制御 (§8) |

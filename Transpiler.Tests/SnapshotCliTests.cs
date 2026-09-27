@@ -56,6 +56,53 @@ public class SnapshotCliTests
         }
     }
 
+    [Fact]
+    public void SnapshotArraysUseLengthField()
+    {
+        // module mode の static 初期化子は define chunk とは別 chunk で走るので、
+        // __tcs_newarr は runtime の global (TinySystem.newarr) で解決される
+        var dir = Directory.CreateTempSubdirectory("tcs-snap-arr");
+        try
+        {
+            var game = Path.Combine(dir.FullName, "Game.cs");
+            File.WriteAllText(game, """
+                public class Game
+                {
+                    static bool[] flags = new bool[3];
+                    public static string Run()
+                    {
+                        string[] names = new string[2];
+                        names[0] = "a";
+                        int count = 0;
+                        foreach (var n in names) count++;
+                        return $"{flags.Length}/{flags[2]}/{names.Length}/{count}";
+                    }
+                }
+                """);
+            var outPath = Path.Combine(dir.FullName, "snap.lua");
+            var r = RunCli(game, "--entry", "Game", "--snapshot", "-o", outPath);
+            Assert.Equal(0, r.ExitCode);
+            var output = TestHelper.RunLua($"""
+                local w = dofile("{outPath.Replace("\\", "/")}")
+                print(w.run())
+                """).Trim().Split('\n');
+            Assert.Equal("3/false/2/2", output[^1].Trim());
+
+            // 旧 ABI の runtime が生きている VM でも、bootstrap をやり直して
+            // 新しい runtime (__tcs_newarr) で動く
+            var stale = TestHelper.RunLua($$"""
+                _G.__tcs_module_runtime = { abi = 1 }
+                local w = dofile("{{outPath.Replace("\\", "/")}}")
+                print(w.run())
+                """).Trim().Split('\n');
+            Assert.Equal("3/false/2/2", stale[^1].Trim());
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
     private static (int ExitCode, string Stdout, string Stderr) RunCli(
         params string[] args) =>
         ConsoleCapture.Run(() => Program.Main(args));

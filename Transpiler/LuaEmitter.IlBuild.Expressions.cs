@@ -124,17 +124,23 @@ public partial class LuaEmitter
             {
                 if (arr.Initializer == null)
                 {
-                    var elemType = (model.GetTypeInfo(arr).Type
-                        as IArrayTypeSymbol)?.ElementType.ToDisplayString();
-                    var sizeExpr = arr.Type.RankSpecifiers.Count == 1
+                    var arrayType = model.GetTypeInfo(arr).Type
+                        as IArrayTypeSymbol;
+                    var elemType = arrayType?.ElementType.ToDisplayString();
+                    // 長さは先頭の rank 指定子 (jagged `new T[n][]` は外側の
+                    // 長さ n、要素は null の配列)
+                    var sizeExpr = arr.Type.RankSpecifiers.Count >= 1
                         && arr.Type.RankSpecifiers[0].Sizes.Count == 1
                         && arr.Type.RankSpecifiers[0].Sizes[0]
                             is not OmittedArraySizeExpressionSyntax
                         ? arr.Type.RankSpecifiers[0].Sizes[0] : null;
-                    if (elemType != null && sizeExpr != null
-                        && BuildExpr(model, sizeExpr) is { } len)
-                        return new IlNewArray(elemType, len);
-                    return new IlTable([], elemType);
+                    if (arrayType != null && elemType != null
+                        && sizeExpr != null)
+                        return BuildExpr(model, sizeExpr) is { } len
+                            ? new IlNewArray(elemType, len,
+                                ArrayElementDefaultArg(arrayType.ElementType))
+                            : null; // size 式が組めない → legacy へ fallback
+                    return new IlTable([], elemType, Array: true);
                 }
                 return BuildArrayItems(model, arr.Initializer,
                     (model.GetTypeInfo(arr).Type as IArrayTypeSymbol)
@@ -164,7 +170,8 @@ public partial class LuaEmitter
     private IlExpr? BuildArrayItems(SemanticModel model,
         InitializerExpressionSyntax? initializer, string? elementType = null)
     {
-        if (initializer == null) return new IlTable([], elementType);
+        if (initializer == null)
+            return new IlTable([], elementType, Array: true);
         var items = new List<IlTableEntry>();
         foreach (var e in initializer.Expressions)
         {
@@ -172,7 +179,7 @@ public partial class LuaEmitter
             if (built == null) return null;
             items.Add(new IlTableEntry(null, built));
         }
-        return new IlTable([.. items], elementType);
+        return new IlTable([.. items], elementType, Array: true);
     }
 
     private IlExpr? BuildWithExpr(SemanticModel model,
@@ -616,7 +623,7 @@ public partial class LuaEmitter
             if (member == "Length"
                 && (receiverType?.SpecialType == SpecialType.System_String
                     || receiverType is IArrayTypeSymbol))
-                return new IlLen(obj);
+                return new IlLen(obj, Array: receiverType is IArrayTypeSymbol);
             if (IsCustomProperty(propSym))
                 return propSym.IsStatic
                     ? new IlDynCall(new IlField(

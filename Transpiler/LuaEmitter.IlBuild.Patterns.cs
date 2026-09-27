@@ -114,7 +114,9 @@ public partial class LuaEmitter
                 IlExpr propExpr = patSym is IPropertySymbol patProp
                         && IsCustomProperty(patProp)
                     ? new IlInvoke(expr, $"get_{propName}", [])
-                    : new IlField(expr, propName);
+                    : IsArrayLength(patSym)
+                        ? new IlLen(expr, Array: true)
+                        : new IlField(expr, propName);
                 var cond = BuildIsSubPattern(model, propExpr, sub.Pattern);
                 if (cond == null) return null;
                 conditions.Add(cond);
@@ -422,7 +424,7 @@ public partial class LuaEmitter
         if (member == "Length"
             && (receiverType?.SpecialType == SpecialType.System_String
                 || receiverType is IArrayTypeSymbol))
-            return new IlLen(obj);
+            return new IlLen(obj, Array: receiverType is IArrayTypeSymbol);
         if (FindInstanceProperty(receiverType, member) is { } condProp
             && IsCustomProperty(condProp))
             return new IlInvoke(obj, $"get_{N(condProp)}", []);

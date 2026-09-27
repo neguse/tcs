@@ -138,12 +138,18 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | Nullable 値型 (`int?`) | **P** | `null`/値/HasValue/Value/GetValueOrDefault |
 | Nullable 参照型 (`string?`) | **N/A** | Lua は常に nil 可能 |
 | タプル `(int, string)` | **-** | |
-| 配列 `int[]` | **P** | 初期化子、index、Length。List\<T\> を推奨 |
+| 配列 `int[]` | **P** | `new T[n]` (要素は default(T))、`new T[] {…}` / `new[] {…}`、index、Length、foreach、null 要素。未対応: `T[] a = {…}` の省略形 (TCS1001)、範囲外 index の fault、多次元と `Array.*` (どちらも診断なしで壊れた Lua になる) |
 | 匿名型 `new { }` | **-** | |
 | `Span<T>` / `ReadOnlySpan<T>` | **N/A** | |
 | ポインタ型 `int*` | **N/A** | |
 | 関数ポインタ `delegate*` | **N/A** | |
 | `ref struct` | **N/A** | |
+
+配列の wire format 契約: 配列は要素を 1 始まりの sequence に置き、長さを
+field `n` に持つ Lua table (`table.pack` と同じ形、`{"a", nil, n = 2}`)。null
+要素は nil で、`n` までの穴になる。Length は `n` を読み、foreach は `n` までの
+数値 for (ipairs は nil で止まるため使わない)。`--ref` (host) 関数へ渡すと host
+はこの table をそのまま受け取る。host から C# へ配列を返すときは `n` を設定する。
 
 ### 1.4 ユーザー定義型
 

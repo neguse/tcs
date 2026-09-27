@@ -124,7 +124,9 @@ public partial class LuaEmitter
         "Substring" => new IlCall("String.Substring", [recv, .. args]),
         "ToUpper" => new IlCall("string.upper", [recv]),
         "ToLower" => new IlCall("string.lower", [recv]),
-        "Split" => new IlCall("String.Split", [recv, .. args]),
+        // string[] を返す: runtime の sequence に長さ field `n` を付ける
+        "Split" => new IlCall("__tcs_toarr",
+            [new IlCall("String.Split", [recv, .. args])]),
         "ToString" => new IlCall("tostring", [recv]),
         _ => null,
     };

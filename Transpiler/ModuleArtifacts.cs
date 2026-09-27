@@ -116,7 +116,11 @@ public static class ModuleLinker
         // idempotent bootstrap: 初回だけ TinySystem prelude と registry を作る。
         // reload では既存 identity を保つ (§14.2 bridge entry の実行契約)。
         sb.Append("local __rt = _G.__tcs_module_runtime\n");
-        sb.Append("if not (__rt and __rt.abi == 1) then\n");
+        // abi は runtime (TinySystem と生成コードの契約) を変えたら上げる。
+        // 旧 runtime のまま生きている VM に新しい snapshot を当てると、
+        // bootstrap をやり直して新しい runtime と registry で起動し直す。
+        // 2: 配列の長さ field `n` と __tcs_newarr / __tcs_toarr
+        sb.Append("if not (__rt and __rt.abi == 2) then\n");
         sb.Append("  local TinySystem = (function()\n");
         AppendIndented(sb, tinySystemLua, "    ");
         sb.Append("  end)()\n");
@@ -130,10 +134,12 @@ public static class ModuleLinker
         sb.Append("  _G.__tcs_irem = TinySystem.irem\n");
         sb.Append("  _G.__tcs_is = TinySystem.instanceof\n");
         sb.Append("  _G.__tcs_fstr = TinySystem.fstr\n");
+        sb.Append("  _G.__tcs_newarr = TinySystem.newarr\n");
+        sb.Append("  _G.__tcs_toarr = TinySystem.toarr\n");
         sb.Append("  local __registry_mod = (function()\n");
         AppendIndented(sb, registryLua, "    ");
         sb.Append("  end)()\n");
-        sb.Append("  __rt = { abi = 1, registry = __registry_mod.new(_G) }\n");
+        sb.Append("  __rt = { abi = 2, registry = __registry_mod.new(_G) }\n");
         sb.Append("  _G.__tcs_module_runtime = __rt\n");
         sb.Append("end\n\n");
 

@@ -6,6 +6,13 @@ local TinySystem = {}
 local List = {}
 TinySystem.List = List
 
+-- 列の長さ。固定長配列は長さ field `n` を持つ (null 要素の nil 穴があっても
+-- 長さが崩れない、il-spec §11)。List は素の sequence なので # で数える。
+-- LINQ は配列も受けるため、列を読む関数はこれで長さを取る
+local function seqlen(list)
+  return list.n or #list
+end
+
 function List.new(init)
   return init or {}
 end
@@ -31,23 +38,23 @@ end
 function List.Count(list, predicate)
   if predicate then
     local n = 0
-    for i = 1, #list do
+    for i = 1, seqlen(list) do
       if predicate(list[i]) then n = n + 1 end
     end
     return n
   end
-  return #list
+  return seqlen(list)
 end
 
 function List.Contains(list, item)
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     if list[i] == item then return true end
   end
   return false
 end
 
 function List.IndexOf(list, item)
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     if list[i] == item then return i - 1 end -- return 0-indexed
   end
   return -1
@@ -64,7 +71,7 @@ end
 -- LINQ-style methods
 function List.Where(list, predicate)
   local result = {}
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     if predicate(list[i]) then
       result[#result + 1] = list[i]
     end
@@ -74,22 +81,22 @@ end
 
 function List.Select(list, selector)
   local result = {}
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     result[i] = selector(list[i])
   end
   return result
 end
 
 function List.Any(list, predicate)
-  if not predicate then return #list > 0 end
-  for i = 1, #list do
+  if not predicate then return seqlen(list) > 0 end
+  for i = 1, seqlen(list) do
     if predicate(list[i]) then return true end
   end
   return false
 end
 
 function List.All(list, predicate)
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     if not predicate(list[i]) then return false end
   end
   return true
@@ -97,10 +104,10 @@ end
 
 function List.First(list, predicate)
   if not predicate then
-    if #list == 0 then error("Sequence contains no elements") end
+    if seqlen(list) == 0 then error("Sequence contains no elements") end
     return list[1]
   end
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     if predicate(list[i]) then return list[i] end
   end
   error("Sequence contains no matching element")
@@ -110,10 +117,10 @@ end
 -- transpiler が呼び出しサイトの型から埋め込む。
 function List.FirstOrDefault(list, predicate, default)
   if not predicate then
-    if #list == 0 then return default end
+    if seqlen(list) == 0 then return default end
     return list[1]
   end
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     if predicate(list[i]) then return list[i] end
   end
   return default
@@ -121,7 +128,7 @@ end
 
 function List.OrderBy(list, keySelector)
   local copy = {}
-  for i = 1, #list do copy[i] = list[i] end
+  for i = 1, seqlen(list) do copy[i] = list[i] end
   table.sort(copy, function(a, b)
     return keySelector(a) < keySelector(b)
   end)
@@ -130,7 +137,7 @@ end
 
 function List.OrderByDescending(list, keySelector)
   local copy = {}
-  for i = 1, #list do copy[i] = list[i] end
+  for i = 1, seqlen(list) do copy[i] = list[i] end
   table.sort(copy, function(a, b)
     return keySelector(a) > keySelector(b)
   end)
@@ -140,7 +147,7 @@ end
 function List.Take(list, count)
   local result = {}
   if count < 0 then count = 0 end
-  local limit = math.min(count, #list)
+  local limit = math.min(count, seqlen(list))
   for i = 1, limit do result[#result + 1] = list[i] end
   return result
 end
@@ -148,16 +155,16 @@ end
 function List.Skip(list, count)
   local result = {}
   if count < 0 then count = 0 end
-  for i = count + 1, #list do result[#result + 1] = list[i] end
+  for i = count + 1, seqlen(list) do result[#result + 1] = list[i] end
   return result
 end
 
 function List.Last(list, predicate)
   if not predicate then
-    if #list == 0 then error("Sequence contains no elements") end
-    return list[#list]
+    if seqlen(list) == 0 then error("Sequence contains no elements") end
+    return list[seqlen(list)]
   end
-  for i = #list, 1, -1 do
+  for i = seqlen(list), 1, -1 do
     if predicate(list[i]) then return list[i] end
   end
   error("Sequence contains no matching element")
@@ -165,10 +172,10 @@ end
 
 function List.LastOrDefault(list, predicate, default)
   if not predicate then
-    if #list == 0 then return default end
-    return list[#list]
+    if seqlen(list) == 0 then return default end
+    return list[seqlen(list)]
   end
-  for i = #list, 1, -1 do
+  for i = seqlen(list), 1, -1 do
     if predicate(list[i]) then return list[i] end
   end
   return default
@@ -177,7 +184,7 @@ end
 function List.Min(list, selector)
   selector = selector or function(x) return x end
   local minVal = nil
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     local v = selector(list[i])
     if minVal == nil or v < minVal then minVal = v end
   end
@@ -188,7 +195,7 @@ end
 function List.Max(list, selector)
   selector = selector or function(x) return x end
   local maxVal = nil
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     local v = selector(list[i])
     if maxVal == nil or v > maxVal then maxVal = v end
   end
@@ -199,7 +206,7 @@ end
 function List.Sum(list, selector)
   selector = selector or function(x) return x end
   local total = 0
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     total = total + selector(list[i])
   end
   return total
@@ -207,14 +214,14 @@ end
 
 function List.ToList(list)
   local copy = {}
-  for i = 1, #list do copy[i] = list[i] end
+  for i = 1, seqlen(list) do copy[i] = list[i] end
   return copy
 end
 
 function List.ToDictionary(list, keySelector, valueSelector)
   valueSelector = valueSelector or function(x) return x end
   local dict = {}
-  for i = 1, #list do
+  for i = 1, seqlen(list) do
     local item = list[i]
     -- C# と同じく key → value の順で各 1 回評価する (Lua の代入式の
     -- 評価順は未規定なので local で明示する)。duplicate key は C# と
@@ -283,7 +290,16 @@ end
 
 function String.Join(sep, values, ...)
   if type(values) == "table" and select("#", ...) == 0 then
-    return table.concat(values, sep)
+    local n = values.n
+    if n == nil then return table.concat(values, sep) end
+    -- 配列 (長さ field `n`): null 要素は C# と同じく空文字として連結する
+    local parts = {}
+    for i = 1, n do
+      local v = values[i]
+      if v == nil then v = "" end
+      parts[i] = v
+    end
+    return table.concat(parts, sep)
   end
 
   local parts = { values, ... }
@@ -462,6 +478,30 @@ function TinySystem.instanceof(x, T)
     mt = link and link.__index
   end
   return false
+end
+
+-- runtime が返す sequence を配列 (長さ field `n`) にする。C# の string.Split
+-- (string[]) の呼び出し地点で使う。TinySystem.String.Split facade は
+-- List<string> を返すので、runtime の String.Split 自体は素の sequence のまま
+-- (List に `n` が残ると Add の後に長さがずれる)。
+function TinySystem.toarr(t)
+  t.n = #t
+  return t
+end
+
+-- new T[n] (il-spec §11): 要素を default(T) で埋め、長さを field `n` に持つ。
+-- d が関数なら要素ごとに呼ぶ factory (struct)。生成コードは __tcs_newarr
+-- global 経由でこちらを使う (chunk-local 版と同じ本体)。
+function TinySystem.newarr(n, d)
+  if n < 0 then error("negative-array-length", 2) end
+  local a = table.create(n, 1)
+  if type(d) == "function" then
+    for i = 1, n do a[i] = d() end
+  elseif d ~= nil then
+    for i = 1, n do a[i] = d end
+  end
+  a.n = n
+  return a
 end
 
 -- TryGetValue の lowering 先 (il-spec §13)。(found, value or default) を返す

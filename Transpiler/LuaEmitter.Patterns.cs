@@ -239,7 +239,9 @@ public partial class LuaEmitter
                     var propExpr = patSym is IPropertySymbol patProp
                             && IsCustomProperty(patProp)
                         ? $"{expr}:get_{propName}()"
-                        : $"{expr}.{propName}";
+                        : IsArrayLength(patSym)
+                            ? ArrayLengthLua(expr)
+                            : $"{expr}.{propName}";
                     conditions.Add(VisitIsSubPattern(model, propExpr, sub.Pattern));
                 }
             }
@@ -317,8 +319,10 @@ public partial class LuaEmitter
             return $"Dict.Keys({obj})";
         if (member == "Values" && IsDictType(typeDef))
             return $"Dict.Values({obj})";
-        if (member == "Length" && (receiverType?.SpecialType == SpecialType.System_String
-            || receiverType is IArrayTypeSymbol))
+        if (member == "Length" && receiverType is IArrayTypeSymbol)
+            return ArrayLengthLua(obj);
+        if (member == "Length"
+            && receiverType?.SpecialType == SpecialType.System_String)
             return $"#{obj}";
 
         if (FindInstanceProperty(receiverType, member) is { } condProp

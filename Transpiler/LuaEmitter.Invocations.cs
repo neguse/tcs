@@ -327,8 +327,10 @@ public partial class LuaEmitter
                 return $"Dict.Keys({obj})";
             if (member == "Values" && IsDictType(typeDef))
                 return $"Dict.Values({obj})";
-            if (member == "Length" && (receiverType?.SpecialType == SpecialType.System_String
-                || receiverType is IArrayTypeSymbol))
+            if (member == "Length" && receiverType is IArrayTypeSymbol)
+                return ArrayLengthLua(obj);
+            if (member == "Length"
+                && receiverType?.SpecialType == SpecialType.System_String)
                 return $"#{obj}";
 
             // custom property の読みは生成済み getter を呼ぶ (auto は raw field)
@@ -398,8 +400,8 @@ public partial class LuaEmitter
         "ToUpper" => $"string.upper({obj})",
         "ToLower" => $"string.lower({obj})",
         "Split" => args.Count == 0
-            ? $"String.Split({obj})"
-            : $"String.Split({obj}, {string.Join(", ", args)})",
+            ? $"__tcs_toarr(String.Split({obj}))"
+            : $"__tcs_toarr(String.Split({obj}, {string.Join(", ", args)}))",
         "ToString" => $"tostring({obj})",
         _ => $"{obj}:{methodName}({string.Join(", ", args)})"
     };

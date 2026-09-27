@@ -78,6 +78,16 @@ public partial class LuaEmitter
                 PopContinueLabel();
                 break;
             }
+            case IlForeachList { Array: true } feArray:
+            {
+                var label = PushContinueLabel();
+                EmitArrayForeachHead(feArray.Var, RenderIl(feArray.Coll));
+                EmitIlBlock(feArray.Body);
+                EmitContinueLabel(label);
+                EmitArrayForeachTail();
+                PopContinueLabel();
+                break;
+            }
             case IlForeachList feList:
             {
                 var label = PushContinueLabel();
@@ -292,6 +302,7 @@ public partial class LuaEmitter
         IlVar v => v.Name,
         IlField f => $"{RenderIl(f.Recv)}.{f.Name}",
         IlIndex ix => $"{RenderIl(ix.Recv)}[{RenderIl(ix.Idx)}{(ix.PlusOne ? " + 1" : "")}]",
+        IlLen { Array: true } len => $"{RenderIlPrefix(len.E)}.n",
         IlLen len => $"#{RenderIl(len.E)}",
         IlBin bin => $"{RenderIl(bin.L)} {RenderIlOp(bin.Op)} {RenderIl(bin.R)}",
         IlUn { Op: IlUnOp.Neg } un => $"-{RenderIl(un.E)}",
@@ -310,7 +321,8 @@ public partial class LuaEmitter
         IlNewObj obj =>
             $"{obj.TypeName}.new({string.Join(", ", obj.Args.Select(RenderIl))})",
         IlTable table => RenderIlTable(table),
-        IlNewArray => "{}",  // 長さは Lua 表現に現れない (legacy 互換)
+        IlNewArray na =>
+            $"__tcs_newarr({RenderIl(na.Length)}, {na.LuaDefault})",
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
         IlStructCopy copy => $"{copy.TypeName}.__copy({RenderIl(copy.E)})",
         IlIsLuaType isLua => $"type({RenderIl(isLua.E)}) == \"{isLua.LuaType}\"",
@@ -348,6 +360,8 @@ public partial class LuaEmitter
 
     private string RenderIlTable(IlTable table)
     {
+        if (table.Array)
+            return ArrayLiteralLua([.. table.Entries.Select(e => RenderIl(e.Value))]);
         if (table.Entries.Length == 0) return "{}";
         var parts = table.Entries.Select(e =>
             e.NameKey != null ? $"{e.NameKey} = {RenderIl(e.Value)}"
@@ -355,4 +369,9 @@ public partial class LuaEmitter
             : RenderIl(e.Value));
         return $"{{{string.Join(", ", parts)}}}";
     }
+
+    // field / index 読みの受け手になれる形 (prefix 式) で描く。table
+    // コンストラクタは prefix 式でないので括弧で包む
+    private string RenderIlPrefix(IlExpr expr) =>
+        expr is IlTable ? $"({RenderIl(expr)})" : RenderIl(expr);
 }

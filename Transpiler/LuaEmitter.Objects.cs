@@ -258,19 +258,22 @@ public partial class LuaEmitter
     private string VisitArrayCreation(SemanticModel model, ArrayCreationExpressionSyntax arr)
     {
         if (arr.Initializer != null)
-        {
-            var items = arr.Initializer.Expressions
-                .Select(e => VisitExpression(model, e));
-            return $"{{{string.Join(", ", items)}}}";
-        }
-        return "{}";
+            return ArrayLiteralLua([.. arr.Initializer.Expressions
+                .Select(e => VisitExpression(model, e))]);
+        // new T[n] (IL 経路の IlNewArray と同じ): 長さは先頭の rank 指定子
+        // (jagged `new T[n][]` は外側の長さ n)
+        var arrayType = model.GetTypeInfo(arr).Type as IArrayTypeSymbol;
+        var sizes = arr.Type.RankSpecifiers.Count >= 1
+            ? arr.Type.RankSpecifiers[0].Sizes : default;
+        if (arrayType == null || sizes.Count != 1
+            || sizes[0] is OmittedArraySizeExpressionSyntax)
+            return ArrayLiteralLua([]);
+        return $"__tcs_newarr({VisitExpression(model, sizes[0])}, "
+            + $"{ArrayElementDefaultArg(arrayType.ElementType)})";
     }
 
     private string VisitImplicitArrayCreation(SemanticModel model,
-        ImplicitArrayCreationExpressionSyntax arr)
-    {
-        var items = arr.Initializer.Expressions
-            .Select(e => VisitExpression(model, e));
-        return $"{{{string.Join(", ", items)}}}";
-    }
+        ImplicitArrayCreationExpressionSyntax arr) =>
+        ArrayLiteralLua([.. arr.Initializer.Expressions
+            .Select(e => VisitExpression(model, e))]);
 }
