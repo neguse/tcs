@@ -154,7 +154,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `record` / `record class` | **P** | table + metatable | positional record |
 | `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= と with 式。readonly (record) struct は copy 全省略 |
 | `interface` | **P** | 出力なし | Roslyn 型チェックのみ |
-| `enum` | **Y** | 定数テーブル | |
+| `enum` | **Y** | 定数テーブル | initializer 無しの field / auto property / `default(E)` の既定値は member 値に依らず 0 |
 | `delegate` 型定義 | **N/A** | | Action/Func で代替 |
 | ネストされた型 | **-** | | |
 
@@ -287,7 +287,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 演算子 | 状態 | Lua 出力 | 備考 |
 |--------|:----:|---------|------|
 | `+` `-` `*` `/` `%` (算術) | **Y** | `+ - *` はそのまま。整数 `/` `%` は `__tcs_idiv`/`__tcs_irem` (C# の 0 方向 truncation)、float `%` は `math.fmod` | |
-| `+` (文字列連結) | **Y** | `..` | 型で自動判定 |
+| `+` (文字列連結) | **Y** | `..` | 型で自動判定。operand は float → `__tcs_fstr`、bool / bool? → `tostring` (null は `""`)、null になり得る string → `or ""`。`+=` の右辺も同じ変換 |
 | `==` `!=` | **Y** | `==` `~=` | |
 | `<` `<=` `>` `>=` | **Y** | そのまま | |
 | `&&` `\|\|` | **Y** | `and` `or` | |
@@ -719,7 +719,7 @@ Lua sequence table は `nil` 要素を保持できないため、`null` 要素�
 | `new List<T> { 1, 2, 3 }` | **Y** | `{1, 2, 3}` | T |
 | `list[i]` (get/set) | **Y** | `list[i+1]` | T |
 | `.Count` | **Y** | `#list` | T |
-| `.Add(item)` | **Y** | `table.insert(list, item)` | T |
+| `.Add(item)` | **Y** | 文位置は `list[#list + 1] = item` (受け手が変数/field 連鎖の場合。引数が呼び出しを含むときは `local __tcs_v = item` に先に束縛)。受け手が式 (`Get().Add(x)` 等) のときは `table.insert(list, item)` | T |
 | `.Remove(item)` | **Y** | `List.Remove(list, item)` | T+R |
 | `.RemoveAt(index)` | **Y** | `table.remove(list, idx+1)` | T |
 | `.Clear()` | **Y** | | T |
@@ -917,7 +917,7 @@ LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in
 | Lua CMake platform 分岐 | **Y** | Linux/Windows/macOS/iOS-family/Emscripten/BSD/generic Unix |
 | 依存 lock / publish runtime 同梱 | **Y** | package pin + packages.lock.json + runtime/tinysystem.lua |
 | 命名規約チェック | **Y** | PascalCase/camelCase 警告。`--no-naming-check` で抑制 |
-| Lua 側の名前の衝突検出 | **Y** | 同じ型の `Foo` と `foo` が同じ Lua 名に落ちると warning (§28) |
+| Lua 側の名前の衝突検出 | **Y** | 同じ型の `Foo` と `foo` が同じ Lua 名に落ちると error (§28)。analyzer / `tcs check` は TCS1001 `LuaNameCollision(Foo/foo)` |
 
 ## 25. 許容される C# エラー (TinyC# 固有)
 
@@ -970,6 +970,10 @@ C# のメンバ名は表を持たず規則で Lua 名に写す (`Transpiler/LuaN
 | `const` field (enum メンバ以外) | 値を inline | C# の意味論どおり |
 | BCL / TinySystem のメンバ (`List.Add`, `Math.Min`) | runtime の名前のまま | source に宣言の無い symbol は写さない |
 
-同じ型の中で写像後の名前が衝突するメンバ (`Value` と `value`) は
-transpile 時に warning にする。
+同じ型の中で写像後の名前が衝突するメンバ (`Value` と `value`) は Lua table で
+片方が黙って消えるので、transpile 時に error (`file(line,col): error naming:
+'Value' and 'value' both map to Lua 'value'`) にして Lua を出力しない。同名の
+overload は衝突ではなく MethodOverload (TCS1001) の領分。analyzer / `tcs check`
+は同じ判定を TCS1001 `LuaNameCollision(Value/value)` として 2 個目以降の宣言に
+報告する。
 
