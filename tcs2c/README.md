@@ -43,8 +43,8 @@ Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要�
     FirstOrDefault / LastOrDefault / Count(pred) / Sum / Min / Max / OrderBy /
     OrderByDescending / Take / Skip / ToList / ToDictionary (要素型ごとの
     inline loop。sort は安定 merge sort)
-  - Dictionary: index get / set、Add、ContainsKey、TryGetValue、Remove、Count、
-    Keys / Values、foreach (KeyValuePair)、Clear
+  - Dictionary: index get / set (indexer initializer 含む)、Add、ContainsKey、
+    TryGetValue、Remove、Count、Keys / Values、foreach (KeyValuePair)
   - String: Length / index / Contains / IndexOf / Replace / StartsWith /
     EndsWith / Trim / Substring / Split / Join / IsNullOrEmpty / ToUpper /
     ToLower、`int.Parse` / `float.Parse`
@@ -85,7 +85,7 @@ TCS_ROOT=../tcs bash tcs2c/verify-digests.sh
   bytes、下限 `TCS_GC_MIN_THRESHOLD` = 1 MiB) に達した確保で full GC
 - **string literal は static object** (`TCS_GC_STATIC`): 評価ごとの確保を
   しない。GC は static object を mark / sweep の対象外にする
-- **検証**: `-DTCS_GC_STRESS=N` で N 回の確保ごとに full GC を回す
+- **検証**: `-DTCS_GC_STRESS=N` (N ≥ 1) で N 回の確保ごとに full GC を回す
   (`N=1` で毎回)。root 漏れは生きている object が回収されて出力が変わる
   形で現れるので、`tcs2c.Tests` は C (通常 + stress) と Lua の stdout 一致を
   要求する。AddressSanitizer と併用するときは保守的走査が fake stack を
@@ -96,7 +96,9 @@ TCS_ROOT=../tcs bash tcs2c/verify-digests.sh
 
 保守的 stack 走査は gcc / clang の最適化 (-O2) と setjmp を前提にした
 一般的な方式 (Boehm GC と同じ仮定) で、pointer を隠す変換 (XOR 等) を
-しない通常の C コード生成に対して安全。
+しない通常の C コード生成に対して安全。runtime は単一 thread 前提で、
+`--lib` の host は tcs の object pointer を entry の外で保持しない
+(保持したければ static field に置く)。
 
 ## テスト
 
