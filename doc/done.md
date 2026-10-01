@@ -1658,3 +1658,7 @@
 - 判断: LINQ は runtime の generic 関数ではなく call site 展開にした (要素型と closure 型が静的に決まり、void* + element_size の間接を避けられる)。IIFE は一般形を statement expression で受け、Clear だけ runtime 呼びへ特化。record / Nullable / Random / StringBuilder は明示エラーのまま (record は IL 契約に未収載、Random は il-spec §13 で backend 間一致の対象外)
 - 残課題: record (with / 値等価) の IL 契約収載と C 対応、Nullable<T>、closure 型 field の直接呼び出し (`obj.F()`) の IL 化、`int.TryParse`
 
+### bench-2backend の導線修復 ✓ (2026-10-01)
+- T238 の snake_case 写像で Lua 側の entry 呼び (`X.Main()`) が nil になっていたのを `X.main()` へ追随。ms/frame の算出を Python 3.12 専用の入れ子 quote f-string から `%` 書式へ (3.11 以前でも動く)
+- 検証: `PERF_BENCH_RUNS=1 PERF_BENCH_FRAMES=200` で 4 kernel とも dev / release の digest 一致 (particles_struct は T219b(d) 以降 release 側も走る)、GC 込みの release が dev の 11-30x
+
