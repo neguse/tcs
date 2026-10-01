@@ -1586,3 +1586,10 @@
 - 判断: 本対応 (IInvocationOperation.Arguments からの並べ替え + 既定値補完 + 副作用順の一時変数) は別タスク。error 化は「誤った Lua を掴ませない」ための暫定で、対応時に集合から外すだけで戻せる
 - 残課題: 名前付き引数の本対応 (#19 の期待挙動)
 
+### runtime の global と同名の型を error にする (#21) ✓ (2026-10-01)
+- runtime は `_G.TinySystem` / `List` / `Dict` / `Math` / `String` / `Random` を global に置き、生成コードの BCL 呼び出しは `Math.Abs` / `List.Add` / `Dict.ContainsKey` / `String.Split` と facade の `TinySystem.<Type>.*` を素の global 名で参照する。型は namespace を捨てた simple name で global に emit されるため、`namespace Game { class Math }` でも runtime の table を上書きし、以後の BCL 呼び出しが nil を呼んでいた (check も build も無診断)。TCS1001 `RuntimeGlobalIdentifier(name)` を型宣言 (interface 以外) に追加し、#19 の build を止める機構で error にする
+- 予約名の集合 (`ReservedRuntimeGlobals`) と prelude / module snapshot の `_G` alias (`RuntimeGlobalAliases`) は facts の同じ配列から作る (LuaRuntime.CreateEmbeddedPrelude と ModuleLinker.LinkSnapshot は配列を回して emit)。runtime/tinysystem.lua が全 alias を定義し、`_G` に置く名前が予約集合を含むことをテストで固定
+- 検証: `dotnet test` 全 806+50 green (環境要因の root 権限テストを除く)。analyzer / transpiler / check / build の各経路で `class Math`・`namespace Game { class Dict }` が error、`class MathUtil` は clean。既存 smoke test の `class Math` は `Calc` に改名
+- 判断: `Random` は alias にあるが予約しない。#28 で facade 呼び出しが `TinySystem.Random.*` に固定され、生成コードが素の `Random` を参照しないため、user の `class Random` は共存できる (既存テスト RandomFacade_DoesNotResolveToGameRandom がその契約)。local / parameter 名は C# 側で同スコープの BCL 参照が compile error になるため対象外
+- 残課題: 本対応は BCL 参照を user 名に左右されない形 (`TinySystem.Math.Abs` や `__tcs_` 別名) に変えて予約を外すこと (#21 の期待挙動)。別 namespace の同名型どうしの上書き (#18) は別件
+
