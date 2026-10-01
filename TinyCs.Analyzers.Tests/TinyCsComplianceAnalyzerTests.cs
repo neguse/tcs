@@ -622,15 +622,40 @@ public class TinyCsComplianceAnalyzerTests
             .Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax)
             .ToArray();
 
-        Assert.Equal(4, syntaxDiagnostics.Length);
+        // member (field / method) だけ診断する。ローカル束縛 (repeat / @nil)
+        // は transpiler が安全な名前に写すので対象外
+        Assert.Equal(2, syntaxDiagnostics.Length);
         Assert.Contains(syntaxDiagnostics,
             d => d.GetMessage().Contains("LuaKeywordIdentifier(until)"));
         Assert.Contains(syntaxDiagnostics,
             d => d.GetMessage().Contains("LuaKeywordIdentifier(end)"));
-        Assert.Contains(syntaxDiagnostics,
+        Assert.DoesNotContain(syntaxDiagnostics,
             d => d.GetMessage().Contains("LuaKeywordIdentifier(repeat)"));
-        Assert.Contains(syntaxDiagnostics,
+        Assert.DoesNotContain(syntaxDiagnostics,
             d => d.GetMessage().Contains("LuaKeywordIdentifier(nil)"));
+    }
+
+    [Fact]
+    public async Task LuaKeywordLocalBindings_HaveNoDiagnostics()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            using System.Collections.Generic;
+
+            public class Turn
+            {
+                public int Run(int end, List<int> items)
+                {
+                    var local = end;
+                    foreach (var until in items) local += until;
+                    object boxed = local;
+                    if (boxed is int nil) local += nil;
+                    return local;
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(diagnostics,
+            d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax);
     }
 
     [Fact]
