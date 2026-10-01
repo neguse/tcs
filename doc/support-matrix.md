@@ -154,7 +154,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `record` / `record class` | **P** | table + metatable | positional record |
 | `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= と with 式。readonly (record) struct は copy 全省略 |
 | `interface` | **P** | 出力なし | Roslyn 型チェックのみ |
-| `enum` | **Y** | 定数テーブル | |
+| `enum` | **Y** | 定数テーブル | initializer 無しの field / auto property / `default(E)` の既定値は member 値に依らず 0 |
 | `delegate` 型定義 | **N/A** | | Action/Func で代替 |
 | ネストされた型 | **-** | | |
 
@@ -287,7 +287,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 演算子 | 状態 | Lua 出力 | 備考 |
 |--------|:----:|---------|------|
 | `+` `-` `*` `/` `%` (算術) | **Y** | `+ - *` はそのまま。整数 `/` `%` は `__tcs_idiv`/`__tcs_irem` (C# の 0 方向 truncation)、float `%` は `math.fmod` | |
-| `+` (文字列連結) | **Y** | `..` | 型で自動判定 |
+| `+` (文字列連結) | **Y** | `..` | 型で自動判定。operand は float → `__tcs_fstr`、bool / bool? → `tostring` (null は `""`)、null になり得る string → `or ""`。`+=` の右辺も同じ変換 |
 | `==` `!=` | **Y** | `==` `~=` | |
 | `<` `<=` `>` `>=` | **Y** | そのまま | |
 | `&&` `\|\|` | **Y** | `and` `or` | |
