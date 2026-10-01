@@ -1577,3 +1577,11 @@
 - マシン側は dotnet-install.sh の per-user install (`~/.dotnet` + DOTNET_ROOT/PATH) に一本化し、SDK と workload の所有者を一人にした。README / CLAUDE.md に方針を明記
 - 検証: `~/.dotnet` の SDK 10.0.111 で pre-commit ゲート (run-tests.sh) 全通過 — MSBuildEnableWorkloadResolver 無効化なしで通ることを確認 (壊れた pacman 側 resolver を踏んでいない証明)。SDK 暗黙参照の追随で WasmCompiler の packages.lock.json が 10.0.11 に上がる (別コミット)
 - 残課題: workload set 版の pin (`sdk.workloadVersion`) は wasm-tools を実際に要求する lub 側で行う。Dependabot は workloadVersion の bump 未対応 (dependabot-core#13216) のため、workload set は SDK bump PR に乗せて手動更新
+
+### List.Add を table.insert ではなく添字代入で出力する (#24) ✓ (2026-10-01)
+- Lua backend の文位置 lowering: IlCallStat / IlReturn / closure exprBody が `table.insert(t, v)` (List.Add) のとき `t[#t + 1] = v` を出力する (TryRenderListAddStat、LuaEmitter.IlEmit.cs)。IL 自体は IlCall("table.insert") のままなので tcs2c (callee 名で List.Add を検出) と IlExport / hot reload は無変更
+- 受け手は IlVar / IlField 連鎖に限る (1 回評価が自明)。`Get().Add(v)` のような式受け手だけ table.insert に fallback
+- 引数が呼び出しを含む (`new Foo()` / `F()` / IIFE 等) ときは `local __tcs_v = v; t[#t + 1] = __tcs_v` に束縛する。Lua は `t[#t + 1] = v` で `#t` を右辺より先に評価するため、右辺が t に副作用を持つと C# (引数評価 → Add) と順序が入れ替わる — 束縛で順序を守る。block 位置は `do ... end` で閉じて local を後続文へ漏らさない (closure exprBody / 関数末尾の IlReturn / IIFE 文列では素の 2 文)。純粋な runtime helper (`__tcs_*` / math / string / Math / String / tostring) だけの引数は束縛せず直接代入
+- 検証: ListAddIndexTests 11 件 Red→Green (文 / 式 lambda / expression-bodied method / field・auto property 受け手 / method 呼び出し受け手の 1 回評価 / 副作用引数の順序 / `new Foo()` 引数 / method 呼び出し引数 / 束縛 local の非漏洩 / List<struct> の copy / loop 内)。`dotnet test` (TCS_SPEC_CONFORMANCE/DIFFERENTIAL/FUZZ 有効) 805+48 green (Cli_AtomicOutputReplace_RespectsUnixWritePermission は root 実行環境で master でも落ちる既知の環境依存)。micro bench (Lua 5.5, 2M 要素): table.insert 51.9 ns → 添字 25.2 ns
+- 判断: render 層で文脈 (文位置) を見て切り替える方式にし、IL ノードは足さなかった — tcs2c の digest 並行性と IlExport を触らずに済み、式位置 (値が要る所) は元々 table.insert のまま。引数束縛は `do local ...; ... end` の 1 行にして生成 Lua の行構造 (source map) を崩さない
+- 残課題: 束縛形は「引数評価が受け手変数そのものを再代入する」場合 (C# は旧 list に Add) だけ C# と食い違う — 実用上出ない形として許容
