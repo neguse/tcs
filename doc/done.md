@@ -1585,3 +1585,10 @@
 - 検証: ClassTests に 自クラス ctor 呼び / 自クラス static method 呼び / 宣言順の 3 本 (fix 前は前 2 本が Red)、HotReloadTests に ctor 呼び initializer を持つ class の reload (retained static の identity / live 値保持、added static は v2 initializer で初期化)、ModuleDescriptorTests に snapshot の load + method-body hot apply で static 保持。`dotnet test` 797+48 green (Cli_AtomicOutputReplace_RespectsUnixWritePermission だけ root 実行環境のため fail — 権限テストで変更と無関係)、tcs2c digest 3/3 不変
 - 判断: C# の static constructor 意味論 (型の最初の使用前に initializer を宣言順に実行) に寄せ、「宣言順」は保ったまま「member 定義後」に動かすだけにした。Lua の遅延実行 (static method 内で参照) は元から動いていたので、挙動が変わるのは chunk load 時に即評価される initializer だけ
 - 残課題: 別クラスの static initializer から宣言順で後ろにある class の `new` を呼ぶ cross-class の前方参照 (`class A { static B b = new B(); } class B {}`) は未対応のまま (型の出力順の問題で、本件とは別)
+### enum 型 field の既定値を 0 にする (#14) ✓ (2026-10-01)
+- initializer 無しの enum 型 instance / static field と auto property が `nil` で emit されていた (`GetDefaultValueForType` が SpecialType だけを見ていた)。`TypeKind.Enum` を 0 に写し、C# の `default(E) == 0` (member 値に依らない) に揃えた。同じ helper を通る struct の zero-init (`S.new()`)、`default(E)` 式、static field の pre-zero も同時に直る
+- hot reload の added field default (`HotReload.DefaultFor`) は型名文字列で判定するため enum を見分けられず nil だった。IlExport が enum 宣言名 (`IlExportResult.Enums`) を出し、reload chunk 側で 0 に解決するようにした
+- tcs2c は enum 型を `MapType` で受けないため対象外 (C の zero 初期化側は既に I32 を 0 にしている)
+- 検証: EnumTests 3 件 (instance / static / auto property / `default(E)`、0 member 無し enum、struct member) + HotReloadTests 1 件 (added enum field) を先に Red で確認 → fix 後 green。`dotnet test` 全通過
+- 判断: enum 名の照合は struct と同じく単純名 (ToDisplayString の namespace 付き名とは一致しない) で、既存 struct 判定と同じ制約に揃えた。TopLevel 以外の既存 API は default 引数で後方互換
+
