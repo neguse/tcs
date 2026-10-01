@@ -1577,3 +1577,8 @@
 - マシン側は dotnet-install.sh の per-user install (`~/.dotnet` + DOTNET_ROOT/PATH) に一本化し、SDK と workload の所有者を一人にした。README / CLAUDE.md に方針を明記
 - 検証: `~/.dotnet` の SDK 10.0.111 で pre-commit ゲート (run-tests.sh) 全通過 — MSBuildEnableWorkloadResolver 無効化なしで通ることを確認 (壊れた pacman 側 resolver を踏んでいない証明)。SDK 暗黙参照の追随で WasmCompiler の packages.lock.json が 10.0.11 に上がる (別コミット)
 - 残課題: workload set 版の pin (`sdk.workloadVersion`) は wasm-tools を実際に要求する lub 側で行う。Dependabot は workloadVersion の bump 未対応 (dependabot-core#13216) のため、workload set は SDK bump PR に乗せて手動更新
+
+### 文字列と bool の `+` を tostring で連結する (#22) ✓ (2026-10-01)
+- `"b=" + b` (bool) が `"b=" .. b` のまま出て Lua で `attempt to concatenate a boolean value` になっていた。IL builder の `WrapConcatOperand` を連結 operand 変換の単一経路にし、float の `__tcs_fstr` もここへ寄せた上で bool / bool? を `tostring` (ToString / 補間と同じ) に写す。bool? の null は C# 同様 `""` (`x ~= nil and tostring(x) or ""`)。`+=` の右辺 (BuildCompoundValue) と legacy visitor (NullSafeConcatOperand / ApplyCompound) も同じ変換にそろえた
+- 検証: StringTests に 5 件追加 (bool 右/左 operand・連鎖、ToString / 補間との一致、`+=`、bool?) — Red → Green。`dotnet test` 796+48 green (CliRuntimeTests の Unix 権限テスト 1 件は root 実行環境の既知失敗で変更と無関係)。tcs2c の verify-digests 3/3 不変、同じ C# を tcs2c でも実行し Lua と同じ `b=true:false` を確認 (C backend は IlCall `tostring(bool)` を既に `tcs_string_bool` に写すため追加変更なし)
+- 判断: 表記は .NET の `True`/`False` でなく tcs 既存の `ToString()` / 補間 / Console 出力と同じ小文字 `true`/`false` (conformance の Normalizer が known difference として吸収している既定)。文字列化の表記を .NET に寄せる変更は ToString / 補間 / C runtime をまとめて動かす別タスク
