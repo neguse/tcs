@@ -39,7 +39,7 @@ public class DiagnosticTests
         Assert.False(result.Success);
         var error = Assert.Single(result.Errors);
         Assert.StartsWith("Repro.cs(1,", error);
-        Assert.Contains($"error naming: '{first}' and '{second}' both map to Lua 'flash'",
+        Assert.Contains($"error TCS1001: unsupported syntax: LuaNameCollision({first}/{second}): '{first}' and '{second}' both map to Lua 'flash'",
             error);
         Assert.Equal("", result.Lua);
     }
