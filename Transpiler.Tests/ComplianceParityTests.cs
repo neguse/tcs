@@ -124,31 +124,25 @@ public class ComplianceParityTests
         Assert.DoesNotContain("Wrote ", result.Stderr);
     }
 
-    // #21: runtime の global と同名の型は check でも build でも error
     [Fact]
-    public void Check_RuntimeGlobalTypeNameReportsError()
+    public void Check_LuaNameCollisionIsErrorExit1()
     {
-        var result = RunCli(RuntimeGlobalTypeSource, check: true);
+        var result = RunCli(NameCollisionSource, check: true);
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Stdout);
-        Assert.Equal(1, CountDiagnostics(result.Stderr,
-            TinyCsDiagnosticIds.UnsupportedSyntax, severity: "error"));
-        Assert.Contains(
-            "input.cs(1,18): error TCS1001: unsupported syntax: RuntimeGlobalIdentifier(Math)",
+        Assert.Contains("error naming: 'flash' and 'Flash' both map to Lua 'flash'",
             result.Stderr);
     }
 
     [Fact]
-    public void Transpile_RuntimeGlobalTypeNameFailsWithoutOutput()
+    public void Transpile_LuaNameCollisionIsErrorWithoutOutput()
     {
-        var result = RunCli(RuntimeGlobalTypeSource, check: false);
+        var result = RunCli(NameCollisionSource, check: false);
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Stdout);
+        Assert.Contains("error naming: 'flash' and 'Flash' both map to Lua 'flash'",
+            result.Stderr);
         Assert.Equal("", result.Lua);
-        Assert.Contains("RuntimeGlobalIdentifier(Math)", result.Stderr);
-        Assert.DoesNotContain("Wrote ", result.Stderr);
     }
 
     private static (int ExitCode, string Stdout, string Stderr, string Lua)
@@ -246,20 +240,6 @@ public class ComplianceParityTests
         }
         """;
 
-    // neguse/tcs#21 の再現
-    private const string RuntimeGlobalTypeSource = """
-        namespace Game { public class Math { public static int Twice(int x) => x * 2; } }
-
-        public static class B3d
-        {
-            public static void Main()
-            {
-                System.Console.WriteLine("twice=" + Game.Math.Twice(3));
-                System.Console.WriteLine("abs=" + System.Math.Abs(-5));
-            }
-        }
-        """;
-
     private const string NameOfSource = """
         public class NameDemo
         {
@@ -274,6 +254,14 @@ public class ComplianceParityTests
         {
             public static string nameof(string value) => value;
             public static string Run() => nameof("ok");
+        }
+        """;
+
+    private const string NameCollisionSource = """
+        public class Repro
+        {
+            public int flash;
+            public void Flash() { flash = 1; }
         }
         """;
 }
