@@ -130,7 +130,7 @@ public class ComplianceParityTests
         var result = RunCli(NameCollisionSource, check: true);
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("error naming: 'flash' and 'Flash' both map to Lua 'flash'",
+        Assert.Contains("error TCS1001: unsupported syntax: LuaNameCollision(flash/Flash): 'flash' and 'Flash' both map to Lua 'flash'",
             result.Stderr);
     }
 
@@ -140,7 +140,7 @@ public class ComplianceParityTests
         var result = RunCli(NameCollisionSource, check: false);
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("error naming: 'flash' and 'Flash' both map to Lua 'flash'",
+        Assert.Contains("error TCS1001: unsupported syntax: LuaNameCollision(flash/Flash): 'flash' and 'Flash' both map to Lua 'flash'",
             result.Stderr);
         Assert.Equal("", result.Lua);
     }

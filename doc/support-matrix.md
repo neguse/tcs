@@ -971,8 +971,8 @@ C# のメンバ名は表を持たず規則で Lua 名に写す (`Transpiler/LuaN
 | BCL / TinySystem のメンバ (`List.Add`, `Math.Min`) | runtime の名前のまま | source に宣言の無い symbol は写さない |
 
 同じ型の中で写像後の名前が衝突するメンバ (`Value` と `value`) は Lua table で
-片方が黙って消えるので、transpile 時に error (`file(line,col): error naming:
-'Value' and 'value' both map to Lua 'value'`) にして Lua を出力しない。同名の
+片方が黙って消えるので、transpile 時に error (`file(line,col): error TCS1001: unsupported syntax:
+LuaNameCollision(Value/value): 'Value' and 'value' both map to Lua 'value'`) にして Lua を出力しない。同名の
 overload は衝突ではなく MethodOverload (TCS1001) の領分。analyzer / `tcs check`
 は同じ判定を TCS1001 `LuaNameCollision(Value/value)` として 2 個目以降の宣言に
 報告する。

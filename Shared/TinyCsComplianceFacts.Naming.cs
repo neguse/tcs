@@ -40,8 +40,13 @@ public static partial class TinyCsComplianceFacts
             TryGetLuaMemberIdentifier(node, out _, out var token);
             var loc = token.GetLocation().GetLineSpan();
             var file = string.IsNullOrEmpty(loc.Path) ? "" : loc.Path;
+            // 書式は他の TCS1001 と同じ (`error TCS1001: unsupported syntax: ...`)。
+            // 増分 session は `): error ` で error を見分け、spec conformance の
+            // 分類は TCS100x をサブセット外の報告 (Diag) として数える
             yield return $"{file}({loc.StartLinePosition.Line + 1}," +
-                $"{loc.StartLinePosition.Character + 1}): error naming: " +
+                $"{loc.StartLinePosition.Character + 1}): error " +
+                $"{TinyCsDiagnosticIds.UnsupportedSyntax}: unsupported syntax: " +
+                $"LuaNameCollision({prev}/{name}): " +
                 $"'{prev}' and '{name}' both map to Lua '{lua}'";
         }
     }
