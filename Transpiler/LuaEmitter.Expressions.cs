@@ -124,6 +124,12 @@ public partial class LuaEmitter
             return text.Replace("_", "");
         // Strip digit separators and numeric suffixes
         var result = StripNumericSuffix(text).Replace("_", "");
+        // float literal (7f / 7d) は Lua でも float として出す (`7` だと
+        // integer subtype になり、LUA_32BITS で乗算が i32 wrap する)
+        if (lit.Token.Value is float or double
+            && !result.Contains('.') && !result.Contains('e')
+            && !result.Contains('E'))
+            result += ".0";
         return result;
     }
 
@@ -373,6 +379,8 @@ public partial class LuaEmitter
                     $"{VisitExpression(model, strIdx)} + 1)";
             return $"string.byte({VisitExpression(model, cast.Expression)})";
         }
+        if (IsFloatToIntCast(model, cast))
+            return $"__tcs_trunc({VisitExpression(model, cast.Expression)})";
         return VisitExpression(model, cast.Expression);
     }
 

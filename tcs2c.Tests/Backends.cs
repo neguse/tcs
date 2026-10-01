@@ -100,7 +100,7 @@ internal static class Backends
                 File.WriteAllText(hostPath, extraCSource);
                 args.Add(hostPath);
             }
-            args.AddRange(["-o", exe]);
+            args.AddRange(["-o", exe, "-lm"]);
             var compile = Run(Start(compiler, args), CompileTimeout);
             if (compile.ExitCode != 0)
                 throw new InvalidOperationException(

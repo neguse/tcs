@@ -116,7 +116,8 @@ public partial class LuaEmitter
         // EmitOutVarDeclarations と同じ位置・同じ名前集合)
         if (stmt is not BlockSyntax)
             foreach (var name in CollectPreDeclNames(stmt))
-                acc.Add(new IlLocal(name, null) { Origin = stmt });
+                acc.Add(new IlLocal(name, null, PreDeclType(model, stmt, name))
+                    { Origin = stmt });
 
         switch (stmt)
         {
@@ -258,10 +259,15 @@ public partial class LuaEmitter
                 var coll = BuildExpr(model, foreachStmt.Expression);
                 var body = BuildBlock(model, foreachStmt.Statement);
                 if (coll == null || body == null) return false;
-                var typeName = model.GetTypeInfo(foreachStmt.Expression).Type
-                    ?.OriginalDefinition.ToDisplayString() ?? "";
-                acc.Add(typeName.StartsWith(
-                        "System.Collections.Generic.Dictionary")
+                // Dictionary 本体だけ pairs (KeyValuePair) 反復。Keys / Values
+                // (Dictionary<K,V>.KeyCollection 等の nested 型) は runtime が
+                // 配列を返すので List 反復
+                var collType = model.GetTypeInfo(foreachStmt.Expression).Type;
+                var isDict = collType is INamedTypeSymbol
+                    { Name: "Dictionary", ContainingType: null } dictType
+                    && dictType.ContainingNamespace.ToDisplayString()
+                        == "System.Collections.Generic";
+                acc.Add(isDict
                     ? new IlForeachDict(varName, coll, body) { Origin = stmt }
                     : new IlForeachList(varName, coll, body) { Origin = stmt });
                 return true;
@@ -737,6 +743,21 @@ public partial class LuaEmitter
         ElementAccessExpressionSyntax ea => HasSideEffectSyntax(ea),
         _ => false,
     };
+
+    // 前宣言 local の宣言型 (is-pattern / out var の designation の symbol
+    // 型。`out _` は symbol を持たないので null)。C backend の型付け用
+    private static string? PreDeclType(SemanticModel model, StatementSyntax stmt,
+        string name)
+    {
+        foreach (var designation in stmt.DescendantNodes()
+            .OfType<SingleVariableDesignationSyntax>()
+            .Where(d => d.Identifier.ValueText == name))
+        {
+            if (model.GetDeclaredSymbol(designation) is ILocalSymbol local)
+                return local.Type.ToDisplayString();
+        }
+        return null;
+    }
 
     private static List<string> CollectPreDeclNames(StatementSyntax stmt)
     {

@@ -277,8 +277,16 @@ public partial class LuaEmitter
     private static bool IsListType(string typeDef) =>
         typeDef.StartsWith("System.Collections.Generic.List<");
 
+    // Dictionary 本体のみ (nested の KeyCollection / ValueCollection は
+    // `>` の後に型名が続くので除外 — それらは List 相当の runtime 配列)
     private static bool IsDictType(string typeDef) =>
-        typeDef.StartsWith("System.Collections.Generic.Dictionary<");
+        typeDef.StartsWith("System.Collections.Generic.Dictionary<")
+        && typeDef.EndsWith('>');
+
+    // Dictionary<K,V>.KeyCollection / ValueCollection (runtime は配列を返す)
+    private static bool IsDictCollectionType(string typeDef) =>
+        typeDef.StartsWith("System.Collections.Generic.Dictionary<")
+        && !typeDef.EndsWith('>');
 
     private static bool IsTinySystemFacade(INamedTypeSymbol? type)
     {
@@ -317,7 +325,8 @@ public partial class LuaEmitter
                 if (member == "HasValue") return $"({obj} ~= nil)";
                 if (member == "Value") return obj;
             }
-            if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)))
+            if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)
+                || IsDictCollectionType(typeDef)))
             {
                 return IsDictType(typeDef)
                     ? $"Dict.Count({obj})"

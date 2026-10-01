@@ -118,6 +118,19 @@ internal sealed partial class CEmitter
                 0, list->element_size);
         }
 
+        static TcsArray *
+        tcs_list_to_array(TcsList *list)
+        {
+            TcsArray *array;
+            tcs_nonnull(list);
+            if (list->length > INT32_MAX) tcs_fault("list-length-overflow");
+            array = tcs_array_new((int32_t)list->length, list->element_size,
+                TCS_GC_HEADER(list)->layout);
+            if (list->length != 0)
+                memcpy(array->data, list->data, list->length * list->element_size);
+            return array;
+        }
+
         static TcsDict *
         tcs_dict_new(int32_t key_is_string, size_t value_size,
             const TcsLayout *layout)

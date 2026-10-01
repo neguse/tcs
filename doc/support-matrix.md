@@ -300,7 +300,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `? :` (三項) | **Y** | IIFE | falsy 安全 |
 | `??` (null 合体) | **Y** | `or` (bool? のみ nil 判定 IIFE — `or` だと false が fallback するため) | |
 | `?.` (null 条件アクセス, C# 6) | **Y** | IIFE nil チェック | String/List/Dict mapping 対応 |
-| `(T)x` (キャスト) | **Y** | 透過 (型消去) | |
+| `(T)x` (キャスト) | **Y** | 透過 (型消去)。`(int)f` だけは `__tcs_trunc` で 0 方向 truncation (C backend も同じ契約) | |
 | `is null` / `is not null` | **Y** | `== nil` / `~= nil` | |
 | `is Type` | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定。designation なしの binary 形も対応 | |
 | `new T(args)` | **Y** | `T.new(args)` | |

@@ -95,6 +95,53 @@ internal sealed partial class CEmitter
         Line("}");
     }
 
+    // string.EnumerateRunes(): utf8.codes と同じく codepoint を順に束縛する
+    private void EmitForeachRunes(IlForeachRunes loop)
+    {
+        RequireType(CType.String, TypeOf(loop.Str), "EnumerateRunes receiver");
+        var text = Temp("runes");
+        var position = Temp("rune_pos");
+        var variable = new Variable($"v_{Names.Id(loop.Var)}_{_serial++}", CType.I32);
+        Line("{");
+        _indent++;
+        Line($"TcsString *{text} = (TcsString *)tcs_nonnull({RenderExpr(loop.Str)});");
+        Line($"size_t {position} = 0;");
+        Line($"while ({position} < {text}->length) {{");
+        _indent++;
+        PushScope();
+        AddVariable(loop.Var, variable);
+        _continueTargets.Push(null);
+        Line($"int32_t {variable.CName} = tcs_utf8_next({text}, &{position});");
+        EmitStats(loop.Body.Stats);
+        _continueTargets.Pop();
+        PopScope();
+        _indent--;
+        Line("}");
+        _indent--;
+        Line("}");
+    }
+
+    // List.Clear / Dictionary.Clear の Lua 形 (IIFE: local t = recv;
+    // for k in pairs(t) do t[k] = nil end) を認識して runtime 呼びにする
+    private bool TryEmitClearIife(IlIife iife)
+    {
+        if (iife.Stats is not [IlLocal { Name: var tmp, Init: { } recv },
+                IlForPairs { VVar: null, Coll: IlVar coll, Body.Stats:
+                    [IlAssign { Target: IlIndex { Recv: IlVar target, PlusOne: false },
+                        Value: IlLit { LuaText: "nil" } }] }]
+            || coll.Name != tmp || target.Name != tmp)
+            return false;
+        var type = TypeOf(recv);
+        var helper = type.Kind switch
+        {
+            CTypeKind.List => "tcs_list_clear",
+            CTypeKind.Dict => "tcs_dict_clear",
+            _ => throw new Tcs2cException($"Clear receiver is not a List/Dictionary: {type}"),
+        };
+        Line($"{helper}({RenderExpr(recv)});");
+        return true;
+    }
+
     private void EmitWhile(IlWhile loop)
     {
         RequireType(CType.Bool, TypeOf(loop.Cond), "while condition");

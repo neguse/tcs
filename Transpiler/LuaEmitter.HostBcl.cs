@@ -78,6 +78,15 @@ public partial class LuaEmitter
         return true;
     }
 
+    /// <summary>(int)f 形の float→整数 cast か (0 方向 truncation)。</summary>
+    private static bool IsFloatToIntCast(SemanticModel model,
+        CastExpressionSyntax cast)
+    {
+        var target = model.GetTypeInfo(cast.Type).Type;
+        var operand = model.GetTypeInfo(cast.Expression).Type;
+        return IsIntegralType(target) && IsFloatingType(operand);
+    }
+
     /// <summary>(int)c 形の char→整数 cast か。</summary>
     private static bool IsCharToIntCast(SemanticModel model,
         CastExpressionSyntax cast)

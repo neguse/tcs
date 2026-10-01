@@ -28,6 +28,7 @@ internal sealed class ContractFacts
 {
     private readonly Dictionary<string, IlClassInfo> _classes;
     private readonly Dictionary<string, IlStructInfo> _structs = [];
+    private readonly Dictionary<string, IlEnumInfo> _enums = [];
     private readonly Dictionary<(string Class, string Method), MethodFact> _methods = [];
     private readonly Dictionary<(string Class, string Field), FieldFact> _fields = [];
 
@@ -41,6 +42,10 @@ internal sealed class ContractFacts
             foreach (var st in program.Structs)
                 if (!_structs.TryAdd(st.Name, st))
                     throw new Tcs2cException($"duplicate struct: {st.Name}");
+        if (!program.EnumTypes.IsDefault)
+            foreach (var e in program.EnumTypes)
+                if (!_enums.TryAdd(e.Name, e))
+                    throw new Tcs2cException($"duplicate enum: {e.Name}");
 
         foreach (var cls in program.Classes)
         {
@@ -171,6 +176,10 @@ internal sealed class ContractFacts
             "float" or "System.Single" => CType.F32,
             "bool" or "System.Boolean" => CType.Bool,
             "string" or "System.String" => CType.String,
+            // char は Lua と同じく 1 文字の string (il: string.sub / string.byte)
+            "char" or "System.Char" => CType.String,
+            // enum は整数定数 (Lua と同じ。tostring も整数表記)
+            _ when _enums.ContainsKey(text) => CType.I32,
             _ when _classes.ContainsKey(text) => CType.Ref(text),
             _ when _structs.ContainsKey(text) => CType.Struct(text),
             _ => throw new Tcs2cException($"unsupported IL type: {displayName}"),
@@ -178,6 +187,17 @@ internal sealed class ContractFacts
     }
 
     public IReadOnlyDictionary<string, IlStructInfo> Structs => _structs;
+
+    public bool IsEnum(string name) => _enums.ContainsKey(name);
+
+    public bool TryEnumConstant(string enumName, string member, out int value)
+    {
+        value = 0;
+        if (!_enums.TryGetValue(enumName, out var info)) return false;
+        foreach (var (name, v) in info.Members)
+            if (name == member) { value = v; return true; }
+        throw new Tcs2cException($"unknown enum member: {enumName}.{member}");
+    }
 
     public CType StructField(string structName, string fieldName)
     {

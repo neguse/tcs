@@ -412,7 +412,8 @@ public partial class LuaEmitter
         var member = mb.Name.Identifier.ValueText;
         var typeDef = receiverType?.OriginalDefinition.ToDisplayString() ?? "";
 
-        if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)))
+        if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)
+                || IsDictCollectionType(typeDef)))
             return IsDictType(typeDef)
                 ? new IlCall("Dict.Count", [obj]) : new IlLen(obj);
         if (member == "Keys" && IsDictType(typeDef))

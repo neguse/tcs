@@ -9,26 +9,55 @@ array と `List<int>` / `List<float>` は型付き連続 buffer へ lower する
 ```sh
 dotnet run --project tcs2c -- ../tcs/samples/collision.cs -o collision.c
 gcc -O2 -ffp-contract=off -fwrapv -fexcess-precision=standard \
-  collision.c -o collision
+  collision.c -o collision -lm
 ./collision
 ```
+
+`-lm` は Math (sqrtf / powf 等) を使う入力に必要。
 
 単一の `static void Main()` があれば生成 executable の entry にする。複数ある
 場合は `--entry CLASS` で選ぶ。class library sample のように `Main` が無い入力も
 全 method を C へ変換し、static initializer だけを実行する no-op entry を付ける。
 
-## 対応 slice（第二 milestone）
+## 対応面
 
-- static / instance method（exact class dispatch。virtual / inheritance は未対応）
-- `i32` / `f32` / `bool` / immutable byte-string / class reference
-- type id による exact `IlIsType`（null は false）
-- `IlNewArray` の固定長連続配列
-- `IlTable`、`List<int>` / `List<float>` の growable 連続 buffer、Add / Count /
-  0-based index / `IlForeachList`
-- `IlTernary`、string concat、`tostring`
-- `Console.WriteLine` (`IlCall("print")`): i32 10進、f32 shortest round-trip、
-  bool `true` / `false`、string byte 列
-- 第一 milestone の数値・制御 flow、bounds/null/division fault
+IL 契約 (`IlExport`) に載る TinyC# は原則すべて C へ落とす。意味論の正本は
+Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要求する。
+
+- 型: `int` / `float` / `bool` / `string` (immutable byte 列、literal は static
+  object) / `char` (Lua と同じ 1 文字 string) / enum (整数定数、`ToString` も
+  整数表記) / class 参照 / データ struct (C 値型) / `T[]` (inline 要素の固定長
+  配列) / `List<T>` (growable buffer) / `Dictionary<int|string, V>` (chained
+  hash) / `Action` `Func` (closure = lifted 関数 + 捕捉 cell)
+- class: 継承 (prefix layout)、virtual dispatch (type id switch)、`base.M`、
+  ctor 連鎖、`is T` / is-pattern、static field / property、auto property
+  initializer、upcast / downcast (cast は型消去で透過)
+- 式・文: 数値演算 (i32 wrap、f32 strict、`/` は Lua と同じ float 除算、
+  `(int)f` は 0 方向 truncation)、文字列連結・補間 (`string.format`:
+  `%d %s %f %e %g %x %c`、幅・精度・`-`/`0` flag)、三項・`??`・switch 式、
+  while / do-while / for / foreach (List / array / Dictionary /
+  `EnumerateRunes`)、break / continue、IIFE (GNU statement expression)
+- runtime 表面 (`runtime/tinysystem.lua` と同じ意味論):
+  - List: Add / Count / index / Remove / RemoveAt / Clear / Contains / IndexOf /
+    Sort (自然順・comparison) / Where / Select / Any / All / First / Last /
+    FirstOrDefault / LastOrDefault / Count(pred) / Sum / Min / Max / OrderBy /
+    OrderByDescending / Take / Skip / ToList / ToDictionary (要素型ごとの
+    inline loop。sort は安定 merge sort)
+  - Dictionary: index get / set、Add、ContainsKey、TryGetValue、Remove、Count、
+    Keys / Values、foreach (KeyValuePair)、Clear
+  - String: Length / index / Contains / IndexOf / Replace / StartsWith /
+    EndsWith / Trim / Substring / Split / Join / IsNullOrEmpty / ToUpper /
+    ToLower、`int.Parse` / `float.Parse`
+  - Math (`Math` / `MathF`): Min / Max / Abs / Sign / Clamp / Floor / Ceiling /
+    Round / Sqrt / Sin / Cos / Tan / Atan2 / Pow / Exp / Log / PI
+  - Console.WriteLine / Write、`Environment.GetEnvironmentVariable`
+- fault: null / bounds / 0 除算 / key-not-found / 空列 First 等は
+  `tcs_fault(kind)` で stderr へ出して exit 1 (il-spec §12)
+
+明示エラー (未対応): record (contract 外)、`Nullable<T>`、`object` 型の
+local、`Random`、`StringBuilder`、char の算術 / `CompareTo`、Lua 固有の
+`IlIsLuaType`。Lua backend 側の既知差異 (`new T[n]` の `.Length`、負数の
+`>>`) は support-matrix 参照。
 
 通常の `print` は stdout へ値を出す。digest kernel 回帰用だけは
 `--digest-f32` を付け、各 f32 の bit 列を FNV-1a へ直接投入する。

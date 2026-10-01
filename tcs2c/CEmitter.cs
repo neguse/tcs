@@ -141,6 +141,8 @@ internal sealed partial class CEmitter
         _output.Append(RuntimePrelude);
         _output.Append(RuntimeGc);
         _output.Append(RuntimeCollections);
+        _output.Append(RuntimeStrings);
+        _output.Append(RuntimeLib);
         Line(LiteralsMarker);
         EmitClassDeclarations();
         EmitStaticFields();
@@ -382,6 +384,7 @@ internal sealed partial class CEmitter
         {
             case IlLocal local: EmitLocal(local); break;
             case IlAssign assign: EmitAssign(assign); break;
+            case IlCallStat { Call: IlIife iife } when TryEmitClearIife(iife): break;
             case IlCallStat call: Line($"{RenderExpr(call.Call)};"); break;
             case IlIf conditional: EmitIf(conditional); break;
             case IlWhile loop: EmitWhile(loop); break;
@@ -389,6 +392,7 @@ internal sealed partial class CEmitter
             case IlNumericFor loop: EmitNumericFor(loop); break;
             case IlForeachList loop: EmitForeachList(loop); break;
             case IlForeachDict loop: EmitForeachDict(loop); break;
+            case IlForeachRunes loop: EmitForeachRunes(loop); break;
             case IlBreak: Line("break;"); break;
             case IlContinue: EmitContinue(); break;
             case IlMultiAssign multi: EmitMultiAssign(multi); break;
@@ -440,6 +444,14 @@ internal sealed partial class CEmitter
             if (mapped is { Kind: CTypeKind.Closure }) declaredClosure = mapped;
         }
         var type = declaredClosure ?? TypeOf(local.Init);
+        // 宣言型 (契約) が初期化子の型を受けられるならそちらを local の型に
+        // する (`float f = 2` / `string s = null` / `Shape s = new Rect()`)
+        if (local.Type != null && _facts.TryMapType(local.Type) is { } declaredType
+            && declaredType != type
+            && (declaredType.CanAssignFrom(type)
+                || declaredType.Kind == CTypeKind.Ref && type.Kind == CTypeKind.Ref
+                    && IsAncestorOrSame(declaredType.Name!, type.Name!)))
+            type = declaredType;
         if (type.Kind is CTypeKind.Void or CTypeKind.Null)
             throw new Tcs2cException($"cannot infer storage type of local {local.Name}: {type}");
         var rendered = RenderCoerced(local.Init, type);
@@ -529,6 +541,19 @@ internal sealed partial class CEmitter
 
     private void EmitReturn(IlReturn ret)
     {
+        if (_iifes.Count > 0)
+        {
+            var (result, label, type) = _iifes.Peek();
+            if (ret.Value is null || type == CType.Void)
+            {
+                if (ret.Value is not null) Line($"{RenderExpr(ret.Value)};");
+                Line($"goto {label};");
+                return;
+            }
+            CheckAssignable(type, ret.Value, "iife return");
+            Line($"{{ {result} = {RenderCoerced(ret.Value, type)}; goto {label}; }}");
+            return;
+        }
         if (ret.Value is null)
         {
             RequireType(CType.Void, _currentMethodFact.ReturnType, "return");

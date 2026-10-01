@@ -9,6 +9,8 @@ internal sealed partial class CEmitter
         #include <stdalign.h>
         #include <stdbool.h>
         #include <stddef.h>
+        #include <errno.h>
+        #include <math.h>
         #include <float.h>
         #include <inttypes.h>
         #include <limits.h>
@@ -196,23 +198,6 @@ internal sealed partial class CEmitter
         }
 
         static size_t
-        tcs_normalize_exponent(char buffer[64])
-        {
-            char *exponent = strchr(buffer, 'e');
-            char *read;
-            char *write;
-            if (exponent == NULL) exponent = strchr(buffer, 'E');
-            if (exponent == NULL) return strlen(buffer);
-            read = exponent + 1;
-            write = exponent + 1;
-            if (*read == '+') read++;
-            else if (*read == '-') *write++ = *read++;
-            while (*read == '0' && read[1] != '\0') read++;
-            memmove(write, read, strlen(read) + 1);
-            return strlen(buffer);
-        }
-
-        static size_t
         tcs_format_f32(float value, char buffer[64])
         {
             int precision;
@@ -222,14 +207,13 @@ internal sealed partial class CEmitter
                 float parsed;
                 written = snprintf(buffer, 64, "%.*g", precision, (double)value);
                 if (written < 0 || written >= 64) tcs_fault("float-format");
-                written = (int)tcs_normalize_exponent(buffer);
                 parsed = strtof(buffer, &end);
                 if (*end == '\0' && tcs_f32_bits(parsed) == tcs_f32_bits(value))
                     return (size_t)written;
             }
             written = snprintf(buffer, 64, "%.9g", (double)value);
             if (written < 0 || written >= 64) tcs_fault("float-format");
-            return tcs_normalize_exponent(buffer);
+            return (size_t)written;
         }
 
         static TcsString *

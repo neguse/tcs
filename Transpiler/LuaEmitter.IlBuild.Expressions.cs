@@ -75,6 +75,11 @@ public partial class LuaEmitter
                     var ch = BuildExpr(model, cast.Expression);
                     return ch == null ? null : new IlCall("string.byte", [ch]);
                 }
+                if (IsFloatToIntCast(model, cast))
+                {
+                    var f = BuildExpr(model, cast.Expression);
+                    return f == null ? null : new IlCall("__tcs_trunc", [f]);
+                }
                 return BuildExpr(model, cast.Expression);
             }
             case ConditionalExpressionSyntax ternary:
@@ -615,7 +620,8 @@ public partial class LuaEmitter
                         new IlLit("nil")));
                 if (member == "Value") return obj;
             }
-            if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)))
+            if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)
+                    || IsDictCollectionType(typeDef)))
                 return IsDictType(typeDef)
                     ? new IlCall("Dict.Count", [obj])
                     : new IlLen(obj);
@@ -693,9 +699,22 @@ public partial class LuaEmitter
                     if (key == null || value == null) return null;
                     entries.Add(new IlTableEntry(key, value));
                 }
+                else if (e is AssignmentExpressionSyntax
+                    {
+                        Left: ImplicitElementAccessSyntax
+                            { ArgumentList.Arguments.Count: 1 } indexInit
+                    } indexAssign)
+                {
+                    // indexer initializer: { ["k"] = v } (legacy と同じ [k] = v 項)
+                    var key = BuildExpr(model,
+                        indexInit.ArgumentList.Arguments[0].Expression);
+                    var value = BuildExpr(model, indexAssign.Right);
+                    if (key == null || value == null) return null;
+                    entries.Add(new IlTableEntry(key, value));
+                }
                 else
                 {
-                    return null; // indexer initializer 等は fallback
+                    return null;
                 }
             }
             return new IlTable([.. entries], TypeArg(1), TypeArg(0));

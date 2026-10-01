@@ -471,6 +471,14 @@ function Dict.TryGet(dict, key, default)
   return false, default
 end
 
+-- (int)f: 0 方向 truncation (生成コードは __tcs_trunc global 経由)
+function TinySystem.trunc(x)
+  local i = math.tointeger(x)
+  if i then return i end
+  if x >= 0 then return math.floor(x) end
+  return math.ceil(x)
+end
+
 -- f32 の shortest round-trip 10 進表記 (il-spec §13)
 function TinySystem.fstr(v)
   if math.type(v) ~= "float" then return tostring(v) end

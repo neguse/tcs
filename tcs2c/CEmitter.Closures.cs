@@ -205,6 +205,9 @@ internal sealed partial class CEmitter
             $"static {target.Element!.CName} {fnName}({declParams});");
         var saved = _output.Length;
         var savedIndent = _indent;
+        // 外側の IIFE の return 束縛を closure 本体へ持ち込まない
+        var savedIifes = _iifes;
+        _iifes = new Stack<(string Result, string Label, CType Type)>();
         _indent = 0;
         Line($"static {target.Element!.CName}");
         var paramList = string.Join(", ", new[] { "void **cells" }
@@ -247,6 +250,7 @@ internal sealed partial class CEmitter
         Line("}");
         Line();
         _indent = savedIndent;
+        _iifes = savedIifes;
         var code = _output.ToString(saved, _output.Length - saved);
         _output.Length = saved;
         _pendingClosures.Add(code);

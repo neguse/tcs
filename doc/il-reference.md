@@ -25,6 +25,10 @@ var result = TinyCs.IlExport.Export(csharpSources);
 // result.Structs: IlStructInfo[] — データ struct (M5 v1) の migration
 //   metadata (Name / Fields / LayoutHash)。struct 値は reload 時に owner
 //   経由で再直列化される (il-design §6、HotReload.cs)
+// result.Enums: enum 名 (hot reload の added field default 判定)
+// result.EnumTypes: IlEnumInfo[] — enum の定数表 (Name / Members: (Lua 名,
+//   int 値))。IL 上の enum 参照は IlField(IlVar(enum 名), member 名) で、
+//   C backend は i32 定数へ畳む (T241)
 ```
 
 シリアライズ形式は定義しない（v0 決定 — il-spec §1）。luo は .NET から
@@ -44,7 +48,7 @@ assembly 参照で直接消費する。
 | IlField(recv, name) | field place 読み (il-spec §10) | recv.name |
 | IlIndex(recv, idx, plusOne) | 要素 place。plusOne=0-based→1-based | recv[idx + 1] |
 | IlLen(e) | List.Count / string.Length / array.Length | #e |
-| IlBin(op, l, r) | 型解決済み二項演算 (§4-6)。op に DivInt/RemInt は無い — それらは IlCall("__tcs_idiv"/"__tcs_irem") | l op r |
+| IlBin(op, l, r) | 型解決済み二項演算 (§4-6)。op に DivInt/RemInt は無い — それらは IlCall("__tcs_idiv"/"__tcs_irem")。float→int cast は IlCall("__tcs_trunc") (0 方向 truncation)。float literal は `7.0` 形 (integer subtype にしない) | l op r |
 | IlUn(op, e) | Neg / Not / BitNot | -e 等 |
 | IlParen(e) | 括弧 (評価順は §4 で規定済み — 表示用) | (e) |
 | IlTernary(c, t, f) | 条件式 | IIFE |
@@ -66,7 +70,7 @@ assembly 参照で直接消費する。
 | ノード | 意味 |
 |---|---|
 | IlBlock(stats) | 文列 (scope。IlIf 等の arm が持つ) |
-| IlLocal(name, init?) | 変数導入 (identity は §7) |
+| IlLocal(name, init?, type?) | 変数導入 (identity は §7)。type は宣言型の display 文字列 (var も推論型、is-pattern / out var の前宣言も symbol 型)。init が nil literal / closure / 派生型のときは backend は type を優先する |
 | IlAssign(target, value) | place への store (§10) |
 | IlMultiAssign(targets, values, declare) | 多重代入 (分解 / out 引数 multi-return) |
 | IlCallStat(call) | 呼び出し文。call が `table.insert(t, v)` (List.Add) で t が変数/field 連鎖なら、Lua backend は `t[#t + 1] = v` へ落とす (v が呼び出しを含むときは `local __tcs_v = v` に先に束縛して評価順を保つ。#24。IlReturn / closure exprBody の同形も同じ) |

@@ -51,6 +51,15 @@ public partial class LuaEmitter
             AppendLine("local function __tcs_irem(a, b)");
             AppendLine("  return a - __tcs_idiv(a, b) * b");
             AppendLine("end");
+            // C# の (int)f は 0 方向 truncation で整数になる。Lua の float を
+            // そのまま流すと 2.7 のまま残る (添字・%d・整数演算で乖離) ため、
+            // float→int cast は常にこの helper を通す (C backend も同じ契約)
+            AppendLine("local function __tcs_trunc(x)");
+            AppendLine("  local i = math.tointeger(x)");
+            AppendLine("  if i then return i end");
+            AppendLine("  if x >= 0 then return math.floor(x) end");
+            AppendLine("  return math.ceil(x)");
+            AppendLine("end");
             // C# の `is T` は「T またはその派生」(il-spec §9)。継承は
             // instance の metatable = class table、class table の
             // metatable.__index = base で表現しているため chain を辿る。

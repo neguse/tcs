@@ -1649,3 +1649,12 @@
 - 判断: 精密 stack (shadow stack) は statement-expression の temp 全てに root 登録が要り codegen を汚すので却下。参照カウントは循環と codegen 侵襲で却下。sweep は address 順 index (qsort) で保守的候補を二分探索 — 自前 allocator (page map) より単純で system malloc/free をそのまま使える
 - 残課題: 世代別 / incremental 化は需要待ち。32bit target (Playdate) での実測は未
 
+### T241: tcs2c の対応面完成 — enum / LINQ / String / Math / Dict / format / IIFE + IL 契約拡充 ✓ (2026-10-01)
+- C backend を IL 契約の全域へ: enum (契約の IlEnumInfo 定数表で i32 畳み込み)、char (1 文字 string)、List / array の全要素型と Dictionary / closure の格納型、List.* (LINQ 小核を要素型ごとの inline loop、Sort / OrderBy は runtime の安定 merge sort + call site ごとの lifted 比較関数、closure の戻り型は本体から推論)、String.* / string.sub / byte / upper / lower / format (Lua 意味論の `%d %s %f %e %g %x %c` + flag / 幅 / 精度)、tonumber / math.tointeger / math.fmod / os.getenv、Math.* (`MathF.X` の host BCL 経路も同じ intrinsic)、Dict.Keys / Values / Clear、List.Clear (IlForPairs 形の認識)、table.remove、Console.Write、IlForeachRunes (UTF-8 decode)、IlIife (GNU statement expression、内側の return は結果変数 + goto)、`string s = null` / 派生型初期化子の宣言型優先、downcast、List リテラルの upcast 項、Dictionary の struct 値 place
+- IL 契約 / Lua backend 側の修正 (両 backend 共通の意味論): float literal を `7.0` 形で出す (従来 `7` は integer subtype で LUA_32BITS の乗算が wrap)、`(int)f` を `__tcs_trunc` (0 方向 truncation。従来は透過で 2.7 のまま)、auto property initializer を IlFieldInfo.Init に載せる、is-pattern / out var の前宣言 local に型を付ける、Dictionary の indexer initializer (`["k"] = v`) を IL 化、`foreach` / LINQ / `Count` の Keys / Values (`Dictionary<K,V>.KeyCollection`) 判定 — 従来は Dictionary 本体と誤認して pairs 反復 (KeyValuePair) になる wrong-code
+- tcs2c.Tests: samples 6 本の 2 backend parity (期待値は SampleE2ETests と同じ)、digest kernel 3 本の C 側固定、言語機能別 differential 8 本 (enum / LINQ / String / Dictionary / Math / 継承 / closure / struct / 制御フロー) — いずれも C 通常 + GC stress + Lua の stdout 一致
+- 検証: tcs2c.Tests 21/21 green、verify-digests 3/3 不変、Transpiler.Tests 856/858 (残 2 は root 実行環境の権限テストと deps/csharpstandard 未取得時の conformance sweep — 取得後は green)、spec-conformance-report に意味差分なし
+- よかったこと: probe 群 (構文 1 つ 1 文の小 program) を 2 backend で回す導線が、C 側の穴と Lua 側の wrong-code (Keys 反復 / float literal / cast) を同時に炙り出した
+- 判断: LINQ は runtime の generic 関数ではなく call site 展開にした (要素型と closure 型が静的に決まり、void* + element_size の間接を避けられる)。IIFE は一般形を statement expression で受け、Clear だけ runtime 呼びへ特化。record / Nullable / Random / StringBuilder は明示エラーのまま (record は IL 契約に未収載、Random は il-spec §13 で backend 間一致の対象外)
+- 残課題: record (with / 値等価) の IL 契約収載と C 対応、Nullable<T>、closure 型 field の直接呼び出し (`obj.F()`) の IL 化、`int.TryParse`
+

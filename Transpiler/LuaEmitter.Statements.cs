@@ -655,10 +655,15 @@ public partial class LuaEmitter
         }
         var collection = VisitExpression(model, foreachStmt.Expression);
         var typeInfo = model.GetTypeInfo(foreachStmt.Expression);
-        var typeName = typeInfo.Type?.OriginalDefinition.ToDisplayString() ?? "";
+        // Dictionary 本体だけ pairs (KeyValuePair) 反復。Keys / Values の
+        // nested collection 型は runtime が配列を返すので ipairs 反復
+        var isDictionary = typeInfo.Type is INamedTypeSymbol
+            { Name: "Dictionary", ContainingType: null } dictType
+            && dictType.ContainingNamespace.ToDisplayString()
+                == "System.Collections.Generic";
 
         var label = PushContinueLabel();
-        if (typeName.StartsWith("System.Collections.Generic.Dictionary"))
+        if (isDictionary)
         {
             AppendLine($"for {varName}_key, {varName}_value in pairs({collection}) do");
             _indent++;

@@ -51,14 +51,23 @@ public sealed record IlStructInfo(
     ImmutableArray<IlFieldInfo> Fields,
     string LayoutHash);
 
+/// <summary>enum の定数表。member 名は Lua 出力の規則 (LuaNaming.Const) で
+/// 写した名前で、IL の IlField(IlVar(enum 名), member 名) と一致する。</summary>
+public sealed record IlEnumInfo(
+    string Name,
+    ImmutableArray<(string Name, int Value)> Members);
+
 /// <summary>結果。TopLevel は top-level 文 (エントリポイント本文相当) の IL
-/// (無ければ null、IL 未対応構文を含めば null — Diagnostics で判別)。</summary>
+/// (無ければ null、IL 未対応構文を含めば null — Diagnostics で判別)。
+/// Enums は enum 名 (hot reload の default 判定用)、EnumTypes は定数表
+/// (C backend の型付け用)。</summary>
 public sealed record IlExportResult(
     ImmutableArray<IlClassInfo> Classes,
     ImmutableArray<string> Diagnostics,
     IlBlock? TopLevel = null,
     ImmutableArray<IlStructInfo> Structs = default,
-    ImmutableArray<string> Enums = default);
+    ImmutableArray<string> Enums = default,
+    ImmutableArray<IlEnumInfo> EnumTypes = default);
 
 public static class IlExport
 {
@@ -131,6 +140,29 @@ public static class IlExport
                 .DescendantNodes().OfType<EnumDeclarationSyntax>())
             .Select(e => e.Identifier.ValueText)
             .ToList();
+        // enum 定数表 (Lua emit の VisitEnum と同じ値付け / 名前写像)
+        var enumTypes = new List<IlEnumInfo>();
+        foreach (var tree in trees)
+        {
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var e in tree.GetCompilationUnitRoot().DescendantNodes()
+                .OfType<EnumDeclarationSyntax>())
+            {
+                var members = new List<(string, int)>();
+                var value = 0;
+                foreach (var member in e.Members)
+                {
+                    if (member.EqualsValue != null)
+                    {
+                        var constVal = model.GetConstantValue(member.EqualsValue.Value);
+                        if (constVal.HasValue && constVal.Value is int v) value = v;
+                    }
+                    members.Add((LuaNaming.Const(member.Identifier.ValueText), value));
+                    value++;
+                }
+                enumTypes.Add(new IlEnumInfo(e.Identifier.ValueText, [.. members]));
+            }
+        }
 
         var classes = new List<IlClassInfo>();
         var emitter = new LuaEmitter();
@@ -155,7 +187,7 @@ public static class IlExport
         var topLevelIl = topLevelModel != null
             ? emitter.ExportStatsIl(topLevelModel, topLevel) : null;
         return new IlExportResult([.. classes], [.. diagnostics], topLevelIl,
-            [.. structs], [.. enums]);
+            [.. structs], [.. enums], [.. enumTypes]);
     }
 
     private static IlClassInfo ExportClass(LuaEmitter emitter,
@@ -189,12 +221,15 @@ public static class IlExport
                 .All(a => a.Body == null && a.ExpressionBody == null)))
         {
             var propSymbol = model.GetDeclaredSymbol(prop);
+            var propInit = prop.Initializer != null
+                ? emitter.ExportExprIl(model, prop.Initializer.Value) : null;
             fields.Add(new IlFieldInfo(
                 propSymbol != null
                     ? LuaNaming.MemberName(propSymbol)
                     : LuaNaming.Member(prop.Identifier.ValueText),
                 propSymbol?.Type.ToDisplayString() ?? "?",
-                propSymbol?.IsStatic ?? false));
+                propSymbol?.IsStatic ?? false,
+                propInit));
         }
 
         IlCtorInfo? ctor = null;

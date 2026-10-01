@@ -157,8 +157,11 @@ internal sealed partial class CEmitter
     }
 
     // closure / static method group は単独で型付けできない (target で決まる)
-    private static bool IsClosureValue(IlExpr expr) =>
-        expr is IlClosure || expr is IlField { Recv: IlVar };
+    private bool IsClosureValue(IlExpr expr) =>
+        expr is IlClosure
+        || expr is IlField { Recv: IlVar recv } group && TryResolve(recv.Name) is null
+            && _classes.TryGetValue(recv.Name, out var cls)
+            && cls.Methods.Any(m => m.Name == group.Name && m.IsStatic);
 
     private void CheckAssignable(CType target, IlExpr value, string where)
     {
@@ -175,9 +178,12 @@ internal sealed partial class CEmitter
     private void RequireAssignable(CType target, CType source, string where)
     {
         if (target.CanAssignFrom(source)) return;
-        // 継承 upcast: Derived → Base (il-spec §9)
+        // 継承 upcast: Derived → Base (il-spec §9)。downcast (pattern local
+        // への代入 / 明示 cast) も C の cast で通す — cast は型消去で
+        // 透過 (support-matrix)、is-pattern は直後の IlIsType が守る
         if (target.Kind == CTypeKind.Ref && source.Kind == CTypeKind.Ref
-            && IsAncestorOrSame(target.Name!, source.Name!))
+            && (IsAncestorOrSame(target.Name!, source.Name!)
+                || IsAncestorOrSame(source.Name!, target.Name!)))
             return;
         throw new Tcs2cException($"{where}: cannot assign {source} to {target}");
     }

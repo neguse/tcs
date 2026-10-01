@@ -34,6 +34,12 @@
       ctor 連鎖 / 静的 link (--lib) まで全マイルストーン受入済み
       (digest 3/3 + 全サンプル stdout 一致)。未対応構文は明示エラー方針で、
       対応面の拡張は実利用の需要駆動 (done.md 第一〜第八参照)
+- [x] T240 / T241 完 (2026-10-01): tcs2c の GC (精密 heap / 保守的 stack の
+      mark-sweep、`-DTCS_GC_STRESS`) と対応面の完成 (enum / LINQ / String /
+      Math / Dict / format / IIFE)。tcs2c.Tests が samples + 機能別 program の
+      2 backend stdout 一致 (GC stress 込み) を恒常ゲートにする
+      - 残: record の IL 契約収載と C 対応、Nullable<T>、closure 型 field の
+        直接呼び出しの IL 化、`int.TryParse` (いずれも需要待ち)
 - T219b 完 (done.md 参照): struct / record struct の値セマンティクス
   対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
 - [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で
