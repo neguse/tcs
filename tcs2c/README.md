@@ -37,6 +37,48 @@ gcc -O2 -ffp-contract=off -fwrapv -fexcess-precision=standard \
 TCS_ROOT=../tcs bash tcs2c/verify-digests.sh
 ```
 
+## GC
+
+生成 C は自前の mark-sweep GC (非移動) を runtime prelude に含む。
+
+- **heap は精密**: 全 heap object は `TcsGcHeader` (kind + `TcsLayout`) を
+  持つ。生成側が class / struct ごとに pointer slot の byte offset 表
+  (`tcs_layout_C_<Class>` / `tcs_layout_S_<Struct>`、struct-in-struct は
+  `offsetof` 加算で平坦化) を出し、array / List / Dictionary / closure cell
+  は確保時に要素 layout を受け取る。int / float field を pointer と誤認
+  することはない
+- **root は static field (精密) と C stack (保守的)**: static は生成関数
+  `tcs_gc_mark_statics` が走査する。stack は entry (`main` / `tcs_lib_*`)
+  で記録した frame から現在の frame までを word 単位で走査し、`setjmp` で
+  callee-saved register も stack に落とす。heap object の内部を指す
+  interior pointer (`tcs_array_at` の要素 pointer 等) も object を生かす
+- **トリガ**: 直近 GC 以降の確保 bytes が threshold (直近 GC 後の生存
+  bytes、下限 `TCS_GC_MIN_THRESHOLD` = 1 MiB) に達した確保で full GC
+- **string literal は static object** (`TCS_GC_STATIC`): 評価ごとの確保を
+  しない。GC は static object を mark / sweep の対象外にする
+- **検証**: `-DTCS_GC_STRESS=N` で N 回の確保ごとに full GC を回す
+  (`N=1` で毎回)。root 漏れは生きている object が回収されて出力が変わる
+  形で現れるので、`tcs2c.Tests` は C (通常 + stress) と Lua の stdout 一致を
+  要求する。AddressSanitizer と併用するときは保守的走査が fake stack を
+  見ないよう `ASAN_OPTIONS=detect_stack_use_after_return=0` を付ける
+- `--lib` では `tcs_lib_gc()` を公開し、host が frame 境界などで明示的に
+  full GC を回せる。entry (`tcs_entry_<Class>_<Method>`) の外では GC は
+  走らない (stack の底が未記録)
+
+保守的 stack 走査は gcc / clang の最適化 (-O2) と setjmp を前提にした
+一般的な方式 (Boehm GC と同じ仮定) で、pointer を隠す変換 (XOR 等) を
+しない通常の C コード生成に対して安全。
+
+## テスト
+
+```sh
+dotnet test tcs2c.Tests        # C compiler (gcc / cc / clang) が無ければ skip
+```
+
+`tcs2c.Tests` は同じ TinyC# source を tcs2c→C→cc と tcs→Lua→lua32 で実行し
+stdout を突き合わせる 2 backend differential (GC stress 込み) と、GC 固有の
+テスト (到達可能 object の保持 / garbage の回収 / `--lib` 境界) を持つ。
+
 ## IlExport 契約
 
 型と初期化情報は T228 契約 (`IlMethodInfo.ReturnType` / `ParameterTypes`、

@@ -104,6 +104,9 @@ internal static partial class Names
     public static string TypeIdMax(string cls) => $"TCS_TYPE_MAX_{Id(cls)}";
     public static string Dispatch(string cls, string method) =>
         $"tcs_dispatch_{Id(cls)}_{Id(method)}";
+    public static string Init(string cls) => $"tcs_init_{Id(cls)}";
+    public static string ClassLayout(string cls) => $"tcs_layout_C_{Id(cls)}";
+    public static string StructLayout(string st) => $"tcs_layout_S_{Id(st)}";
 }
 
 internal static class Constants

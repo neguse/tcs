@@ -139,8 +139,12 @@ internal sealed partial class CEmitter
         var entry = lib ? null : FindEntry(requestedEntry);
 
         _output.Append(RuntimePrelude);
+        _output.Append(RuntimeGc);
+        _output.Append(RuntimeCollections);
+        Line(LiteralsMarker);
         EmitClassDeclarations();
         EmitStaticFields();
+        EmitStaticRoots();
         EmitMethodPrototypes();
         EmitAllocators();
         foreach (var cls in _program.Classes)
@@ -152,8 +156,9 @@ internal sealed partial class CEmitter
             EmitLibEntryPoints();
         else
             EmitEntryPoint(entry);
-        return _output.ToString().Replace(ClosureDeclMarker,
-            string.Join("\n", _closureDecls));
+        return _output.ToString()
+            .Replace(ClosureDeclMarker, string.Join("\n", _closureDecls))
+            .Replace(LiteralsMarker, string.Join("\n", _literalDecls));
     }
 
     private void ValidateProgram()
@@ -189,19 +194,26 @@ internal sealed partial class CEmitter
         }
     }
 
+    // 格納型 (field / parameter / local / 要素): スカラ・string・class 参照・
+    // データ struct・Dictionary・closure と、それらを要素とする array / List
     private static void EnsureSupportedStorageType(CType type, string where,
         bool allowVoid = false)
     {
         if (type.Kind == CTypeKind.Void && allowVoid) return;
-        if (type.Kind is CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool
-            or CTypeKind.String or CTypeKind.Ref or CTypeKind.StructVal) return;
-        if (type.Kind == CTypeKind.Array
-            && type.Element!.Kind is CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool
-                or CTypeKind.Ref or CTypeKind.StructVal) return;
-        if (type.Kind == CTypeKind.List
-            && type.Element!.Kind is CTypeKind.I32 or CTypeKind.F32) return;
+        if (IsStorageType(type)) return;
         throw new Tcs2cException($"unsupported {where}: {type}");
     }
+
+    private static bool IsStorageType(CType type) => type.Kind switch
+    {
+        CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool or CTypeKind.String
+            or CTypeKind.Ref or CTypeKind.StructVal or CTypeKind.Closure => true,
+        CTypeKind.Dict => type.Key is not null && type.Element is not null
+            && IsStorageType(type.Element),
+        CTypeKind.Array or CTypeKind.List => type.Element is not null
+            && IsStorageType(type.Element),
+        _ => false,
+    };
 
     private (IlClassInfo Class, IlMethodInfo Method)? FindEntry(string? requested)
     {
@@ -226,10 +238,11 @@ internal sealed partial class CEmitter
 
     private void EmitClassDeclarations()
     {
-        EmitStructTypedefs();
+        // class の前方 typedef を先に出す (struct の field が class 参照を持てる)
         foreach (var cls in _program.Classes)
             Line($"typedef struct {Names.Class(cls.Name)} {Names.Class(cls.Name)};");
         Line();
+        EmitStructTypedefs();
         Line("typedef struct TcsObjectHeader {");
         _indent++;
         Line("uint32_t type_id;");
@@ -263,6 +276,7 @@ internal sealed partial class CEmitter
             Line("};");
             Line();
         }
+        EmitLayouts();
     }
 
     private void EmitStaticFields()
@@ -286,6 +300,9 @@ internal sealed partial class CEmitter
                 : string.Join(", ", protoParams.Select(p => p.Type.CName));
             Line($"static {Names.Class(cls.Name)} *" +
                 $"{Names.New(cls.Name)}({signature});");
+            Line($"static void {Names.Init(cls.Name)}(" +
+                string.Join(", ", new[] { $"{Names.Class(cls.Name)} *" }
+                    .Concat(protoParams.Select(p => p.Type.CName))) + ");");
         }
         foreach (var cls in _program.Classes)
         foreach (var method in cls.Methods)
@@ -404,7 +421,7 @@ internal sealed partial class CEmitter
                     { Boxed = true };
                 AddVariable(local.Name, cell0);
                 Line($"{declared.CName} *{cell0.CName} = " +
-                    $"tcs_alloc(sizeof(*{cell0.CName}));");
+                    $"tcs_new_cell(sizeof(*{cell0.CName}), {LayoutRef(declared)});");
                 Line($"*{cell0.CName} = {zero};");
                 return;
             }
@@ -431,7 +448,8 @@ internal sealed partial class CEmitter
             var cell = new Variable($"c_{Names.Id(local.Name)}_{_serial++}",
                 type) { Boxed = true };
             AddVariable(local.Name, cell);
-            Line($"{type.CName} *{cell.CName} = tcs_alloc(sizeof(*{cell.CName}));");
+            Line($"{type.CName} *{cell.CName} = " +
+                $"tcs_new_cell(sizeof(*{cell.CName}), {LayoutRef(type)});");
             Line($"*{cell.CName} = {rendered};");
             return;
         }
@@ -443,8 +461,7 @@ internal sealed partial class CEmitter
     private void EmitAssign(IlAssign assign)
     {
         var targetType = TypeOfPlace(assign.Target);
-        var valueType = TypeOf(assign.Value);
-        RequireAssignable(targetType, valueType, "assignment");
+        CheckAssignable(targetType, assign.Value, "assignment");
         var value = RenderCoerced(assign.Value, targetType);
 
         switch (assign.Target)
@@ -482,7 +499,7 @@ internal sealed partial class CEmitter
                 && TypeOf(index.Recv).Kind == CTypeKind.Dict:
             {
                 var slotType = RequireDict(index.Recv, out var dictType);
-                RequireAssignable(slotType, valueType, "dict store");
+                CheckAssignable(slotType, assign.Value, "dict store");
                 var dictTemp = Temp("dict");
                 Line($"TcsDict *{dictTemp} = {RenderExpr(index.Recv)};");
                 Line($"*({slotType.CName} *)tcs_dict_put({dictTemp}, " +
@@ -510,177 +527,6 @@ internal sealed partial class CEmitter
         }
     }
 
-    private void EmitIf(IlIf conditional)
-    {
-        for (var i = 0; i < conditional.Arms.Length; i++)
-        {
-            var (condition, body) = conditional.Arms[i];
-            RequireType(CType.Bool, TypeOf(condition), "if condition");
-            Line($"{(i == 0 ? "if" : "else if")} ({RenderExpr(condition)}) {{");
-            _indent++;
-            PushScope();
-            EmitStats(body.Stats);
-            PopScope();
-            _indent--;
-            Line("}");
-        }
-        if (conditional.Else is not null)
-        {
-            Line("else {");
-            _indent++;
-            PushScope();
-            EmitStats(conditional.Else.Stats);
-            PopScope();
-            _indent--;
-            Line("}");
-        }
-    }
-
-    private void EmitNumericFor(IlNumericFor loop)
-    {
-        RequireType(CType.I32, TypeOf(loop.Start), "numeric for start");
-        RequireType(CType.I32, TypeOf(loop.Limit), "numeric for limit");
-        var start = Temp("for_start");
-        var limit = Temp("for_limit");
-        var variable = new Variable($"v_{Names.Id(loop.Var)}_{_serial++}", CType.I32);
-        Line("{");
-        _indent++;
-        Line($"int32_t {start} = {RenderExpr(loop.Start)};");
-        Line($"int32_t {limit} = {RenderExpr(loop.Limit)};");
-        Line($"for (int32_t {variable.CName} = {start}; {variable.CName} <= {limit}; " +
-            $"{variable.CName} = {variable.CName} + INT32_C(1)) {{");
-        _indent++;
-        PushScope();
-        AddVariable(loop.Var, variable);
-        _continueTargets.Push(null);
-        EmitStats(loop.Body.Stats);
-        _continueTargets.Pop();
-        PopScope();
-        _indent--;
-        Line("}");
-        _indent--;
-        Line("}");
-    }
-
-    private void EmitForeachList(IlForeachList loop)
-    {
-        var sequenceType = TypeOf(loop.Coll);
-        if (sequenceType.Kind is not (CTypeKind.Array or CTypeKind.List)
-            || sequenceType.Element is null)
-            throw new Tcs2cException($"IlForeachList requires a typed array/List, got " +
-                sequenceType);
-        var sequence = Temp("foreach_sequence");
-        var length = Temp("foreach_length");
-        var index = Temp("foreach_index");
-        var variable = new Variable($"v_{Names.Id(loop.Var)}_{_serial++}",
-            sequenceType.Element);
-        var lengthFunction = sequenceType.Kind == CTypeKind.Array
-            ? "tcs_array_length" : "tcs_list_length";
-        var atFunction = sequenceType.Kind == CTypeKind.Array
-            ? "tcs_array_at" : "tcs_list_at";
-
-        Line("{");
-        _indent++;
-        Line($"{sequenceType.CName} {sequence} = {RenderExpr(loop.Coll)};");
-        Line($"int32_t {length} = {lengthFunction}({sequence});");
-        Line($"for (int32_t {index} = 0; {index} < {length}; {index}++) {{");
-        _indent++;
-        PushScope();
-        AddVariable(loop.Var, variable);
-        _continueTargets.Push(null);
-        Line($"{sequenceType.ElementCName} {variable.CName} = " +
-            $"*({sequenceType.ElementCName} *){atFunction}({sequence}, {index});");
-        EmitStats(loop.Body.Stats);
-        _continueTargets.Pop();
-        PopScope();
-        _indent--;
-        Line("}");
-        _indent--;
-        Line("}");
-    }
-
-    private void EmitWhile(IlWhile loop)
-    {
-        RequireType(CType.Bool, TypeOf(loop.Cond), "while condition");
-        var label = loop.Trailer is null ? null : Temp("continue");
-        Line($"while ({RenderExpr(loop.Cond)}) {{");
-        _indent++;
-        _continueTargets.Push(label);
-        PushScope();
-        if (label is not null) Line("{");
-        if (label is not null) _indent++;
-        EmitStats(loop.Body.Stats);
-        if (label is not null) _indent--;
-        if (label is not null) Line("}");
-        PopScope();
-        if (label is not null)
-        {
-            Line($"{label}:");
-            PushScope();
-            EmitStats(loop.Trailer!.Stats);
-            PopScope();
-            Line(";");
-        }
-        _continueTargets.Pop();
-        _indent--;
-        Line("}");
-    }
-
-    private void EmitRepeat(IlRepeat repeat)
-    {
-        RequireType(CType.Bool, TypeOf(repeat.Cond), "repeat condition");
-        Line("do {");
-        _indent++;
-        _continueTargets.Push(null);
-        PushScope();
-        EmitStats(repeat.Body.Stats);
-        PopScope();
-        _continueTargets.Pop();
-        _indent--;
-        Line($"}} while ({RenderExpr(repeat.Cond)});");
-    }
-
-    private void EmitContinue()
-    {
-        if (_continueTargets.Count == 0)
-            throw new Tcs2cException("continue outside a loop");
-        var target = _continueTargets.Peek();
-        Line(target is null ? "continue;" : $"goto {target};");
-    }
-
-    // Dictionary の foreach。反復順は Lua (pairs) と一致しない — どちらも
-    // 順序未規定 (順序依存の出力は backend 間一致の対象外)
-    private void EmitForeachDict(IlForeachDict loop)
-    {
-        var valueType = RequireDict(loop.Coll, out var dictType);
-        var dictTemp = Temp("dict");
-        var bucketTemp = Temp("bucket");
-        var nodeTemp = Temp("node");
-        Line("{");
-        _indent++;
-        PushScope();
-        Line($"TcsDict *{dictTemp} = ({{ TcsDict *d = " +
-            $"{RenderExpr(loop.Coll)}; (TcsDict *)tcs_nonnull(d); }});");
-        Line($"for (int32_t {bucketTemp} = 0; {bucketTemp} < TCS_DICT_BUCKETS; " +
-            $"{bucketTemp}++)");
-        Line($"for (TcsDictNode *{nodeTemp} = {dictTemp}->buckets[{bucketTemp}]; " +
-            $"{nodeTemp} != NULL; {nodeTemp} = {nodeTemp}->next)");
-        Line("{");
-        _indent++;
-        PushScope();
-        AddVariable(loop.Var, new Variable(nodeTemp,
-            CType.Kvp(dictType.Key!, valueType)));
-        _continueTargets.Push(null);
-        EmitStats(loop.Body.Stats);
-        _continueTargets.Pop();
-        PopScope();
-        _indent--;
-        Line("}");
-        PopScope();
-        _indent--;
-        Line("}");
-    }
-
     private void EmitReturn(IlReturn ret)
     {
         if (ret.Value is null)
@@ -689,7 +535,7 @@ internal sealed partial class CEmitter
             Line("return;");
             return;
         }
-        RequireAssignable(_currentMethodFact.ReturnType, TypeOf(ret.Value), "return");
+        CheckAssignable(_currentMethodFact.ReturnType, ret.Value, "return");
         Line($"return {RenderCoerced(ret.Value, _currentMethodFact.ReturnType)};");
     }
 
@@ -719,10 +565,10 @@ internal sealed partial class CEmitter
             {
                 var fact = _facts.Field(cls.Name, field.Name);
                 if (fact.Init is null) continue;
-                RequireAssignable(fact.Type, TypeOf(fact.Init),
+                CheckAssignable(fact.Type, fact.Init,
                     $"initializer of {cls.Name}.{field.Name}");
                 Line($"{Names.StaticField(cls.Name, field.Name)} = " +
-                    $"{RenderExpr(fact.Init)};");
+                    $"{RenderCoerced(fact.Init, fact.Type)};");
             }
             PopScope();
         }
@@ -739,7 +585,20 @@ internal sealed partial class CEmitter
         Line("tcs_lib_init(void)");
         Line("{");
         _indent++;
+        Line("void *saved = tcs_gc_enter(__builtin_frame_address(0));");
         Line("tcs_init_statics();");
+        Line("tcs_gc_leave(saved);");
+        _indent--;
+        Line("}");
+        Line();
+        // host が frame 境界等で明示的に GC を回す入口
+        Line("void");
+        Line("tcs_lib_gc(void)");
+        Line("{");
+        _indent++;
+        Line("void *saved = tcs_gc_enter(__builtin_frame_address(0));");
+        Line("tcs_gc_collect();");
+        Line("tcs_gc_leave(saved);");
         _indent--;
         Line("}");
         Line();
@@ -752,7 +611,9 @@ internal sealed partial class CEmitter
             Line($"tcs_entry_{Names.Id(cls.Name)}_{Names.Id(method.Name)}(void)");
             Line("{");
             _indent++;
+            Line("void *saved = tcs_gc_enter(__builtin_frame_address(0));");
             Line($"{Names.Method(cls.Name, method.Name)}();");
+            Line("tcs_gc_leave(saved);");
             _indent--;
             Line("}");
             Line();
@@ -765,12 +626,14 @@ internal sealed partial class CEmitter
         Line("main(void)");
         Line("{");
         _indent++;
+        Line("void *saved = tcs_gc_enter(__builtin_frame_address(0));");
         Line("tcs_init_statics();");
         if (_digestF32) Line("tcs_digest = UINT32_C(2166136261);");
         if (entry is { } selected)
             Line($"{Names.Method(selected.Class.Name, selected.Method.Name)}();");
         if (_digestF32)
             Line("printf(\"%08\" PRIx32 \"\\n\", tcs_digest);");
+        Line("tcs_gc_leave(saved);");
         Line("return 0;");
         _indent--;
         Line("}");

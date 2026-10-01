@@ -483,7 +483,8 @@ internal sealed partial class CEmitter
         return $"({{ TcsList *{list} = {RenderExpr(call.Args[0])}; " +
             $"{listType.ElementCName} {value} = " +
             $"{RenderCoerced(call.Args[1], listType.Element!)}; " +
-            $"tcs_list_add({list}, &{value}, sizeof({value})); }})";
+            $"tcs_list_add({list}, &{value}, sizeof({value}), " +
+            $"{LayoutRef(listType.Element!)}); }})";
     }
 
     private string RenderUserCall(IlCall call)
@@ -507,8 +508,8 @@ internal sealed partial class CEmitter
             RequireArity("closure call", call.Args.Length,
                 closureType.Parameters!.Count);
             for (var i = 0; i < call.Args.Length; i++)
-                RequireAssignable(closureType.Parameters[i],
-                    TypeOf(call.Args[i]), $"closure argument {i}");
+                CheckAssignable(closureType.Parameters[i],
+                    call.Args[i], $"closure argument {i}");
             return closureType.Element!;
         }
         var fact = ParseDynCallee(call.Callee);
@@ -608,7 +609,7 @@ internal sealed partial class CEmitter
             throw new Tcs2cException($"IlInvoke target is static: {fact.ClassName}.{fact.Name}");
         RequireArity($"{fact.ClassName}.{fact.Name}", args.Count, fact.Parameters.Count);
         for (var i = 0; i < args.Count; i++)
-            RequireAssignable(fact.Parameters[i].Type, TypeOf(args[i]),
+            CheckAssignable(fact.Parameters[i].Type, args[i],
                 $"argument {i} of {fact.ClassName}.{fact.Name}");
         return fact.ReturnType;
     }
@@ -682,7 +683,7 @@ internal sealed partial class CEmitter
         var values = new List<(CType Type, string Value)>();
         for (var i = 0; i < creation.Args.Length; i++)
         {
-            RequireAssignable(paramFacts[i].Type, TypeOf(creation.Args[i]),
+            CheckAssignable(paramFacts[i].Type, creation.Args[i],
                 $"constructor argument {i} of {cls.Name}");
             values.Add((paramFacts[i].Type,
                 RenderCoerced(creation.Args[i], paramFacts[i].Type)));
@@ -720,14 +721,18 @@ internal sealed partial class CEmitter
         var type = TypeOfTable(table);
         var list = Temp("list");
         var elementSize = type.Element is null ? "0" : $"sizeof({type.ElementCName})";
-        var statements = new StringBuilder($"TcsList *{list} = tcs_list_new({elementSize}); ");
+        var layout = type.Element is null ? "NULL" : LayoutRef(type.Element);
+        var statements = new StringBuilder(
+            $"TcsList *{list} = tcs_list_new({elementSize}, {layout}); ");
         foreach (var entry in table.Entries)
         {
             var value = Temp("list_item");
             statements.Append(type.ElementCName).Append(' ').Append(value)
-                .Append(" = ").Append(RenderExpr(entry.Value)).Append("; ")
+                .Append(" = ").Append(RenderCoerced(entry.Value, type.Element!))
+                .Append("; ")
                 .Append("tcs_list_add(").Append(list).Append(", &").Append(value)
-                .Append(", sizeof(").Append(value).Append(")); ");
+                .Append(", sizeof(").Append(value).Append("), ")
+                .Append(layout).Append("); ");
         }
         return $"({{ {statements}{list}; }})";
     }
@@ -744,6 +749,7 @@ internal sealed partial class CEmitter
     private string RenderNewArray(IlNewArray array)
     {
         var type = TypeOfNewArray(array);
-        return $"tcs_array_new({RenderExpr(array.Length)}, sizeof({type.ElementCName}))";
+        return $"tcs_array_new({RenderExpr(array.Length)}, " +
+            $"sizeof({type.ElementCName}), {LayoutRef(type.Element!)})";
     }
 }

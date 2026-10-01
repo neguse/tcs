@@ -39,7 +39,7 @@ internal sealed partial class CEmitter
         return IsFloatText(text) ? CType.F32 : CType.I32;
     }
 
-    private static string RenderLiteral(IlLit literal)
+    private string RenderLiteral(IlLit literal)
     {
         var text = literal.LuaText;
         if (text is "true" or "false") return text;
@@ -66,13 +66,8 @@ internal sealed partial class CEmitter
         return Constants.I32(integer);
     }
 
-    private static string RenderStringLiteral(string luaText)
-    {
-        var bytes = DecodeLuaString(luaText);
-        var escaped = string.Concat(bytes.Select(b => $"\\x{b:x2}"));
-        return $"tcs_string_new((const unsigned char *)\"{escaped}\", " +
-            $"(size_t){bytes.Length})";
-    }
+    private string RenderStringLiteral(string luaText) =>
+        InternStringLiteral(DecodeLuaString(luaText));
 
     private static byte[] DecodeLuaString(string text)
     {
@@ -159,6 +154,22 @@ internal sealed partial class CEmitter
     {
         if (expected != actual)
             throw new Tcs2cException($"{where}: expected {expected}, got {actual}");
+    }
+
+    // closure / static method group は単独で型付けできない (target で決まる)
+    private static bool IsClosureValue(IlExpr expr) =>
+        expr is IlClosure || expr is IlField { Recv: IlVar };
+
+    private void CheckAssignable(CType target, IlExpr value, string where)
+    {
+        if (target.Kind == CTypeKind.Closure && value is IlClosure) return;
+        if (target.Kind == CTypeKind.Closure
+            && value is IlField { Recv: IlVar recvVar } group
+            && _classes.ContainsKey(recvVar.Name)
+            && _classes[recvVar.Name].Methods
+                .Any(m => m.Name == group.Name && m.IsStatic))
+            return;
+        RequireAssignable(target, TypeOf(value), where);
     }
 
     private void RequireAssignable(CType target, CType source, string where)

@@ -7,7 +7,10 @@ namespace TinyCs.Tcs2c;
 internal sealed partial class CEmitter
 {
     // Lua backend の Class.new と同順で構築する:
-    // base ctor → type_id (setmetatable 相当) → 自 class field init → ctor body
+    // base init → type_id (setmetatable 相当) → 自 class field init → ctor body。
+    // 確保は最派生の tcs_new_C が layout (sizeof(Tcs_C) + pointer map) で 1 回
+    // 行い、tcs_init_C(object, ...) が base の init を prefix 互換の upcast で
+    // 連鎖呼びする (base 側で sizeof(Base) を確保すると派生 field が溢れる)
     private void EmitAllocators()
     {
         foreach (var cls in _program.Classes)
@@ -23,12 +26,11 @@ internal sealed partial class CEmitter
                 AddVariable(paramFacts[i].Name,
                     new Variable($"v_{Names.Id(paramFacts[i].Name)}_{i}",
                         paramFacts[i].Type));
-            var parameters = paramFacts.Count == 0
-                ? "void"
-                : string.Join(", ", paramFacts.Select((p, i) =>
-                    $"{p.Type.CName} v_{Names.Id(p.Name)}_{i}"));
-            Line($"static {cType} *");
-            Line($"{Names.New(cls.Name)}({parameters})");
+            var parameters = string.Join(", ", new[] { $"{cType} *object" }
+                .Concat(paramFacts.Select((p, i) =>
+                    $"{p.Type.CName} v_{Names.Id(p.Name)}_{i}")));
+            Line("static void");
+            Line($"{Names.Init(cls.Name)}({parameters})");
             Line("{");
             _indent++;
             if (cls.BaseName is { } baseName)
@@ -39,22 +41,17 @@ internal sealed partial class CEmitter
                 if (baseArgs.Length != baseParams.Count)
                     throw new Tcs2cException(
                         $"base constructor arity mismatch: {cls.Name}");
-                var rendered = new List<string>();
+                var rendered = new List<string> { $"({Names.Class(baseName)} *)object" };
                 for (var i = 0; i < baseArgs.Length; i++)
                 {
-                    RequireAssignable(baseParams[i].Type, TypeOf(baseArgs[i]),
+                    CheckAssignable(baseParams[i].Type, baseArgs[i],
                         $"base ctor argument {i} of {cls.Name}");
                     var temp = Temp("base_arg");
                     Line($"{baseParams[i].Type.CName} {temp} = " +
                         $"{RenderCoerced(baseArgs[i], baseParams[i].Type)};");
                     rendered.Add(temp);
                 }
-                Line($"{cType} *object = ({cType} *)" +
-                    $"{Names.New(baseName)}({string.Join(", ", rendered)});");
-            }
-            else
-            {
-                Line($"{cType} *object = tcs_alloc(sizeof(*object));");
+                Line($"{Names.Init(baseName)}({string.Join(", ", rendered)});");
             }
             Line($"object->type_id = {Names.TypeId(cls.Name)};");
             AddVariable("self", new Variable("object", CType.Ref(cls.Name)));
@@ -63,10 +60,10 @@ internal sealed partial class CEmitter
                 var fact = _facts.Field(cls.Name, field.Name);
                 if (fact.Init is not null)
                 {
-                    RequireAssignable(fact.Type, TypeOf(fact.Init),
+                    CheckAssignable(fact.Type, fact.Init,
                         $"initializer of {cls.Name}.{field.Name}");
                     Line($"object->{Names.Field(field.Name)} = " +
-                        $"{RenderExpr(fact.Init)};");
+                        $"{RenderCoerced(fact.Init, fact.Type)};");
                 }
             }
             if (ctor?.Body is { } body)
@@ -74,8 +71,25 @@ internal sealed partial class CEmitter
             else if (ctor is { Body: null })
                 throw new Tcs2cException(
                     $"constructor body is not IL-exportable: {cls.Name}");
-            Line("return object;");
             PopScope();
+            _indent--;
+            Line("}");
+            Line();
+            FlushPendingClosures();
+
+            var newParams = paramFacts.Count == 0
+                ? "void"
+                : string.Join(", ", paramFacts.Select((p, i) =>
+                    $"{p.Type.CName} v_{Names.Id(p.Name)}_{i}"));
+            var initArgs = string.Join(", ", new[] { "object" }
+                .Concat(paramFacts.Select((p, i) => $"v_{Names.Id(p.Name)}_{i}")));
+            Line($"static {cType} *");
+            Line($"{Names.New(cls.Name)}({newParams})");
+            Line("{");
+            _indent++;
+            Line($"{cType} *object = tcs_new_object(&{Names.ClassLayout(cls.Name)});");
+            Line($"{Names.Init(cls.Name)}({initArgs});");
+            Line("return object;");
             _indent--;
             Line("}");
             Line();

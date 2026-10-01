@@ -147,7 +147,7 @@ internal sealed partial class CEmitter
             var cell = new Variable($"c_{old.CName}", old.Type)
                 { Boxed = true };
             Line($"{old.Type.CName} *{cell.CName} = " +
-                $"tcs_alloc(sizeof(*{cell.CName}));");
+                $"tcs_new_cell(sizeof(*{cell.CName}), {LayoutRef(old.Type)});");
             Line($"*{cell.CName} = {old.CName};");
             _scopes.Peek()[scopeEntry.Key] = cell;
         }
@@ -253,9 +253,8 @@ internal sealed partial class CEmitter
 
         var make = new StringBuilder();
         var closTemp = Temp("closure");
-        make.Append($"TcsClosure *{closTemp} = tcs_alloc(sizeof(TcsClosure) " +
-            $"+ {Math.Max(captured.Count, 1)} * sizeof(void *)); ");
-        make.Append($"{closTemp}->fn = (void *){fnName}; ");
+        make.Append($"TcsClosure *{closTemp} = tcs_new_closure(" +
+            $"(void *){fnName}, {captured.Count}); ");
         for (var i = 0; i < captured.Count; i++)
             make.Append($"{closTemp}->cells[{i}] = (void *){captured[i].Cell.CName}; ");
         return $"({{ {make}{closTemp}; }})";
@@ -291,8 +290,7 @@ internal sealed partial class CEmitter
                 "{\n    " + body + "\n}\n\n");
         }
         var closTemp = Temp("closure");
-        return $"({{ TcsClosure *{closTemp} = tcs_alloc(sizeof(TcsClosure) " +
-            $"+ sizeof(void *)); {closTemp}->fn = (void *){fnName}; " +
-            $"{closTemp}; }})";
+        return $"({{ TcsClosure *{closTemp} = tcs_new_closure(" +
+            $"(void *){fnName}, 0); {closTemp}; }})";
     }
 }

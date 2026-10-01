@@ -1640,3 +1640,12 @@
 - spec conformance: `attributes.md:CallerArgumentAttr2` は `int local = 10;` の警告で Diag に隠れていたが、写すようになって Lua 実行まで進む。#17 の `CallerInfoAttribute` 診断 (parameter の属性) が先に入っているので分類は Diag のまま変わらず、baseline / report に差分なし
 - 残課題: `nameof(local)` は写した名前 (`local_`) になる (nameof 自体がサブセット外)。member の `LuaKeywordIdentifier` 診断は LuaNaming.Member が既に安全化しているので外せる可能性があるが、issue の範囲 (ローカル) に留めた
 
+### T240: tcs2c GC — 精密 heap / 保守的 stack の mark-sweep ✓ (2026-10-01)
+- release backend の確保を calloc 放置から自前 GC へ。全 heap object に `TcsGcHeader` (kind + `TcsLayout`) を付け、生成側が class / struct の pointer slot 表 (`offsetof` 平坦化) と static root 走査関数を出す。array / List / Dict / closure cell は確保時に要素 layout を受け取り、heap trace は精密。root は static (精密) + C stack の保守的走査 (entry で frame を記録、setjmp で register を落とす、interior pointer 許容)。トリガは「直近 GC 以降の確保 bytes ≥ 生存 bytes (下限 1 MiB)」
+- 付随: string literal を `TCS_GC_STATIC` な file-scope object に intern (評価ごとの確保を廃止)。TcsArray の要素を inline 化、Dictionary を bucket 倍化 + node 末尾の可変長 value (従来の 8 byte slot は struct 値で heap を壊していた)。派生 class の確保を最派生の `tcs_new_C` に一本化し `tcs_init_C` で base init を連鎖 (従来は base 側で `sizeof(Base)` だけ確保して派生 field が溢れる latent bug)。格納型の制限を解除 (List / array の要素型・Dict・closure を field / parameter に許可)、closure 値の代入 / 引数 / return / 初期化子を target 型付けで通す、static struct field と Dict の struct 値を place として読める
+- tcs2c.Tests (xUnit、slnx 登録): 2 backend differential ハーネス (`Backends.AssertParity` — C 通常 + `-DTCS_GC_STRESS=1` + Lua の stdout 一致)、GC テスト 5 本 (churn / 全 container 経路の root 保持 / garbage 回収で heap 有界 / `--lib` 境界 + `tcs_lib_gc` / literal の static 化)。C compiler が無い環境は skip
+- 検証: tcs2c.Tests 5/5 green (stress + AddressSanitizer でも同出力、`ASAN_OPTIONS=detect_stack_use_after_return=0`)、verify-digests 3/3 不変 (e8814b32 / 9274159d / 8bf97e09)。300k 確保の churn で RSS 10 MB (GC なしは 1.2 GB)
+- よかったこと: stress (確保ごとに full GC) × 2 backend stdout 一致が root 漏れの検出器としてそのまま働く。保守的走査と ASan の衝突は `TCS_NO_ASAN` + `__builtin_frame_address` で解消
+- 判断: 精密 stack (shadow stack) は statement-expression の temp 全てに root 登録が要り codegen を汚すので却下。参照カウントは循環と codegen 侵襲で却下。sweep は address 順 index (qsort) で保守的候補を二分探索 — 自前 allocator (page map) より単純で system malloc/free をそのまま使える
+- 残課題: 世代別 / incremental 化は需要待ち。32bit target (Playdate) での実測は未
+
