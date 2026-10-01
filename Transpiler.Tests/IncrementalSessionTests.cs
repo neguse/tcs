@@ -178,7 +178,7 @@ public class IncrementalSessionTests
         Assert.False(result.Success);
         Assert.False(result.FastPath);
         Assert.Contains(result.Errors,
-            e => e.Contains("error naming: 'Value' and 'value' both map to Lua 'value'"));
+            e => e.Contains("error TCS1001: unsupported syntax: LuaNameCollision(Value/value): 'Value' and 'value' both map to Lua 'value'"));
         Assert.Contains(session.CollectDiagnostics().Errors,
             e => e.Contains("both map to Lua 'value'"));
         AssertDiagnosticsParity(session);
