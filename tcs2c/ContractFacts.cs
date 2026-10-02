@@ -192,8 +192,8 @@ internal sealed class ContractFacts
             "float" or "System.Single" => CType.F32,
             "bool" or "System.Boolean" => CType.Bool,
             "string" or "System.String" => CType.String,
-            // char は Lua と同じく 1 文字の string (il: string.sub / string.byte)
-            "char" or "System.Char" => CType.String,
+            // char は整数 code unit (il-spec §3)
+            "char" or "System.Char" => CType.I32,
             // enum は整数定数 (Lua と同じ。tostring も整数表記)
             _ when _enums.ContainsKey(text) => CType.I32,
             // TinySystem.Random の instance (user の class Random は別物)

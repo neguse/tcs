@@ -268,6 +268,19 @@ function Dict.Values(dict)
   return vals
 end
 
+-- Char (整数 code unit、ASCII の判定 / 変換。C backend も同じ表)
+local Char = {}
+TinySystem.Char = Char
+
+function Char.IsDigit(c) return c >= 48 and c <= 57 end
+function Char.IsUpper(c) return c >= 65 and c <= 90 end
+function Char.IsLower(c) return c >= 97 and c <= 122 end
+function Char.IsLetter(c) return Char.IsUpper(c) or Char.IsLower(c) end
+function Char.IsLetterOrDigit(c) return Char.IsLetter(c) or Char.IsDigit(c) end
+function Char.IsWhiteSpace(c) return c == 32 or (c >= 9 and c <= 13) end
+function Char.ToUpper(c) if Char.IsLower(c) then return c - 32 end return c end
+function Char.ToLower(c) if Char.IsUpper(c) then return c + 32 end return c end
+
 -- String operations
 local String = {}
 TinySystem.String = String

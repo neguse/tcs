@@ -112,7 +112,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `double` (Double) | **Y** | number | |
 | `bool` (Boolean) | **Y** | boolean | |
 | `decimal` (Decimal) | **-** | | |
-| `char` (Char) | **-** | | string で代替 |
+| `char` (Char) | **Y** | 整数 code unit (byte)。literal は ASCII のみ (非 ASCII は TCS1001 `NonAsciiCharLiteral`、string literal で書く)。算術 / 比較 / switch / pattern は int と同じ、文字列化 (連結・補間・`ToString`・`WriteLine`) は 1 byte の string。`Char.*` は §15b |
 | `byte` (Byte) | **-** | | |
 | `sbyte` (SByte) | **-** | | |
 | `short` (Int16) | **-** | | |
@@ -621,12 +621,25 @@ using(宣言)  virtual(部分)  volatile  yield
 | `String.Equals(a, b)` (static) | **-** | | |
 | `String.Empty` (static) | **-** | | |
 | `.ReplaceLineEndings()` | **-** | | |
-| `[int]` (char indexer) | **Y** | `string.sub(s, i + 1, i + 1)` (1 文字 string) | T |
-| `(int)s[i]` / `(int)ch` (char → int) | **Y** | `string.byte(s, i + 1)` / `string.byte(ch)`。`(int)'a'` は定数畳み込み | T |
+| `[int]` (char indexer) | **Y** | `string.byte(s, i + 1)` (整数 code unit = byte) | T |
+| `(int)ch` / `(char)n` (char ↔ int) | **Y** | 恒等 (char は整数)。`(int)'a'` は定数畳み込み | T |
+| `foreach (char c in s)` | **Y** | `for i = 1, #s do local c = string.byte(s, i)` (byte 単位。codepoint は `EnumerateRunes`) | T |
+| `.IndexOf(char)` / `.Contains(char)` / `.StartsWith(char)` / `.EndsWith(char)` / `.Replace(char, char)` / `.Split(char)` | **Y** | char 引数を `string.char` で 1 文字 string にして同名 runtime へ | T+R |
 | `.EnumerateRunes()` | **Y** | `foreach` の collection 位置限定: `for _, r in utf8.codes(s)`。`r.Value` (`System.Text.Rune`) は codepoint 整数そのもの | T |
 
 引数なし`Split()`のwhitespace判定はLua `%s`によるbyte/locale単位であり、
 .NETのUnicode `Char.IsWhiteSpace`とは一致しない。これはUTF-8 byte列を使う既知制約に含む。
+
+---
+
+## 13b. Char メンバー (static、整数 code unit の ASCII 判定 / 変換)
+
+| メンバー | 状態 | Lua マッピング | 区分 |
+|---------|:----:|--------------|:----:|
+| `char.IsDigit(c)` / `IsLetter` / `IsLetterOrDigit` / `IsWhiteSpace` / `IsUpper` / `IsLower` | **Y** | `Char.IsDigit(c)` 等 (ASCII 範囲。C backend も同じ表) | R |
+| `char.ToUpper(c)` / `char.ToLower(c)` | **Y** | `Char.ToUpper(c)` / `Char.ToLower(c)` (ASCII) | R |
+| `c.ToString()` | **Y** | `string.char(c)` | T |
+| `char.IsPunctuation` / `IsSymbol` / `IsControl` / `GetNumericValue` | **-** | | |
 
 ---
 

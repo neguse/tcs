@@ -86,7 +86,7 @@ public static partial class TinyCsComplianceFacts
     public const string RuntimeRootGlobal = "TinySystem";
 
     public static readonly string[] RuntimeGlobalAliases =
-        ["List", "Dict", "Math", "String", "Random"];
+        ["List", "Dict", "Math", "String", "Random", "Char"];
 
     // 生成コードが素の global 名で参照する runtime table。BCL 呼び出しは
     // `Math.Abs` / `List.Add` / `Dict.ContainsKey` / `String.Split` と、
@@ -260,6 +260,12 @@ public static partial class TinyCsComplianceFacts
                 when literal.IsKind(SyntaxKind.NumericLiteralExpression)
                     && literal.Token.Value is double
                     => "DoubleLiteral",
+            // char は整数 code unit で、runtime の文字列は UTF-8 byte 列。非 ASCII
+            // の char literal は 1 byte に写せない (string literal で書く)
+            LiteralExpressionSyntax charLit
+                when charLit.IsKind(SyntaxKind.CharacterLiteralExpression)
+                    && charLit.Token.Value is char charValue && charValue > 127
+                    => "NonAsciiCharLiteral",
             // 孤立 surrogate は UTF-8 octet 列 (il-spec §11 の string 規範) への
             // 写像を持たない。対の surrogate (astral 文字) は許容する。
             LiteralExpressionSyntax surrogateLit

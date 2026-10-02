@@ -425,6 +425,23 @@ internal sealed partial class CEmitter
             return (int32_t)(p + (uint32_t)low);
         }
 
+        /* ---- char (整数 code unit、ASCII 判定 / 変換。Lua runtime の Char と同じ表) ---- */
+        static TcsString *
+        tcs_string_from_byte(int32_t code)
+        {
+            unsigned char byte = (unsigned char)code;
+            return tcs_string_new(&byte, 1);
+        }
+
+        static bool tcs_char_is_digit(int32_t c) { return c >= 48 && c <= 57; }
+        static bool tcs_char_is_upper(int32_t c) { return c >= 65 && c <= 90; }
+        static bool tcs_char_is_lower(int32_t c) { return c >= 97 && c <= 122; }
+        static bool tcs_char_is_letter(int32_t c) { return tcs_char_is_upper(c) || tcs_char_is_lower(c); }
+        static bool tcs_char_is_letter_or_digit(int32_t c) { return tcs_char_is_letter(c) || tcs_char_is_digit(c); }
+        static bool tcs_char_is_space(int32_t c) { return c == 32 || (c >= 9 && c <= 13); }
+        static int32_t tcs_char_to_upper(int32_t c) { return tcs_char_is_lower(c) ? c - 32 : c; }
+        static int32_t tcs_char_to_lower(int32_t c) { return tcs_char_is_upper(c) ? c + 32 : c; }
+
         /* ---- Console.Write / Environment ---- */
         static void
         tcs_write_string(TcsString *value)

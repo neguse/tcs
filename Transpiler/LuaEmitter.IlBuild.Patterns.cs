@@ -482,7 +482,8 @@ public partial class LuaEmitter
         var typeDef = receiverType?.OriginalDefinition.ToDisplayString() ?? "";
 
         if (receiverType?.SpecialType == SpecialType.System_String)
-            return TryBuildStringCall(obj, methodName, argArr)
+            return TryBuildStringCall(obj, methodName,
+                    WrapCharArgs(model, inv.ArgumentList, argArr))
                 ?? new IlInvoke(obj, methodName, argArr);
 
         if (IsListType(typeDef))

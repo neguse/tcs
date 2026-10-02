@@ -60,7 +60,7 @@ assembly 参照で直接消費する。
 | IlUn(op, e) | Neg / Not / BitNot | -e 等 |
 | IlParen(e) | 括弧 (評価順は §4 で規定済み — 表示用) | (e) |
 | IlTernary(c, t, f) | 条件式 | IIFE |
-| IlCall(callee, args) | 解決済み callee 名の呼び出し。callee は "Class.Method" / intrinsic 名 (§13: print, Math.*, String.*, List.*, Dict.*, table.*, string.format, tostring, math.fmod, \_\_tcs_idiv, \_\_tcs_irem) | callee(args) |
+| IlCall(callee, args) | 解決済み callee 名の呼び出し。callee は "Class.Method" / intrinsic 名 (§13: print, Math.*, String.*, List.*, Dict.*, Char.*, table.*, string.format, string.byte / string.char (char ↔ 1 byte string), tostring, math.fmod, \_\_tcs_idiv, \_\_tcs_irem) | callee(args) |
 | IlDynCall(callee, args) | 式 callee の呼び出し (delegate 変数等) | callee(args) |
 | IlInvoke(recv, m, args) | インスタンスメソッド (仮想解決は実行時型 §9) | recv:m(args) |
 | IlNewObj(type, args) | class 生成 (§9: default 初期化→ctor) | Type.new(args) |

@@ -34,6 +34,9 @@ public partial class LuaEmitter
                 return converted == null ? null : DefaultIl(converted);
             }
             case LiteralExpressionSyntax lit:
+                if (lit.IsKind(SyntaxKind.CharacterLiteralExpression)
+                    && lit.Token.Value is char nonAscii && nonAscii > 127)
+                    return null; // NonAsciiCharLiteral (Shared facts が診断)
                 return new IlLit(VisitLiteral(lit));
             case IdentifierNameSyntax id:
                 return BuildIdentifier(model, id);
@@ -80,21 +83,11 @@ public partial class LuaEmitter
                     && IsCharType(model.GetTypeInfo(cast.Expression).Type))
                     return new IlLit(Convert.ToString(constant.Value,
                         System.Globalization.CultureInfo.InvariantCulture)!);
-                if (IsCharToIntCast(model, cast))
-                {
-                    if (IsStringElementAccess(model, cast.Expression,
-                            out var strRecv, out var strIdx))
-                    {
-                        var r = BuildExpr(model, strRecv);
-                        var i = BuildExpr(model, strIdx);
-                        return r == null || i == null ? null
-                            : new IlCall("string.byte",
-                                [r, new IlBin(IlBinOp.AddNum, i, new IlLit("1"))]);
-                    }
-                    var ch = BuildExpr(model, cast.Expression);
-                    return ch == null ? null : new IlCall("string.byte", [ch]);
-                }
-                if (IsFloatToIntCast(model, cast))
+                // char ↔ int の cast は恒等 (char は整数 code unit)。
+                // (char)f の float → char は (int)f と同じ truncation
+                if (IsFloatToIntCast(model, cast)
+                    || (IsCharType(model.GetTypeInfo(cast.Type).Type)
+                        && IsFloatingType(model.GetTypeInfo(cast.Expression).Type)))
                 {
                     var f = BuildExpr(model, cast.Expression);
                     return f == null ? null : new IlCall("__tcs_trunc", [f]);
@@ -142,9 +135,9 @@ public partial class LuaEmitter
                 var receiverType = model.GetTypeInfo(elemAccess.Expression).Type;
                 if (receiverType?.SpecialType == SpecialType.System_String)
                 {
-                    // s[i] は 1 文字 string (char は string で代替)
-                    var pos = new IlBin(IlBinOp.AddNum, index, new IlLit("1"));
-                    return new IlCall("string.sub", [recv, pos, pos]);
+                    // s[i] は整数 code unit (byte)
+                    return new IlCall("string.byte",
+                        [recv, new IlBin(IlBinOp.AddNum, index, new IlLit("1"))]);
                 }
                 var typeDef = receiverType?.OriginalDefinition.ToDisplayString() ?? "";
                 var plusOne = IsListType(typeDef)
@@ -342,7 +335,9 @@ public partial class LuaEmitter
             ? new IlCall("__tcs_nstr", [built])
             : IsFloatingType(model.GetTypeInfo(src).Type)
                 ? new IlCall("__tcs_fstr", [built])
-                : new IlCall("tostring", [built]);
+                : IsCharType(model.GetTypeInfo(src).Type)
+                    ? new IlCall("string.char", [built])
+                    : new IlCall("tostring", [built]);
 
     // 文字列連結 (`+` / `+=`) の operand を Lua の `..` が受ける形にする。
     // float は shortest round-trip (__tcs_fstr)、bool は ToString / 補間と
@@ -357,6 +352,8 @@ public partial class LuaEmitter
             return new IlCall("__tcs_nstr", [rendered]);
         if (IsFloatingType(type))
             return new IlCall("__tcs_fstr", [rendered]);
+        if (IsCharType(type))
+            return new IlCall("string.char", [rendered]);
         if (UnwrapNullable(type)?.SpecialType == SpecialType.System_Boolean)
             return IsNullableValueType(type)
                 ? new IlCall("__tcs_nstr", [rendered])
@@ -478,9 +475,15 @@ public partial class LuaEmitter
                         printArgs[i] = new IlCall("__tcs_nstr", [printArgs[i]]);
                     else if (IsFloatingType(argType))
                         printArgs[i] = new IlCall("__tcs_fstr", [printArgs[i]]);
+                    else if (IsCharType(argType))
+                        printArgs[i] = new IlCall("string.char", [printArgs[i]]);
                 }
                 return new IlCall("print", [.. printArgs]);
             }
+
+            if (symbol is IMethodSymbol { IsStatic: true } charMethod
+                && charMethod.ContainingType.SpecialType == SpecialType.System_Char)
+                return new IlCall($"Char.{methodName}", argArr);
 
             if (symbol is IMethodSymbol mathMethod
                 && mathMethod.ContainingType.ToDisplayString() == "System.Math")
@@ -507,7 +510,8 @@ public partial class LuaEmitter
             {
                 var recvStr = BuildExpr(model, ma.Expression);
                 if (recvStr == null) return null;
-                if (TryBuildStringCall(recvStr, methodName, argArr) is { } strCall)
+                if (TryBuildStringCall(recvStr, methodName,
+                        WrapCharArgs(model, invocation.ArgumentList, argArr)) is { } strCall)
                     return strCall;
             }
 

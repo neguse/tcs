@@ -163,6 +163,7 @@ public partial class LuaEmitter
         return type?.SpecialType switch
         {
             SpecialType.System_Boolean => "false",
+            SpecialType.System_Char => "0",
             SpecialType.System_Int32 or SpecialType.System_Int64
                 or SpecialType.System_UInt32 or SpecialType.System_Single
                 or SpecialType.System_Double => "0",
@@ -514,7 +515,10 @@ public partial class LuaEmitter
         SyntaxKind.NumericLiteralExpression => ConvertNumericLiteral(lit),
         SyntaxKind.StringLiteralExpression => ConvertStringLiteral(lit),
         SyntaxKind.Utf8StringLiteralExpression => ConvertStringLiteral(lit),
-        SyntaxKind.CharacterLiteralExpression => EscapeLuaString(lit.Token.ValueText),
+        // char は整数 code unit (il-spec §3)。非 ASCII は Shared facts が診断
+        SyntaxKind.CharacterLiteralExpression =>
+            ((int)(lit.Token.Value is char ch ? ch : '\0')).ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
         SyntaxKind.TrueLiteralExpression => "true",
         SyntaxKind.FalseLiteralExpression => "false",
         SyntaxKind.NullLiteralExpression => "nil",

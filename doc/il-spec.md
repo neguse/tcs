@@ -33,7 +33,9 @@ module / class / record class / enum / interface / method / field。
 `i32` / `f32` / `bool` / `string` / `ref C`（class / record class）/
 `V`（struct / record struct、M5 で有効化）/ `T?`（Nullable、T は i32 /
 f32 / bool / enum / V）/ `T[]` / `List<T>` / `Dictionary<K,V>` /
-関数型（closure）/ enum (= i32)。
+関数型（closure）/ enum (= i32) / char (= i32 の code unit。string は
+UTF-8 byte 列なので `s[i]` は byte 値、文字列化は `string.char(c)` で 1
+byte。literal は ASCII のみ、T251)。
 
 - 型引数は消去済み。IL ノードはすべて単型（examples 決定 3）
 - null は ref・string・List・Dict・関数型の値。i32 / f32 / bool / V は

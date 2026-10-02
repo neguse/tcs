@@ -104,6 +104,18 @@ public partial class LuaEmitter
         return false;
     }
 
+    // string method の char 引数 (IndexOf(char) / Split(char) 等) は 1 文字
+    // string にして runtime へ渡す (char は整数 code unit)
+    private static ImmutableArray<IlExpr> WrapCharArgs(SemanticModel model,
+        ArgumentListSyntax argumentList, ImmutableArray<IlExpr> args)
+    {
+        var result = args.ToArray();
+        for (var i = 0; i < result.Length && i < argumentList.Arguments.Count; i++)
+            if (IsCharType(model.GetTypeInfo(argumentList.Arguments[i].Expression).Type))
+                result[i] = new IlCall("string.char", [result[i]]);
+        return [.. result];
+    }
+
     // List.Clear: 全 key を nil に (IIFE。C backend は runtime 呼びに認識する)
     private static IlExpr BuildListClear(IlExpr recv) =>
         new IlIife([

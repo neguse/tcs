@@ -1733,3 +1733,10 @@
 - 判断: T224 の「恒久保持」判断を覆した (ユーザー合意)。IL 化できない構文は「動かない Lua」ではなく stub + 診断 (`tcs check` が exit 1) にする。lock は単一 thread では body と等価なので実行し、警告だけ残す
 - 残課題: IL builder が null を返す経路の網羅的な洗い出し (fuzz / spec sweep / samples で未検出のものは stub になる)。`var a, b` 混在の分解は診断のまま
 
+### T251: char を整数 code unit として両 backend で対応 ✓ (2026-10-02)
+- char の表現を「1 文字 string」から「整数 code unit (byte)」に変更 (il-spec §3)。literal は整数 (非 ASCII は TCS1001 `NonAsciiCharLiteral`)、`s[i]` は `string.byte`、char ↔ int cast は恒等、算術 / 比較 / switch / pattern は int と同じ。文字列化地点 (連結・補間・`ToString`・`WriteLine`) で `string.char`、string method の char 引数 (IndexOf / Contains / StartsWith / EndsWith / Replace / Split) は `string.char` で 1 文字 string に。`char.IsDigit` 等 8 member を `Char.*` runtime (Lua / C 同じ ASCII 表) に、`foreach (char c in s)` は byte 走査
+- 以前は `c + 1` が Lua で `"a" + 1` の実行時 error、C は型 error になっていた (char の算術は両 backend で未対応) のが消えた
+- 検証: CharTests (表面一式 + 算術 + 非 ASCII 診断、dotnet differential で実 .NET と一致)、tcs2c.Tests に同 program の 2 backend differential、既存 String / Literal / HostBcl / ApiSignature テストを新表現に合わせて green
+- 判断: UTF-16 code unit ではなく byte にした (runtime の string が UTF-8 byte 列で `s[i]` / `Length` と整合する。codepoint は `EnumerateRunes`)。非 ASCII の char literal は silent wrong-code になるので診断にした。`Char.IsLetter` 等は ASCII 範囲 (Lua の `%a` は locale 依存で C と割れる)
+- 残課題: `List<char>` の `string.Join` (整数が並ぶ)、`string.CompareTo` / `Compare` は未対応のまま
+

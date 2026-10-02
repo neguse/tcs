@@ -25,7 +25,7 @@ IL 契約 (`IlExport`) に載る TinyC# は原則すべて C へ落とす。意�
 Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要求する。
 
 - 型: `int` / `float` / `bool` / `string` (immutable byte 列、literal は static
-  object) / `char` (Lua と同じ 1 文字 string) / enum (整数定数、`ToString` も
+  object) / `char` (整数 code unit。`string.char` / `Char.*` intrinsic) / enum (整数定数、`ToString` も
   整数表記) / class 参照 / データ struct (C 値型) / `T[]` (inline 要素の固定長
   配列) / `List<T>` (growable buffer) / `Dictionary<int|string, V>` (chained
   hash) / `Action` `Func` (closure = lifted 関数 + 捕捉 cell)
@@ -70,7 +70,7 @@ Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要�
   `tcs_fault(kind)` で stderr へ出して exit 1 (il-spec §12)
 
 明示エラー (未対応): `object` 型の local、
-`StringBuilder`、char の算術 / `CompareTo`、Lua 固有の `IlIsLuaType`。Lua backend 側の既知差異は
+`StringBuilder`、`CompareTo`、Lua 固有の `IlIsLuaType`。Lua backend 側の既知差異は
 参照型要素の `new T[n]` (要素 nil / `.Length` 0) のみ (support-matrix 参照)。
 
 通常の `print` は stdout へ値を出す。digest kernel 回帰用だけは

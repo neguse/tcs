@@ -9,7 +9,7 @@ namespace TinyCs.Tcs2c;
 internal sealed partial class CEmitter
 {
     private static readonly HashSet<string> IntrinsicPrefixes =
-        ["String.", "Math.", "List.", "string.", "math.", "Random."];
+        ["String.", "Math.", "List.", "string.", "math.", "Random.", "Char."];
 
     private static readonly HashSet<string> IntrinsicNames =
         ["tonumber", "os.getenv", "table.remove", "__tcs_trunc",
@@ -38,6 +38,12 @@ internal sealed partial class CEmitter
         var args = call.Args;
         if (call.Callee.StartsWith("Random.", StringComparison.Ordinal))
             return TypeOfRandomOp(call);
+        if (call.Callee.StartsWith("Char.", StringComparison.Ordinal))
+        {
+            RequireArity(call.Callee, args.Length, 1);
+            RequireType(CType.I32, TypeOf(args[0]), call.Callee);
+            return call.Callee is "Char.ToUpper" or "Char.ToLower" ? CType.I32 : CType.Bool;
+        }
         if (call.Callee.StartsWith("List.", StringComparison.Ordinal))
             return TypeOfListOp(call);
         switch (call.Callee)
@@ -77,6 +83,10 @@ internal sealed partial class CEmitter
                 RequireType(CType.String, TypeOf(args[0]), "string.byte");
                 if (args.Length == 2) RequireType(CType.I32, TypeOf(args[1]), "string.byte index");
                 return CType.I32;
+            case "string.char":
+                RequireArity(call.Callee, args.Length, 1);
+                RequireType(CType.I32, TypeOf(args[0]), "string.char");
+                return CType.String;
             case "string.upper" or "string.lower":
                 RequireArity(call.Callee, args.Length, 1);
                 RequireType(CType.String, TypeOf(args[0]), call.Callee);
@@ -112,6 +122,22 @@ internal sealed partial class CEmitter
         var args = call.Args;
         if (call.Callee.StartsWith("Random.", StringComparison.Ordinal))
             return RenderRandomOp(call, type);
+        if (call.Callee.StartsWith("Char.", StringComparison.Ordinal))
+        {
+            var fn = call.Callee["Char.".Length..] switch
+            {
+                "IsDigit" => "tcs_char_is_digit",
+                "IsLetter" => "tcs_char_is_letter",
+                "IsLetterOrDigit" => "tcs_char_is_letter_or_digit",
+                "IsWhiteSpace" => "tcs_char_is_space",
+                "IsUpper" => "tcs_char_is_upper",
+                "IsLower" => "tcs_char_is_lower",
+                "ToUpper" => "tcs_char_to_upper",
+                "ToLower" => "tcs_char_to_lower",
+                var other => throw new Tcs2cException($"unsupported Char member: {other}"),
+            };
+            return $"{fn}({RenderExpr(args[0])})";
+        }
         if (call.Callee.StartsWith("List.", StringComparison.Ordinal))
             return RenderListOp(call);
         switch (call.Callee)
@@ -140,6 +166,8 @@ internal sealed partial class CEmitter
                 return RenderOrderedCall("tcs_string_byte", type,
                     [(CType.String, RenderExpr(args[0])),
                      (CType.I32, args.Length == 2 ? RenderExpr(args[1]) : "INT32_C(1)")]);
+            case "string.char":
+                return $"tcs_string_from_byte({RenderExpr(args[0])})";
             case "string.upper":
                 return $"tcs_string_map_case({RenderExpr(args[0])}, 1)";
             case "string.lower":

@@ -52,6 +52,7 @@
       - T250 完 (2026-10-02): legacy visitor 廃止 (IL が唯一の Lua 生成経路、
         未対応本文は TCS1001 + stub)。nameof / 拡張メソッド / 入れ子
         initializer / discard / 式位置の代入 / switch 早期 break を IL 化
+      - T251 完 (2026-10-02): char を整数 code unit に (両 backend、Char.*)
 - T219b 完 (done.md 参照): struct / record struct の値セマンティクス
   対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
 - [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で

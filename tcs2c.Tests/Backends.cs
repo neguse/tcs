@@ -130,7 +130,7 @@ internal static class Backends
             .Replace("\\", "/");
         var script = $"local TinySystem = dofile(\"{runtimePath}\")\n" +
             "List = TinySystem.List\nDict = TinySystem.Dict\nMath = TinySystem.Math\n" +
-            "String = TinySystem.String\nRandom = TinySystem.Random\n" +
+            "String = TinySystem.String\nRandom = TinySystem.Random\nChar = TinySystem.Char\n" +
             $"{lua}\n{entryClass}.{LuaNaming.Member("Main")}()\n";
         var dir = Directory.CreateTempSubdirectory("tcs2c-lua-");
         try
