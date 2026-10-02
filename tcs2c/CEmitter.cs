@@ -213,7 +213,7 @@ internal sealed partial class CEmitter
     {
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool or CTypeKind.String
             or CTypeKind.Ref or CTypeKind.StructVal or CTypeKind.Closure
-            or CTypeKind.Nullable => true,
+            or CTypeKind.Nullable or CTypeKind.Random => true,
         CTypeKind.Dict => type.Key is not null && type.Element is not null
             && IsStorageType(type.Element),
         CTypeKind.Array or CTypeKind.List => type.Element is not null

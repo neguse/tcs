@@ -714,9 +714,12 @@ public partial class LuaEmitter
                 ? null : BuildRefTypeTable(model, initializer);
         // struct の明示 ctor は S.ctor (zero 初期化 + 本文)。`new S()` は
         // ctor を通らない zero 値なので S.new のまま
+        // facade 型 (TinySystem.Random) は user 型と同名でも衝突しないよう修飾
+        var newName = IsTinySystemFacade(typeSymbol as INamedTypeSymbol)
+            ? $"TinySystem.{typeSymbol.Name}" : typeSymbol.Name;
         var ctor = IsUserStruct(typeSymbol) && args.Count > 0
             ? (IlExpr)new IlCall($"{typeSymbol.Name}.ctor", [.. args])
-            : new IlNewObj(typeSymbol.Name, [.. args]);
+            : new IlNewObj(newName, [.. args]);
         return initializer != null
             ? BuildObjectInitializerExpr(model, ctor, initializer)
             : ctor;

@@ -1708,3 +1708,11 @@
 - 判断: `__tcs_ca` (receiver) と `__tcs_cav` (値) を分けた。IlNullableValue を直接 member の receiver にすると MemberBinding 経路 (`n?.Pos.X` の `.Pos`) が名前で receiver を引く既存設計と噛み合わないため、builder の `_condAccessVar` で切り替える
 - 残課題: legacy visitor (IL 化できない本文の fallback) の `?.` は旧 nil 流儀のまま (Lua では同値)
 
+### T248: Random を System.Random 形に — instance / Shared を 3 backend で ✓ (2026-10-02)
+- TinySystem.Random を instance class (`new Random()` / `new Random(seed)`、`Next` / `Next(max)` / `Next(min, max)` / `NextFloat` / `NextSingle` / `Range`) + `Random.Shared` + `Random.Seed(seed)` に変更 (静的 `Random.Next()` は `Random.Shared.Next()` へ)。dotnet facade は System.Random に委譲、`Range` は両端含む (Lua / C と同じ)
+- Lua runtime: instance は xoshiro256** の pure-Lua 実装 (64bit 値を 32bit 対で持ち、LUA_32BITS の `math.random` と同じ射影 / float 化。32bit / 64bit どちらの Lua でも同じ列)、Shared は VM の `math.random` 状態。C runtime: `TcsRandom` を GC object にし、Shared は static 1 個。IL は facade 型を `TinySystem.Random` で修飾 (user の `class Random` と衝突しない)、C backend は `CTypeKind.Random` (pointer、List / field / null 比較可)
+- 検証: lua32 / lua64 で instance の列が `math.randomseed` 後の Shared と seed 5 種 (負数・両端含む) で一致、tcs2c.Tests に instance / Shared / List / class field / null / identity の 2 backend differential (C 通常 + GC stress)、RandomSemanticTests に instance ≡ Shared / 同 seed 一致 / 異 seed 相違 / auto seed 相違、既存 Random / facade テストを新 API へ移行
+- よかったこと: T245 の C 移植が lua32 と bit 一致済みだったので、pure-Lua 版は「C 移植を 32bit 対に写す」だけで済み、instance ≡ Shared の等式が両 backend の自己検証になった
+- 判断: 静的 `Random.Next()` の facade は廃止 (同名 instance method と共存できない)。BCL と同じ `Random.Shared` の形を取る方が CoreCLR 側の経験に揃う。auto seed は時刻 + カウンタ (instance ごとに異なる) で、Shared の列を消費しない
+- 残課題: `NextDouble` / `NextBytes` / `Shuffle` は double / Span がサブセット外のため対象外のまま
+

@@ -428,32 +428,146 @@ function Math.Clamp(value, min, max)
   return value
 end
 
--- Random
+-- Random (System.Random 形: instance + Shared)。合意 PRNG は Lua 5.5 の
+-- math.random (xoshiro256**、LUA_32BITS 構成。il-spec §13)。Shared は VM の
+-- math.random 状態そのもの、instance は同じアルゴリズムの pure-Lua 実装
+-- (64bit 値を 32bit 対で持つので 32bit / 64bit どちらの Lua でも同じ列)。
+-- C backend は両方に同じ実装を持つので seed 固定時に bit 一致する
 local Random = {}
+Random.__index = Random
 TinySystem.Random = Random
 
-function Random.Next(min, max)
+local M32 = 0xFFFFFFFF
+
+local function shl64(h, l, n) -- 0 < n < 32
+  return ((h << n) | (l >> (32 - n))) & M32, (l << n) & M32
+end
+
+local function rotl64(h, l, n) -- 0 < n < 32
+  return ((h << n) | (l >> (32 - n))) & M32, ((l << n) | (h >> (32 - n))) & M32
+end
+
+local function rotr64(h, l, n) -- 0 < n < 32 (= rotl by 64 - n)
+  return ((h >> n) | (l << (32 - n))) & M32, ((l >> n) | (h << (32 - n))) & M32
+end
+
+local function add64(h1, l1, h2, l2)
+  local l = (l1 + l2) & M32
+  local h = (h1 + h2) & M32
+  if math.ult(l, l1) then h = (h + 1) & M32 end
+  return h, l
+end
+
+-- xoshiro256** の 1 step。state は {h0, l0, h1, l1, h2, l2, h3, l3}
+local function nextrand(s)
+  local h0, l0, h1, l1, h2, l2, h3, l3 = s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]
+  -- res = rotl(s1 * 5, 7) * 9
+  local th, tl = shl64(h1, l1, 2)
+  th, tl = add64(th, tl, h1, l1)
+  th, tl = rotl64(th, tl, 7)
+  local rh, rl = shl64(th, tl, 3)
+  rh, rl = add64(rh, rl, th, tl)
+  local sh, sl = shl64(h1, l1, 17)
+  h2, l2 = h2 ~ h0, l2 ~ l0
+  h3, l3 = h3 ~ h1, l3 ~ l1
+  h1, l1 = h1 ~ h2, l1 ~ l2
+  h0, l0 = h0 ~ h3, l0 ~ l3
+  h2, l2 = h2 ~ sh, l2 ~ sl
+  h3, l3 = rotr64(h3, l3, 19) -- rotl 45
+  s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8] = h0, l0, h1, l1, h2, l2, h3, l3
+  return rh & M32, rl & M32
+end
+
+-- 32bit 符号付きへ (64bit Lua では上位を落として符号拡張、32bit Lua では恒等)
+local function toi32(x)
+  x = x & M32
+  if math.ult(0x7FFFFFFF, x) then x = x - 0x100000000 end
+  return x
+end
+
+-- math.randomseed(n1, n2) と同じ: state = {n1, 0xff, n2, 0}、先頭 16 値を捨てる
+local function seedstate(n1, n2)
+  local s = { 0, n1 & M32, 0, 0xff, 0, n2 & M32, 0, 0 }
+  for _ = 1, 16 do nextrand(s) end
+  return s
+end
+
+-- [0, n] (unsigned) への射影 (lmathlib の project)
+local function project(s, ran, n)
+  local lim = n
+  local sh = 1
+  while (lim & (lim + 1)) ~= 0 do
+    lim = lim | (lim >> sh)
+    sh = sh * 2
+  end
+  ran = ran & lim
+  while math.ult(n, ran) do
+    local _, l = nextrand(s)
+    ran = l & lim
+  end
+  return ran
+end
+
+local function rangeof(s, low, up)
+  local _, l = nextrand(s)
+  if low > up then error("interval is empty") end
+  local p = project(s, l, (up - low) & M32)
+  return toi32((p + low) & M32)
+end
+
+local random_auto = 0
+
+-- new Random() / new Random(seed)
+function Random.new(seed)
+  if seed == nil then
+    random_auto = random_auto + 1
+    -- 起動ごと・instance ごとに異なる seed (32bit Lua でも整数に収まる形)
+    local t = math.tointeger(os.time()) or 0
+    local c = math.tointeger(math.floor(os.clock() * 1000000)) or 0
+    seed = (t ~ c ~ (random_auto * 0x9E3779B1)) & M32
+  end
+  return setmetatable({ s = seedstate(seed, 0) }, Random)
+end
+
+function Random:Next(min, max)
   if max then
-    return math.random(min, max - 1)
+    return rangeof(self.s, min, max - 1)
   elseif min then
-    return math.random(0, min - 1)
+    return rangeof(self.s, 0, min - 1)
   else
-    return math.random(0, 2147483646)
+    return rangeof(self.s, 0, 2147483646)
   end
 end
 
--- seed 固定 (il-spec §13: Lua 5.5 の xoshiro256** が合意 PRNG。C backend は
--- 同じ列を出す)
+function Random:NextFloat()
+  local h = nextrand(self.s)
+  return (h >> 8) * (1 / 16777216)
+end
+Random.NextSingle = Random.NextFloat
+
+function Random:Range(min, max)
+  return rangeof(self.s, min, max)
+end
+
+-- Shared: VM の math.random 状態 (Random.Seed = math.randomseed)
+local Shared = setmetatable({}, { __index = {
+  Next = function(_, min, max)
+    if max then
+      return math.random(min, max - 1)
+    elseif min then
+      return math.random(0, min - 1)
+    else
+      return math.random(0, 2147483646)
+    end
+  end,
+  NextFloat = function() return math.random() end,
+  NextSingle = function() return math.random() end,
+  Range = function(_, min, max) return math.random(min, max) end,
+} })
+Random.Shared = Shared
+
 function Random.Seed(seed)
   math.randomseed(seed)
-end
-
-function Random.NextFloat()
-  return math.random()
-end
-
-function Random.Range(min, max)
-  return math.random(min, max)
 end
 
 -- C# integer division / remainder (0 方向 truncation、剰余は被除数の符号)。

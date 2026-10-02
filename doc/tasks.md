@@ -45,7 +45,7 @@
         ctor / 等価 / with) と C backend の値型 member、`new T[n]` の default
         要素、List の struct 値等価
       - T247 完 (2026-10-02): `T?` の `?.` / `??=` を明示 nullable ノードへ
-      - 残: Random インスタンス
+      - T248 完 (2026-10-02): Random を System.Random 形 (instance / Shared) に
 - T219b 完 (done.md 参照): struct / record struct の値セマンティクス
   対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
 - [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で

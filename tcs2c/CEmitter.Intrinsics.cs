@@ -327,26 +327,61 @@ internal sealed partial class CEmitter
         }
     }
 
-    // ---- Random.* (TinySystem.Random → Lua math.random と同じ列) ----
+    // ---- Random (TinySystem.Random: instance + Shared。Lua 5.5 の
+    // math.random と同じ xoshiro256** を runtime の TcsRandom が持つ) ----
+    private bool IsRandomTypeName(string name) =>
+        name == "TinySystem.Random"
+        || (name == "Random" && !_classes.ContainsKey("Random"));
+
+    // 静的形 IlCall("Random.X"): Seed は Shared の再 seed、他は Shared 経由
     private CType TypeOfRandomOp(IlCall call)
     {
         var name = call.Callee["Random.".Length..];
-        var args = call.Args;
+        if (name != "Seed") return TypeOfRandomMethod(name, call.Args);
+        RequireArity(call.Callee, call.Args.Length, 1);
+        RequireType(CType.I32, TypeOf(call.Args[0]), "Random.Seed");
+        return CType.Void;
+    }
+
+    private string RenderRandomOp(IlCall call, CType type)
+    {
+        var name = call.Callee["Random.".Length..];
+        if (name != "Seed")
+            return RenderRandomMethod("tcs_random_shared()", name, call.Args);
+        _ = type;
+        return $"tcs_rand_seed(tcs_random_shared(), (uint32_t)({RenderExpr(call.Args[0])}), 0)";
+    }
+
+    private CType TypeOfRandomNew(IlNewObj creation)
+    {
+        if (creation.Args.Length > 1)
+            throw new Tcs2cException("Random: expected 0 or 1 constructor argument");
+        if (creation.Args.Length == 1)
+            RequireType(CType.I32, TypeOf(creation.Args[0]), "Random(seed)");
+        return CType.Random;
+    }
+
+    private string RenderRandomNew(IlNewObj creation)
+    {
+        _ = TypeOfRandomNew(creation);
+        return creation.Args.Length == 0
+            ? "tcs_random_new_auto()"
+            : $"tcs_random_new((uint32_t)({RenderExpr(creation.Args[0])}))";
+    }
+
+    private CType TypeOfRandomMethod(string name, IReadOnlyList<IlExpr> args)
+    {
         switch (name)
         {
-            case "Seed":
-                RequireArity(call.Callee, args.Length, 1);
-                RequireType(CType.I32, TypeOf(args[0]), "Random.Seed");
-                return CType.Void;
-            case "NextFloat":
-                RequireArity(call.Callee, args.Length, 0);
+            case "NextFloat" or "NextSingle":
+                RequireArity($"Random.{name}", args.Count, 0);
                 return CType.F32;
             case "Next":
-                if (args.Length > 2) throw new Tcs2cException("Random.Next: expected 0-2 arguments");
+                if (args.Count > 2) throw new Tcs2cException("Random.Next: expected 0-2 arguments");
                 foreach (var a in args) RequireType(CType.I32, TypeOf(a), "Random.Next");
                 return CType.I32;
             case "Range":
-                RequireArity(call.Callee, args.Length, 2);
+                RequireArity("Random.Range", args.Count, 2);
                 RequireType(CType.I32, TypeOf(args[0]), "Random.Range");
                 RequireType(CType.I32, TypeOf(args[1]), "Random.Range");
                 return CType.I32;
@@ -355,29 +390,33 @@ internal sealed partial class CEmitter
         }
     }
 
-    private string RenderRandomOp(IlCall call, CType type)
+    // receiver は評価順を保つため先に temp へ束縛する
+    private string RenderRandomMethod(string receiver, string name,
+        IReadOnlyList<IlExpr> args)
     {
-        var name = call.Callee["Random.".Length..];
-        var args = call.Args;
+        var type = TypeOfRandomMethod(name, args);
+        var r = Temp("rng");
+        var head = $"TcsRandom *{r} = {receiver}; ";
         switch (name)
         {
-            case "Seed":
-                return $"tcs_rand_seed((uint32_t)({RenderExpr(args[0])}), 0)";
-            case "NextFloat":
-                return "tcs_rand_float()";
+            case "NextFloat" or "NextSingle":
+                return $"({{ {head}tcs_rand_float({r}); }})";
             case "Next":
                 // Lua facade: Next() = random(0, 2147483646)、Next(max) =
                 // random(0, max - 1)、Next(min, max) = random(min, max - 1)
-                if (args.Length == 0) return "tcs_rand_range(0, INT32_C(2147483646))";
-                if (args.Length == 1)
-                    return RenderOrderedCall("tcs_rand_range", type,
-                        [(CType.I32, "0"), (CType.I32, $"({RenderExpr(args[0])}) - INT32_C(1)")]);
-                return RenderOrderedCall("tcs_rand_range", type,
-                    [(CType.I32, RenderExpr(args[0])),
-                     (CType.I32, $"({RenderExpr(args[1])}) - INT32_C(1)")]);
+                if (args.Count == 0)
+                    return $"({{ {head}tcs_rand_range({r}, 0, INT32_C(2147483646)); }})";
+                if (args.Count == 1)
+                    return $"({{ {head}" + RenderOrderedCall("tcs_rand_range", type,
+                        [(CType.Random, r), (CType.I32, "0"),
+                         (CType.I32, $"({RenderExpr(args[0])}) - INT32_C(1)")]) + "; })";
+                return $"({{ {head}" + RenderOrderedCall("tcs_rand_range", type,
+                    [(CType.Random, r), (CType.I32, RenderExpr(args[0])),
+                     (CType.I32, $"({RenderExpr(args[1])}) - INT32_C(1)")]) + "; })";
             case "Range":
-                return RenderOrderedCall("tcs_rand_range", type,
-                    [(CType.I32, RenderExpr(args[0])), (CType.I32, RenderExpr(args[1]))]);
+                return $"({{ {head}" + RenderOrderedCall("tcs_rand_range", type,
+                    [(CType.Random, r), (CType.I32, RenderExpr(args[0])),
+                     (CType.I32, RenderExpr(args[1]))]) + "; })";
             default:
                 throw new Tcs2cException($"unsupported Random member: {name}");
         }

@@ -535,21 +535,21 @@ public class DifferentialTests
                 {
                     Random.Seed(12345);
                     var s = "";
-                    for (int i = 0; i < 6; i++) s += Random.Next(100) + ",";
+                    for (int i = 0; i < 6; i++) s += Random.Shared.Next(100) + ",";
                     System.Console.WriteLine(s);
                     s = "";
-                    for (int i = 0; i < 6; i++) s += Random.Range(-5, 5) + ",";
+                    for (int i = 0; i < 6; i++) s += Random.Shared.Range(-5, 5) + ",";
                     System.Console.WriteLine(s);
                     s = "";
-                    for (int i = 0; i < 4; i++) s += Random.NextFloat() + ",";
+                    for (int i = 0; i < 4; i++) s += Random.Shared.NextFloat() + ",";
                     System.Console.WriteLine(s);
                     s = "";
-                    for (int i = 0; i < 4; i++) s += Random.Next(1000, 2000) + "," + Random.Next() % 1000 + ";";
+                    for (int i = 0; i < 4; i++) s += Random.Shared.Next(1000, 2000) + "," + Random.Shared.Next() % 1000 + ";";
                     System.Console.WriteLine(s);
                     Random.Seed(-7);
-                    System.Console.WriteLine(Random.Next(1 << 30) + ":" + Random.Next(3) + ":" + Random.Range(0, 0) + ":" + Random.Next(2147483647));
+                    System.Console.WriteLine(Random.Shared.Next(1 << 30) + ":" + Random.Shared.Next(3) + ":" + Random.Shared.Range(0, 0) + ":" + Random.Shared.Next(2147483647));
                     Random.Seed(12345);
-                    System.Console.WriteLine(Random.Next(100));
+                    System.Console.WriteLine(Random.Shared.Next(100));
                 }
             }
             """, "P");
@@ -706,6 +706,49 @@ public class DifferentialTests
                     Console.WriteLine(Show(q) + "|" + Show(r) + "|" + bq + "|" + bt + "|" + Show(ro?.Dbl()) + "|" + (nv?.Sum() == null) + "|" + (v?.Sum() > 2));
                     var list = new List<int?> { 1, 2 };
                     Console.WriteLine(Show(list?.Count));
+                }
+            }
+            """, "P");
+    }
+
+    // Random instance (new Random / new Random(seed)) と Shared: seed 固定で
+    // instance と Shared の列が一致、List / class field に保持した instance
+    // (GC object)、null 比較、Shared の identity
+    [CFact]
+    public void Random_InstancesMatchSharedStream()
+    {
+        Backends.AssertParity("""
+            using System.Collections.Generic;
+            using TinySystem;
+            public class G { public Random R = new Random(99); public int Roll() => R.Next(6); }
+            public class P
+            {
+                public static void Main()
+                {
+                    Random.Seed(12345);
+                    var s = "";
+                    for (int i = 0; i < 5; i++) s += Random.Shared.Next(100) + ",";
+                    var r = new Random(12345);
+                    var t = "";
+                    for (int i = 0; i < 5; i++) t += r.Next(100) + ",";
+                    System.Console.WriteLine(s + "|" + t + "|" + (s == t));
+                    var a = new Random(7);
+                    var b = new Random(7);
+                    System.Console.WriteLine(a.Next() == b.Next());
+                    System.Console.WriteLine(a.NextFloat() + ":" + b.NextSingle() + ":" + a.Range(-3, 3) + ":" + b.Range(-3, 3) + ":" + a.Next(10, 20) + ":" + b.Next(10, 20));
+                    var auto = new Random();
+                    var x = auto.Next(10);
+                    System.Console.WriteLine(x >= 0 && x < 10);
+                    var list = new List<Random> { new Random(1), new Random(2) };
+                    System.Console.WriteLine(list[0].Next(50) + ":" + list[1].Next(50));
+                    Random held = null;
+                    System.Console.WriteLine(held == null);
+                    var g = new G();
+                    System.Console.WriteLine(g.Roll() + ":" + g.Roll() + ":" + g.R.Next(6));
+                    Random.Seed(-7);
+                    System.Console.WriteLine(Random.Shared.Next(1 << 30) + ":" + new Random(-7).Next(1 << 30) + ":" + Random.Shared.NextFloat());
+                    var sh = Random.Shared;
+                    System.Console.WriteLine((sh == Random.Shared) + ":" + sh.Next(3));
                 }
             }
             """, "P");

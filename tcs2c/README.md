@@ -60,7 +60,9 @@ Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要�
     ToLower、`int.Parse` / `float.Parse`
   - Math (`Math` / `MathF`): Min / Max / Abs / Sign / Clamp / Floor / Ceiling /
     Round / Sqrt / Sin / Cos / Tan / Atan2 / Pow / Exp / Log / PI
-  - Random: Seed / Next / Next(max) / Next(min, max) / NextFloat / Range
+  - Random: `new Random()` / `new Random(seed)` (GC object) / `Random.Shared` /
+    Seed、instance の Next / Next(max) / Next(min, max) / NextFloat / NextSingle
+    / Range
     (Lua 5.5 の xoshiro256** を LUA_32BITS 構成のまま移植。seed 固定時に
     Lua backend と bit 一致)
   - Console.WriteLine / Write、`Environment.GetEnvironmentVariable`

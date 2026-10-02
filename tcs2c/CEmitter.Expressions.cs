@@ -57,7 +57,9 @@ internal sealed partial class CEmitter
         IlInvoke invoke => TypeOfInvoke(invoke),
         IlNewObj creation => _facts.Structs.ContainsKey(creation.TypeName)
             ? CType.Struct(creation.TypeName)
-            : CType.Ref(creation.TypeName),
+            : IsRandomTypeName(creation.TypeName)
+                ? TypeOfRandomNew(creation)
+                : CType.Ref(creation.TypeName),
         IlTable table => TypeOfTable(table),
         IlNewArray array => TypeOfNewArray(array),
         IlIsType typeTest => TypeOfIsType(typeTest),
@@ -131,6 +133,13 @@ internal sealed partial class CEmitter
         {
             cName = Constants.I32(constant);
             type = CType.I32;
+            return true;
+        }
+        if (field.Recv is IlVar randomRecv && field.Name == "Shared"
+            && IsRandomTypeName(randomRecv.Name) && TryResolve(randomRecv.Name) is null)
+        {
+            cName = "tcs_random_shared()";
+            type = CType.Random;
             return true;
         }
         if (field.Recv is IlVar { Name: "Math" or "MathF" } mathRecv && field.Name == "PI"
@@ -685,6 +694,8 @@ internal sealed partial class CEmitter
     private CType TypeOfInvoke(IlInvoke invoke)
     {
         var receiver = TypeOf(invoke.Recv);
+        if (receiver.Kind == CTypeKind.Random)
+            return TypeOfRandomMethod(invoke.Method, invoke.Args);
         var fact = ResolveInvokeFact(receiver, invoke.Method);
         return ValidateMethodCall(fact, receiver, invoke.Args);
     }
@@ -693,6 +704,9 @@ internal sealed partial class CEmitter
     {
         _ = TypeOfInvoke(invoke);
         var receiver = TypeOf(invoke.Recv);
+        if (receiver.Kind == CTypeKind.Random)
+            return RenderRandomMethod($"tcs_nonnull({RenderExpr(invoke.Recv)})",
+                invoke.Method, invoke.Args);
         var fact = ResolveInvokeFact(receiver, invoke.Method);
         // 子孫に再宣言があれば実行時型で dispatch (il-spec §9)
         if (IsPolymorphic(fact.ClassName, fact.Name))

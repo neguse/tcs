@@ -202,11 +202,16 @@ fault = 決定的に検出される実行時異常。発生した fault はプ�
   digest workload は数学関数を使わない（perf の libm 排除方針と同一）
 - Random の合意 PRNG は Lua 5.5 の `math.random` (xoshiro256**、LUA_32BITS
   構成の 32bit 射影と FIGS=24 の float 化) で、C backend は同じ実装を持つ
-  (T245)。`Random.Seed(n)` (= `math.randomseed(n)`) で seed を固定すれば
-  Next / NextFloat / Range の列が backend 間で bit 一致する。seed 未指定時は
-  両 backend とも起動ごとに異なる (Lua の `luai_makeseed` 相当)。dotnet 側
-  facade は System.Random なので列は一致しない (乱数は dotnet differential
-  の対象外のまま)
+  (T245)。`Random` は System.Random と同じ形 (T248): `Random.Shared` は
+  VM の `math.random` 状態 (`Random.Seed(n)` = `math.randomseed(n)`)、
+  `new Random(seed)` は同じアルゴリズムの独立 instance (Lua は 32bit 対の
+  pure-Lua 実装、C は GC object `TcsRandom`)。IL は `IlNewObj
+  ("TinySystem.Random", [seed?])` と `IlInvoke(r, Next | NextFloat |
+  NextSingle | Range, args)`、`IlField(TinySystem.Random, Shared)`。同じ seed
+  なら instance と Shared、Lua と C の列が bit 一致する。seed 未指定時は
+  両 backend とも起動ごと・instance ごとに異なる (Lua の `luai_makeseed`
+  相当)。dotnet 側 facade は System.Random に委譲するので列は一致しない
+  (乱数は dotnet differential の対象外のまま)
 
 ## 14. migration metadata（v0 はスキーマのみ。実装は T220）
 

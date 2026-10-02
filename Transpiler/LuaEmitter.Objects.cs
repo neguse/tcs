@@ -11,7 +11,9 @@ public partial class LuaEmitter
         ObjectCreationExpressionSyntax creation)
     {
         var typeSymbol = model.GetTypeInfo(creation).Type;
-        var typeName = typeSymbol?.Name ?? creation.Type.ToString();
+        var typeName = IsTinySystemFacade(typeSymbol as INamedTypeSymbol)
+            ? $"TinySystem.{typeSymbol!.Name}"
+            : typeSymbol?.Name ?? creation.Type.ToString();
         var typeDef = typeSymbol?.OriginalDefinition.ToDisplayString() ?? "";
 
         // new List<T> { ... } → { items }

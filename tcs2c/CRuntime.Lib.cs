@@ -313,8 +313,13 @@ internal sealed partial class CEmitter
         /* ---- Random: Lua 5.5 lmathlib の xoshiro256** を LUA_32BITS 構成
            (lua_Integer / lua_Unsigned = 32bit、lua_Number = float、FIGS = 24)
            のまま移植する。seed 固定時は Lua backend と同じ列になる ---- */
-        static uint64_t tcs_rand_state[4];
-        static int tcs_rand_seeded;
+        /* TinySystem.Random の instance。GC object (pointer slot なし) で、
+           Shared は static 1 個 (heap 外なので GC は触らない) */
+        typedef struct TcsRandom { uint64_t s[4]; } TcsRandom;
+        static const TcsLayout tcs_layout_random = { sizeof(TcsRandom), 0, NULL };
+        static TcsRandom tcs_rand_shared_state;
+        static int tcs_rand_shared_seeded;
+        static uint32_t tcs_rand_auto_counter;
 
         static uint64_t
         tcs_rand_rotl(uint64_t x, int n)
@@ -323,9 +328,9 @@ internal sealed partial class CEmitter
         }
 
         static uint64_t
-        tcs_rand_next(void)
+        tcs_rand_next(TcsRandom *r)
         {
-            uint64_t *s = tcs_rand_state;
+            uint64_t *s = r->s;
             uint64_t s0 = s[0];
             uint64_t s1 = s[1];
             uint64_t s2 = s[2] ^ s0;
@@ -340,33 +345,58 @@ internal sealed partial class CEmitter
 
         /* math.randomseed(n1, n2): state = { n1, 0xff, n2, 0 }、先頭 16 値を捨てる */
         static void
-        tcs_rand_seed(uint32_t n1, uint32_t n2)
+        tcs_rand_seed(TcsRandom *r, uint32_t n1, uint32_t n2)
         {
             int i;
-            tcs_rand_state[0] = n1;
-            tcs_rand_state[1] = 0xff;
-            tcs_rand_state[2] = n2;
-            tcs_rand_state[3] = 0;
-            for (i = 0; i < 16; i++) tcs_rand_next();
-            tcs_rand_seeded = 1;
+            r->s[0] = n1;
+            r->s[1] = 0xff;
+            r->s[2] = n2;
+            r->s[3] = 0;
+            for (i = 0; i < 16; i++) tcs_rand_next(r);
         }
 
-        static void
-        tcs_rand_ensure(void)
+        /* seed 未指定: 起動ごと・instance ごとに異なる (luai_makeseed 相当) */
+        static uint32_t
+        tcs_rand_auto_seed(void)
         {
-            if (!tcs_rand_seeded)
-                tcs_rand_seed((uint32_t)time(NULL) ^ (uint32_t)(uintptr_t)&tcs_rand_state, 0);
+            tcs_rand_auto_counter++;
+            return (uint32_t)time(NULL) ^ (uint32_t)(uintptr_t)&tcs_rand_shared_state
+                ^ (tcs_rand_auto_counter * UINT32_C(0x9E3779B1));
+        }
+
+        /* Random.Shared (初回参照時に seed する) */
+        static TcsRandom *
+        tcs_random_shared(void)
+        {
+            if (!tcs_rand_shared_seeded) {
+                tcs_rand_seed(&tcs_rand_shared_state, tcs_rand_auto_seed(), 0);
+                tcs_rand_shared_seeded = 1;
+            }
+            return &tcs_rand_shared_state;
+        }
+
+        static TcsRandom *
+        tcs_random_new(uint32_t seed)
+        {
+            TcsRandom *r = tcs_new_object(&tcs_layout_random);
+            tcs_rand_seed(r, seed, 0);
+            return r;
+        }
+
+        static TcsRandom *
+        tcs_random_new_auto(void)
+        {
+            return tcs_random_new(tcs_rand_auto_seed());
         }
 
         /* math.random(): 上位 24 bit から [0, 1) の float */
         static float
-        tcs_rand_float(void)
+        tcs_rand_float(TcsRandom *r)
         {
             uint64_t x;
             int64_t sx;
             float res;
-            tcs_rand_ensure();
-            x = tcs_rand_next();
+            x = tcs_rand_next(r);
             sx = (int64_t)(x >> 40);
             res = (float)sx * (0.5f / (float)(1 << 23));
             if (sx < 0) res += 1.0f;
@@ -374,25 +404,24 @@ internal sealed partial class CEmitter
         }
 
         static uint32_t
-        tcs_rand_project(uint32_t ran, uint32_t n)
+        tcs_rand_project(TcsRandom *r, uint32_t ran, uint32_t n)
         {
             uint32_t lim = n;
             int sh;
             for (sh = 1; (lim & (lim + 1)) != 0; sh *= 2) lim |= (lim >> sh);
-            while ((ran &= lim) > n) ran = (uint32_t)tcs_rand_next();
+            while ((ran &= lim) > n) ran = (uint32_t)tcs_rand_next(r);
             return ran;
         }
 
         /* math.random(low, up): [low, up] の整数 (32bit 演算) */
         static int32_t
-        tcs_rand_range(int32_t low, int32_t up)
+        tcs_rand_range(TcsRandom *r, int32_t low, int32_t up)
         {
             uint64_t rv;
             uint32_t p;
-            tcs_rand_ensure();
-            rv = tcs_rand_next();
+            rv = tcs_rand_next(r);
             if (low > up) tcs_fault("interval is empty");
-            p = tcs_rand_project((uint32_t)rv, (uint32_t)up - (uint32_t)low);
+            p = tcs_rand_project(r, (uint32_t)rv, (uint32_t)up - (uint32_t)low);
             return (int32_t)(p + (uint32_t)low);
         }
 

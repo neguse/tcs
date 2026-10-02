@@ -176,7 +176,7 @@ internal sealed partial class CEmitter
         CTypeKind.Ref when IsRecordClass(type.Name!) =>
             $"{Names.RecordEq(type.Name!)}({left}, {right})",
         CTypeKind.Ref or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
-            or CTypeKind.Closure => $"({left} == {right})",
+            or CTypeKind.Closure or CTypeKind.Random => $"({left} == {right})",
         CTypeKind.Nullable => NullableEqualExpr(type, left, right),
         // struct 値は memberwise (C# の ValueType.Equals / record struct の ==)
         CTypeKind.StructVal => $"({{ {type.CName} eq_l = {left}; {type.CName} eq_r = {right}; " +

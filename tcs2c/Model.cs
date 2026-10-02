@@ -5,7 +5,7 @@ namespace TinyCs.Tcs2c;
 
 internal sealed class Tcs2cException(string message) : Exception(message);
 
-internal enum CTypeKind { Void, I32, F32, Bool, String, Ref, Array, List, Null, Dict, Kvp, Closure, StructVal, Nullable }
+internal enum CTypeKind { Void, I32, F32, Bool, String, Ref, Array, List, Null, Dict, Kvp, Closure, StructVal, Nullable, Random }
 
 internal sealed record CType(CTypeKind Kind, string? Name = null,
     CType? Element = null, CType? Key = null,
@@ -17,6 +17,8 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
     public static readonly CType Bool = new(CTypeKind.Bool);
     public static readonly CType String = new(CTypeKind.String);
     public static readonly CType Null = new(CTypeKind.Null);
+    /// <summary>TinySystem.Random の instance (runtime の TcsRandom、GC object)。</summary>
+    public static readonly CType Random = new(CTypeKind.Random);
 
     public static CType Ref(string name) => new(CTypeKind.Ref, name);
     /// <summary>データ struct。C では素の値型 (ポインタなし)。</summary>
@@ -49,6 +51,7 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
         CTypeKind.List => "TcsList *",
         CTypeKind.Dict => "TcsDict *",
         CTypeKind.Closure => "TcsClosure *",
+        CTypeKind.Random => "TcsRandom *",
         CTypeKind.Nullable => Element!.Kind switch
         {
             CTypeKind.I32 => "TcsOptI32",
@@ -82,7 +85,7 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
 
     public bool IsNullable => Kind is CTypeKind.String or CTypeKind.Ref
         or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
-        or CTypeKind.Closure;
+        or CTypeKind.Closure or CTypeKind.Random;
 
     public override string ToString() => Kind switch
     {

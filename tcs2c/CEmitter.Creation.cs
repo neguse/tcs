@@ -9,6 +9,7 @@ internal sealed partial class CEmitter
 {
     private string RenderNew(IlNewObj creation)
     {
+        if (IsRandomTypeName(creation.TypeName)) return RenderRandomNew(creation);
         if (_facts.Structs.ContainsKey(creation.TypeName))
         {
             // struct の zero 値。明示 ctor 呼び (S.ctor) は IlCall 経由なので

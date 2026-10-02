@@ -677,14 +677,13 @@ using(宣言)  virtual(部分)  volatile  yield
 
 | メンバー | 状態 | Lua マッピング | 区分 |
 |---------|:----:|--------------|:----:|
-| `Random.Seed(seed)` | **Y** | `math.randomseed(seed)` | 列の固定。tcs の 2 backend (Lua / C) は同じ xoshiro256** なので seed 固定時に列が bit 一致 (il-spec §13) |
-| `Random.Next()` | **Y** | `Random.Next()` | R |
-| `Random.NextFloat()` | **Y** | `Random.NextFloat()` | R |
-| `Random.Range(min, max)` | **Y** | `Random.Range(min, max)` | R |
-| `new Random()` / `new Random(seed)` | **-** | | |
-| `Random.Shared` (static) | **-** | | |
-| `Random.Next(min, max)` (.NET 標準 API) | **-** | | |
-| `Random.NextDouble()` | **-** | | |
+| `new Random()` / `new Random(seed)` | **Y** | `Random.new(seed)` (pure-Lua xoshiro256**) | System.Random と同じ形。seed 固定時は Lua / C で列が bit 一致し、`Random.Seed(seed)` 後の `Shared` とも一致 (il-spec §13)。C backend は GC object |
+| `Random.Shared` (static) | **Y** | `Random.Shared` (VM の `math.random` 状態) | |
+| `Random.Seed(seed)` | **Y** | `math.randomseed(seed)` | `Shared` の列の固定 (tcs 独自。System.Random に無い) |
+| `r.Next()` / `r.Next(max)` / `r.Next(min, max)` | **Y** | `r:Next(...)` | .NET 標準 API (上限は exclusive) |
+| `r.NextFloat()` / `r.NextSingle()` | **Y** | `r:NextFloat()` | [0, 1) の float |
+| `r.Range(min, max)` | **Y** | `r:Range(min, max)` | 両端含む整数 (Lua の `math.random(m, n)`。tcs 独自) |
+| `Random.NextDouble()` | **-** | | double はサブセット外 |
 | `Random.NextBytes(buf)` | **-** | | |
 | `Random.Shuffle(arr)` | **-** | | |
 

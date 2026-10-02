@@ -196,6 +196,9 @@ internal sealed class ContractFacts
             "char" or "System.Char" => CType.String,
             // enum は整数定数 (Lua と同じ。tostring も整数表記)
             _ when _enums.ContainsKey(text) => CType.I32,
+            // TinySystem.Random の instance (user の class Random は別物)
+            "TinySystem.Random" => CType.Random,
+            "Random" when !_classes.ContainsKey("Random") => CType.Random,
             _ when _classes.ContainsKey(text) => CType.Ref(text),
             _ when _structs.ContainsKey(text) => CType.Struct(text),
             _ => throw new Tcs2cException($"unsupported IL type: {displayName}"),
