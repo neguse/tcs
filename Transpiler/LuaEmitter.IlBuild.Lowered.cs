@@ -178,8 +178,8 @@ public partial class LuaEmitter
             var target = prop.SideEffect ? new IlVar("__tcs_obj") : prop.Recv;
             var body = new IlCallStat(BuildPropSet(target, prop.Name,
                 prop.IsStatic,
-                new IlBin(op, BuildPropGet(target, prop.Name, prop.IsStatic,
-                    prop.StructOwner), new IlLit("1")),
+                StepValue(model, operand, BuildPropGet(target, prop.Name,
+                    prop.IsStatic, prop.StructOwner), increment),
                 prop.StructOwner));
             if (prop.SideEffect)
                 acc.Add(new IlDo(new IlBlock([
@@ -193,7 +193,7 @@ public partial class LuaEmitter
         {
             acc.Add(new IlDo(new IlBlock([.. lowered.Setup,
                 new IlAssign(lowered.Access,
-                    new IlBin(op, lowered.Access, new IlLit("1")))]))
+                    StepValue(model, operand, lowered.Access, increment))]))
                 { Origin = origin });
             return true;
         }

@@ -29,6 +29,8 @@ internal sealed partial class CEmitter
                     $"{Names.Field(field.Name)};");
             _indent--;
             Line($"}} Tcs_{Names.Id(next.Name)};");
+            Line($"typedef struct {{ bool has; Tcs_{Names.Id(next.Name)} v; }} " +
+                $"{CType.Nullable(CType.Struct(next.Name)).CName};");
             Line();
         }
     }
@@ -72,6 +74,9 @@ internal sealed partial class CEmitter
                 throw new Tcs2cException(
                     "unsupported struct place receiver: " + receiverType);
             }
+            case IlNullableValue or IlIife or IlCall or IlInvoke or IlDynCall:
+                // rvalue の struct (読みのみ。C は rvalue struct の member を読める)
+                return $"({RenderExpr(expr)})";
             default:
                 throw new Tcs2cException(
                     $"unsupported struct place: {expr.GetType().Name}");

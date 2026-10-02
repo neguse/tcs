@@ -9,7 +9,15 @@ namespace TinyCs;
 // VisitMemberAccess の意味決定を写像し、未対応は null (method fallback)。
 public partial class LuaEmitter
 {
+    // 式構築の入口。T → T? の暗黙変換 (Roslyn の ConvertedType) をここで
+    // 一元的に IlNullableWrap に写す (代入 / 引数 / return / lifted operand)
     private IlExpr? BuildExpr(SemanticModel model, ExpressionSyntax expr)
+    {
+        var built = BuildExprCore(model, expr);
+        return built == null ? null : ApplyNullableConversion(model, expr, built);
+    }
+
+    private IlExpr? BuildExprCore(SemanticModel model, ExpressionSyntax expr)
     {
         if (expr is InvocationExpressionSyntax nameOf
             && TinyCsComplianceFacts.TryGetUnsupportedSyntax(
@@ -79,6 +87,15 @@ public partial class LuaEmitter
                 {
                     var f = BuildExpr(model, cast.Expression);
                     return f == null ? null : new IlCall("__tcs_trunc", [f]);
+                }
+                // (int?)x: 明示の T → T? 変換
+                if (IsNullableValueType(model.GetTypeInfo(cast.Type).Type)
+                    && !IsNullableValueType(model.GetTypeInfo(cast.Expression).Type)
+                    && model.GetTypeInfo(cast.Expression).Type is { } castInner)
+                {
+                    var wrapped = BuildExpr(model, cast.Expression);
+                    return wrapped == null
+                        ? null : new IlNullableWrap(wrapped, castInner.ToDisplayString());
                 }
                 // user class / record への downcast は IlCast で明示する (C
                 // backend の実行時 check 点。upcast・同型は透過)
@@ -179,41 +196,6 @@ public partial class LuaEmitter
         }
     }
 
-    private IlExpr? BuildArrayItems(SemanticModel model,
-        InitializerExpressionSyntax? initializer, string? elementType = null)
-    {
-        if (initializer == null) return new IlTable([], elementType);
-        var items = new List<IlTableEntry>();
-        foreach (var e in initializer.Expressions)
-        {
-            var built = BuildExpr(model, e);
-            if (built == null) return null;
-            items.Add(new IlTableEntry(null, built));
-        }
-        return new IlTable([.. items], elementType);
-    }
-
-    private IlExpr? BuildWithExpr(SemanticModel model,
-        WithExpressionSyntax withExpr)
-    {
-        var src = BuildExpr(model, withExpr.Expression);
-        if (src == null) return null;
-        var overrides = new List<(string, IlExpr)>();
-        foreach (var assign in withExpr.Initializer.Expressions)
-        {
-            if (assign is not AssignmentExpressionSyntax
-                { Left: IdentifierNameSyntax id } a)
-                continue; // legacy も非対応 entry は黙って skip する
-            var value = BuildExpr(model, a.Right);
-            if (value == null) return null;
-            overrides.Add((model.GetSymbolInfo(id).Symbol is { } overrideSym
-                ? N(overrideSym) : N(id.Identifier.ValueText), value));
-        }
-        return new IlWith(src, [.. overrides]);
-    }
-
-    // legacy ResolveIdentifier の写像 (bare method group と custom property は
-    // fallback、未解決 symbol も安全側で fallback)
     private IlExpr? BuildIdentifier(SemanticModel model, IdentifierNameSyntax id)
     {
         var symbol = model.GetSymbolInfo(id).Symbol;
@@ -288,6 +270,9 @@ public partial class LuaEmitter
                 : new IlParen(new IlUn(IlUnOp.Not, eqCall));
         }
 
+        if (TryBuildNullableBinary(model, bin, left, right) is { } nullableBin)
+            return nullableBin;
+
         if (bin.IsKind(SyntaxKind.DivideExpression)
             && IsIntegralType(model.GetTypeInfo(bin).Type))
             return new IlCall("__tcs_idiv", [left, right]);
@@ -300,16 +285,6 @@ public partial class LuaEmitter
                 return new IlCall("math.fmod", [left, right]);
         }
 
-        // bool の ?? は false を fallback しない明示 nil 判定 IIFE (legacy 同形)
-        if (bin.IsKind(SyntaxKind.CoalesceExpression)
-            && UnwrapNullable(model.GetTypeInfo(bin.Left).Type)?.SpecialType
-                == SpecialType.System_Boolean)
-            return new IlIife([
-                new IlLocal("__tcs_lhs", left),
-                new IlIf([(new IlBin(IlBinOp.Ne, new IlVar("__tcs_lhs"),
-                        new IlLit("nil")),
-                    new IlBlock([new IlReturn(new IlVar("__tcs_lhs"))]))], null),
-                new IlReturn(right)]);
 
         var isStringConcat = bin.Kind() == SyntaxKind.AddExpression &&
             (model.GetTypeInfo(bin.Left).Type?.SpecialType == SpecialType.System_String ||
@@ -353,9 +328,11 @@ public partial class LuaEmitter
     // 静的型が float/double の値の文字列化地点で __tcs_fstr を挟む
     private IlExpr WrapFloatToString(SemanticModel model,
         ExpressionSyntax src, IlExpr built) =>
-        IsFloatingType(model.GetTypeInfo(src).Type)
-            ? new IlCall("__tcs_fstr", [built])
-            : new IlCall("tostring", [built]);
+        IsNullableValueType(model.GetTypeInfo(src).Type)
+            ? new IlCall("__tcs_nstr", [built])
+            : IsFloatingType(model.GetTypeInfo(src).Type)
+                ? new IlCall("__tcs_fstr", [built])
+                : new IlCall("tostring", [built]);
 
     // 文字列連結 (`+` / `+=`) の operand を Lua の `..` が受ける形にする。
     // float は shortest round-trip (__tcs_fstr)、bool は ToString / 補間と
@@ -365,6 +342,9 @@ public partial class LuaEmitter
         ExpressionSyntax expr, IlExpr rendered)
     {
         var type = model.GetTypeInfo(expr).Type;
+        // T? は C# と同じく null を空文字列に (__tcs_nstr)
+        if (IsNullableValueType(type))
+            return new IlCall("__tcs_nstr", [rendered]);
         if (IsFloatingType(type))
             return new IlCall("__tcs_fstr", [rendered]);
         if (UnwrapNullable(type)?.SpecialType == SpecialType.System_Boolean)
@@ -388,40 +368,6 @@ public partial class LuaEmitter
             or BinaryExpressionSyntax { RawKind: (int)SyntaxKind.AddExpression }
             ? rendered
             : new IlParen(new IlBin(IlBinOp.Or, rendered, new IlLit("\"\"")));
-    }
-
-    private IlExpr? BuildPrefixUnary(SemanticModel model,
-        PrefixUnaryExpressionSyntax prefix)
-    {
-        var operand = BuildExpr(model, prefix.Operand);
-        if (operand == null) return null;
-        return prefix.Kind() switch
-        {
-            SyntaxKind.UnaryMinusExpression => new IlUn(IlUnOp.Neg, operand),
-            SyntaxKind.LogicalNotExpression => new IlUn(IlUnOp.Not, operand),
-            SyntaxKind.BitwiseNotExpression => new IlUn(IlUnOp.BitNot, operand),
-            SyntaxKind.PreIncrementExpression =>
-                new IlParen(new IlBin(IlBinOp.AddNum, operand, new IlLit("1"))),
-            SyntaxKind.PreDecrementExpression =>
-                new IlParen(new IlBin(IlBinOp.Sub, operand, new IlLit("1"))),
-            _ => null,
-        };
-    }
-
-    private IlExpr? BuildPostfixUnary(SemanticModel model,
-        PostfixUnaryExpressionSyntax postfix)
-    {
-        var operand = BuildExpr(model, postfix.Operand);
-        if (operand == null) return null;
-        return postfix.Kind() switch
-        {
-            SyntaxKind.PostIncrementExpression =>
-                new IlBin(IlBinOp.AddNum, operand, new IlLit("1")),
-            SyntaxKind.PostDecrementExpression =>
-                new IlBin(IlBinOp.Sub, operand, new IlLit("1")),
-            SyntaxKind.SuppressNullableWarningExpression => operand,
-            _ => null,
-        };
     }
 
     // legacy VisitInvocation の funnel を同じ順序で写像する
@@ -501,19 +447,17 @@ public partial class LuaEmitter
             {
                 var obj = BuildExpr(model, ma.Expression);
                 if (obj == null) return null;
-                if (argArr.Length == 1)
-                    return new IlIife([
-                        new IlLocal("__tcs_val", obj),
-                        new IlLocal("__tcs_fb", argArr[0]),
-                        new IlIf([(new IlBin(IlBinOp.Ne, new IlVar("__tcs_val"),
-                                new IlLit("nil")),
-                            new IlBlock([new IlReturn(new IlVar("__tcs_val"))]))],
-                            null),
-                        new IlReturn(new IlVar("__tcs_fb"))]);
                 var underlying = ((INamedTypeSymbol)gvd.ContainingType)
                     .TypeArguments[0];
-                return new IlParen(new IlBin(IlBinOp.Or, obj,
-                    new IlLit(GetDefaultValueForType(underlying))));
+                if (argArr.Length == 0)
+                    return new IlNullableGetOrDefault(obj,
+                        new IlLit(GetDefaultValueForType(underlying)));
+                // method 引数なので常に 1 回評価 (?? と違い遅延しない)
+                return new IlIife([
+                    new IlLocal("__tcs_val", obj),
+                    new IlLocal("__tcs_fb", argArr[0]),
+                    new IlReturn(new IlNullableGetOrDefault(
+                        new IlVar("__tcs_val"), new IlVar("__tcs_fb")))]);
             }
 
             if (methodName == "WriteLine" && symbol is IMethodSymbol console
@@ -522,8 +466,11 @@ public partial class LuaEmitter
                 var printArgs = argArr.ToArray();
                 for (var i = 0; i < printArgs.Length; i++)
                 {
-                    if (IsFloatingType(model.GetTypeInfo(invocation.ArgumentList
-                            .Arguments[i].Expression).Type))
+                    var argType = model.GetTypeInfo(invocation.ArgumentList
+                        .Arguments[i].Expression).Type;
+                    if (IsNullableValueType(argType))
+                        printArgs[i] = new IlCall("__tcs_nstr", [printArgs[i]]);
+                    else if (IsFloatingType(argType))
                         printArgs[i] = new IlCall("__tcs_fstr", [printArgs[i]]);
                 }
                 return new IlCall("print", [.. printArgs]);
@@ -658,10 +605,8 @@ public partial class LuaEmitter
             if (receiverType?.OriginalDefinition.SpecialType
                 == SpecialType.System_Nullable_T)
             {
-                if (member == "HasValue")
-                    return new IlParen(new IlBin(IlBinOp.Ne, obj,
-                        new IlLit("nil")));
-                if (member == "Value") return obj;
+                if (member == "HasValue") return new IlNullableHasValue(obj);
+                if (member == "Value") return new IlNullableValue(obj);
             }
             if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)
                     || IsDictCollectionType(typeDef)))

@@ -210,7 +210,8 @@ internal sealed partial class CEmitter
     private static bool IsStorageType(CType type) => type.Kind switch
     {
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool or CTypeKind.String
-            or CTypeKind.Ref or CTypeKind.StructVal or CTypeKind.Closure => true,
+            or CTypeKind.Ref or CTypeKind.StructVal or CTypeKind.Closure
+            or CTypeKind.Nullable => true,
         CTypeKind.Dict => type.Key is not null && type.Element is not null
             && IsStorageType(type.Element),
         CTypeKind.Array or CTypeKind.List => type.Element is not null
@@ -414,12 +415,7 @@ internal sealed partial class CEmitter
                 throw new Tcs2cException($"local has no initializer/type: " +
                     $"{_currentClass.Name}.{_currentMethod.Name}.{local.Name}");
             var declared = _facts.MapType(local.Type);
-            var zero = declared.Kind switch
-            {
-                CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool => "0",
-                CTypeKind.StructVal => $"({declared.CName}){{0}}",
-                _ => "NULL",
-            };
+            var zero = ZeroInit(declared);
             if (_capturedNames.Contains(local.Name))
             {
                 var cell0 = new Variable(

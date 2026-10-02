@@ -235,4 +235,84 @@ public class NullableValueTypeTests
             "T.test()");
         Assert.Equal("1|3", result);
     }
+
+    // lifted 演算子 (C# §12.4.8): 片方でも null なら null、比較は false、
+    // ==/!= は両 null で等しい、bool? の & | は三値論理。dotnet differential
+    // が実 .NET と突き合わせる
+    [Fact]
+    public void Lifted_ArithmeticAndComparison()
+    {
+        var result = TestHelper.TranspileAndRun("""
+            public static class T
+            {
+                public static string Show(int? v) => v.HasValue ? "v=" + v.Value.ToString() : "none";
+                public static string Test()
+                {
+                    int? a = 10;
+                    int? n = null;
+                    int b = 3;
+                    int? s1 = a + b;
+                    int? s2 = n + b;
+                    int? s3 = a * a - b;
+                    int? s4 = a / 3;
+                    int? s5 = a % 3;
+                    int? s6 = -a;
+                    int? s7 = n * 2;
+                    int? c = 1;
+                    c++;
+                    c += 5;
+                    c = c << 2;
+                    c--;
+                    n++;
+                    return Show(s1) + "|" + Show(s2) + "|" + Show(s3) + "|" + Show(s4) + "|" + Show(s5)
+                        + "|" + Show(s6) + "|" + Show(s7) + "|" + Show(c) + "|" + Show(n) + "|" + Show(c & 6)
+                        + "|" + Show(~c) + "|"
+                        + (a == 10) + ":" + (n == 10) + ":" + (a != n) + ":" + (n == n) + ":" + (a < 20)
+                        + ":" + (n < 20) + ":" + (a >= 10) + ":" + (n >= 0) + ":" + (a > n);
+                }
+            }
+            """, "T.test()");
+        Assert.Equal("v=13|none|v=97|v=3|v=1|v=-10|none|v=27|none|v=2|v=-28|" +
+            "True:False:True:True:True:False:True:False:False".ToLowerInvariant(), result);
+    }
+
+    [Fact]
+    public void Lifted_BoolThreeValuedAndFloat()
+    {
+        var result = TestHelper.TranspileAndRun("""
+            public static class T
+            {
+                public static string Test()
+                {
+                    bool? t = true;
+                    bool? u = false;
+                    bool? v = null;
+                    float? f = 1.5f;
+                    float? g = null;
+                    return (t & v) + "|" + (u & v) + "|" + (t | v) + "|" + (u | v) + "|" + (v & v) + "|" + (!v)
+                        + "|" + (!t) + "|" + (t ^ u) + "|" + (t ^ v) + "|" + (f * 2f) + "|" + (g * 2f)
+                        + "|" + (f / 4f) + "|" + (f == 1.5f) + "|" + (g == null) + "|" + $"[{f}][{g}][{v}]";
+                }
+            }
+            """, "T.test()");
+        Assert.Equal("|false|true||||false|true||3||0.375|true|true|[1.5][][]", result);
+    }
+
+    [Fact]
+    public void Value_OnNull_Faults()
+    {
+        var lua = Transpiler.Transpile("""
+            public static class T
+            {
+                public static int Test()
+                {
+                    int? n = null;
+                    return n.Value;
+                }
+            }
+            """);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            TestHelper.RunLua(lua + "\nprint(T.test())"));
+        Assert.Contains("Nullable object must have a value", ex.Message);
+    }
 }

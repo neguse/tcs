@@ -177,6 +177,7 @@ internal sealed partial class CEmitter
             $"{Names.RecordEq(type.Name!)}({left}, {right})",
         CTypeKind.Ref or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
             or CTypeKind.Closure => $"({left} == {right})",
+        CTypeKind.Nullable => NullableEqualExpr(type, left, right),
         _ => throw new Tcs2cException($"equality is not supported for {type}"),
     };
 
@@ -190,7 +191,7 @@ internal sealed partial class CEmitter
     private static string ZeroInit(CType type) => type.Kind switch
     {
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool => "0",
-        CTypeKind.StructVal => $"({type.CName}){{0}}",
+        CTypeKind.StructVal or CTypeKind.Nullable => $"({type.CName}){{0}}",
         _ => "NULL",
     };
 

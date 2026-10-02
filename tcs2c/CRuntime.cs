@@ -91,6 +91,11 @@ internal sealed partial class CEmitter
 
         static uint32_t tcs_digest;
 
+        /* Nullable<T> (il-spec §13): has = 値あり */
+        typedef struct TcsOptI32 { bool has; int32_t v; } TcsOptI32;
+        typedef struct TcsOptF32 { bool has; float v; } TcsOptF32;
+        typedef struct TcsOptBool { bool has; bool v; } TcsOptBool;
+
         /* closure: fnptr + 捕捉変数 cell の配列。capture は変数単位
            (il-spec §7) — 捕捉される local は heap cell へ box される */
         typedef struct TcsClosure {

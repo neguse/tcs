@@ -5,7 +5,7 @@ namespace TinyCs.Tcs2c;
 
 internal sealed class Tcs2cException(string message) : Exception(message);
 
-internal enum CTypeKind { Void, I32, F32, Bool, String, Ref, Array, List, Null, Dict, Kvp, Closure, StructVal }
+internal enum CTypeKind { Void, I32, F32, Bool, String, Ref, Array, List, Null, Dict, Kvp, Closure, StructVal, Nullable }
 
 internal sealed record CType(CTypeKind Kind, string? Name = null,
     CType? Element = null, CType? Key = null,
@@ -30,6 +30,11 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
     /// <summary>関数値。Element = 戻り型 (void 可)、Parameters = 引数型。</summary>
     public static CType Closure(CType ret, IReadOnlyList<CType> parameters) =>
         new(CTypeKind.Closure, Element: ret, Parameters: parameters);
+    /// <summary>Nullable&lt;T&gt; (値型のみ)。C は { bool has; T v; }。</summary>
+    public static CType Nullable(CType element) =>
+        new(CTypeKind.Nullable, Element: element);
+
+    public bool IsNullableValue => Kind == CTypeKind.Nullable;
 
     public string CName => Kind switch
     {
@@ -44,6 +49,14 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
         CTypeKind.List => "TcsList *",
         CTypeKind.Dict => "TcsDict *",
         CTypeKind.Closure => "TcsClosure *",
+        CTypeKind.Nullable => Element!.Kind switch
+        {
+            CTypeKind.I32 => "TcsOptI32",
+            CTypeKind.F32 => "TcsOptF32",
+            CTypeKind.Bool => "TcsOptBool",
+            CTypeKind.StructVal => $"TcsOpt_S_{Names.Id(Element.Name!)}",
+            _ => throw new Tcs2cException($"unsupported nullable element: {Element}"),
+        },
         _ => throw new Tcs2cException($"unsupported type: {this}"),
     };
 
@@ -54,6 +67,8 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
     public bool CanAssignFrom(CType source) =>
         this == source
         || (Kind == CTypeKind.F32 && source.Kind == CTypeKind.I32)
+        || (Kind == CTypeKind.Nullable
+            && (source.Kind == CTypeKind.Null || Element!.CanAssignFrom(source)))
         || (IsNullable && source.Kind == CTypeKind.Null)
         || (Kind == CTypeKind.List && source.Kind == CTypeKind.List
             && (Element is null || source.Element is null
@@ -73,6 +88,7 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
     {
         CTypeKind.Ref => $"ref {Name}",
         CTypeKind.StructVal => $"struct {Name}",
+        CTypeKind.Nullable => $"{Element}?",
         CTypeKind.Array => $"{Element}[]",
         CTypeKind.List => $"list<{Element?.ToString() ?? "?"}>",
         CTypeKind.String => "string",
@@ -109,6 +125,7 @@ internal static partial class Names
     public static string StructEq(string st) => $"tcs_eq_S_{Id(st)}";
     public static string ClassLayout(string cls) => $"tcs_layout_C_{Id(cls)}";
     public static string StructLayout(string st) => $"tcs_layout_S_{Id(st)}";
+    public static string NullableLayout(string st) => $"tcs_layout_N_{Id(st)}";
 }
 
 internal static class Constants

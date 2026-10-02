@@ -166,6 +166,12 @@ internal sealed partial class CEmitter
             or CTypeKind.Ref or CTypeKind.Array or CTypeKind.List) return;
         if (left.Kind == CTypeKind.Null && right.IsNullable
             || right.Kind == CTypeKind.Null && left.IsNullable) return;
+        if (left.Kind == CTypeKind.Nullable && right.Kind is CTypeKind.Null or CTypeKind.Nullable
+            || right.Kind == CTypeKind.Nullable && left.Kind is CTypeKind.Null or CTypeKind.Nullable)
+            return;
+        if (left.Kind == CTypeKind.Nullable && left.Element!.CanAssignFrom(right)
+            || right.Kind == CTypeKind.Nullable && right.Element!.CanAssignFrom(left))
+            return;
         throw new Tcs2cException($"incompatible {where} operands: {left}, {right}");
     }
 
@@ -222,6 +228,12 @@ internal sealed partial class CEmitter
                 return RenderStaticGroupThunk(recvVar.Name, group.Name, target);
         }
         var source = TypeOf(expr);
+        // T? への暗黙変換 (IL の IlNullableWrap が無い地点の安全網)
+        if (target.Kind == CTypeKind.Nullable && source != target)
+        {
+            if (source.Kind == CTypeKind.Null) return $"(({target.CName}){{0}})";
+            return $"(({target.CName}){{ true, {RenderCoerced(expr, target.Element!)} }})";
+        }
         var rendered = RenderExpr(expr);
         if (target.Kind == CTypeKind.Ref && source.Kind == CTypeKind.Ref
             && target.Name != source.Name)
@@ -240,6 +252,12 @@ internal sealed partial class CEmitter
             || Effectful(ternary.T) || Effectful(ternary.F),
         IlIsType typeTest => Effectful(typeTest.E),
         IlCast cast => Effectful(cast.E),
+        IlNullableWrap w => Effectful(w.E),
+        IlNullableHasValue h => Effectful(h.E),
+        IlNullableValue => true,
+        IlNullableGetOrDefault g => Effectful(g.E) || Effectful(g.Default),
+        IlLiftedBin lb => Effectful(lb.L) || Effectful(lb.R),
+        IlLiftedUn lu => Effectful(lu.E),
         IlField or IlIndex or IlLen or IlCall or IlDynCall or IlInvoke
             or IlNewObj or IlTable or IlNewArray or IlIife or IlClosure or IlWith => true,
         _ => true,

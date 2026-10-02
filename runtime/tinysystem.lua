@@ -492,6 +492,47 @@ function TinySystem.trunc(x)
   return math.ceil(x)
 end
 
+-- Nullable<T> (il-spec §13、module mode の __tcs_n* global の実体)
+function TinySystem.nval(v)
+  if v == nil then error("Nullable object must have a value") end
+  return v
+end
+function TinySystem.nget(v, d) if v == nil then return d end return v end
+function TinySystem.nlift(a, b, f) if a == nil or b == nil then return nil end return f(a, b) end
+function TinySystem.nlift1(a, f) if a == nil then return nil end return f(a) end
+function TinySystem.ncmp(a, b, f) if a == nil or b == nil then return false end return f(a, b) end
+function TinySystem.nand(a, b)
+  if a == false or b == false then return false end
+  if a == nil or b == nil then return nil end
+  return true
+end
+function TinySystem.nor(a, b)
+  if a == true or b == true then return true end
+  if a == nil or b == nil then return nil end
+  return false
+end
+function TinySystem.nnot(a) if a == nil then return nil end return not a end
+TinySystem.nops = {
+  add = function(a, b) return a + b end,
+  sub = function(a, b) return a - b end,
+  mul = function(a, b) return a * b end,
+  div = function(a, b) return a / b end,
+  idiv = function(a, b) return TinySystem.idiv(a, b) end,
+  irem = function(a, b) return TinySystem.irem(a, b) end,
+  fmod = function(a, b) return math.fmod(a, b) end,
+  band = function(a, b) return a & b end,
+  bor = function(a, b) return a | b end,
+  bxor = function(a, b) if type(a) == "boolean" then return a ~= b end return a ~ b end,
+  shl = function(a, b) return a << b end,
+  shr = function(a, b) return a >> b end,
+  lt = function(a, b) return a < b end,
+  le = function(a, b) return a <= b end,
+  gt = function(a, b) return a > b end,
+  ge = function(a, b) return a >= b end,
+  neg = function(a) return -a end,
+  bnot = function(a) return ~a end,
+}
+
 -- f32 の shortest round-trip 10 進表記 (il-spec §13)
 function TinySystem.fstr(v)
   if math.type(v) ~= "float" then return tostring(v) end
@@ -500,6 +541,13 @@ function TinySystem.fstr(v)
   s = string.format("%.8g", v)
   if tonumber(s) == v then return s end
   return string.format("%.9g", v)
+end
+
+-- T? の文字列化 (null → "")
+function TinySystem.nstr(v)
+  if v == nil then return "" end
+  if math.type(v) == "float" then return TinySystem.fstr(v) end
+  return tostring(v)
 end
 
 return TinySystem

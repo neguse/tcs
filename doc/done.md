@@ -1677,3 +1677,11 @@
 - 判断: Lua の `__eq` は派生 record で自分の positional field しか比べないが、C は chain 全 field + 実行時型一致を比べる (C# の規則)。差が出るのは派生 record 同士の比較で base field だけ違う場合で、Lua 側の既知差異として support-matrix に残さず C# 側に揃えた (Lua 修正は別件)。struct field の等価は Lua が table identity (常に false)、C は memberwise (C#) — これも C# 側に揃えた
 - 残課題: record struct の IlExport (需要待ちのまま)、record の ToString / Equals 呼び
 
+### T244: Nullable<T> の正式対応 — IL 明示ノード + lifted 演算子を 3 backend で ✓ (2026-10-02)
+- IL (il-spec §3): `T?` を独立した型とし、IlNullableWrap / HasValue / Value / GetOrDefault と IlLiftedBin / IlLiftedUn (IlLiftedOp は DivInt / RemInt を含む) を追加。builder は Roslyn の ConvertedType を見て T → T? を BuildExpr の入口で一元的に wrap し、`== null` / `is null` / `??` / HasValue / Value / GetValueOrDefault / lifted 二項・単項 / `++ --` / 複合代入 / `(int?)` cast を明示ノードへ。文字列化 (連結・補間・WriteLine) は `__tcs_nstr` で null → "" (C# と同じ)。IL から nil 比較・`or` の Lua 方言が消えた
+- Lua backend: 表現は nil または値のまま。chunk-local helper (`__tcs_nval` は値なしで error、`__tcs_nget`、`__tcs_nlift` + 定数 op 関数、`__tcs_ncmp`、三値の `__tcs_nand / nor / nnot`、`__tcs_nstr`) を prelude に追加し、module mode は TinySystem の同名関数へ alias。`??` の右辺は呼び出しを含むときだけ IIFE で遅延、GetValueOrDefault(arg) は method 引数なので常に評価
+- C backend: `T?` = `{ bool has; T v; }` (TcsOptI32 / F32 / Bool + struct ごとの TcsOpt_S_X typedef と GC layout)。各ノードを 1 対 1 の statement expression に (lifted は `x.has && y.has` のとき演算、比較は false、Eq は `has == has && (!has || v == v)`、bool? の And / Or は三値)。IL の nil 比較の残り (`?.` 等) は T? と null の Eq を lifted 等価で受ける安全網
+- 検証: NullableValueTypeTests +3 (lifted 算術・比較、bool? 三値と float、`.Value` の fault) は dotnet differential で実 .NET と一致、既存の Nullable / 連結 / パターン系テスト green、tcs2c.Tests に真理表 program の 2 backend differential (C 通常 + GC stress + Lua 一致)、verify-digests 3/3 不変
+- 判断: lifted 演算は診断で外さず全面対応 (ユーザー合意)。Lua の lifted helper は定数 op 関数 + 汎用 lift で closure 確保を避けた。`List<int?>` / `Dictionary<K, int?>` の null 要素は Lua table の穴になるため TCS1003 の範囲のまま (C は表現できるが仕様に揃える)。il-spec 付録 C の「Nullable<T> の位置づけ」は決着として削除
+- 残課題: `T?` の `?.` (IlIife の nil 比較のまま。C は安全網で動く)、`switch` の `case null` は ConstantPattern 経由で動くが Lua 側の legacy visitor は旧 nil 流儀のまま
+

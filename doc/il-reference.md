@@ -68,6 +68,11 @@ assembly 参照で直接消費する。
 | IlIife(stats) | 式位置の逐次実行 (switch 式・?. 等の lowering 産物) | (function() … end)() |
 | IlClosure(params, body/exprBody, patternLocals) | closure。capture は変数単位 (§7) | function(…) … end |
 | IlWith(src, overrides) | record with (shallow copy + 上書き)。C backend は実行時型の layout で copy | IIFE |
+| IlNullableWrap(e, type) | T → T? (type = T の display 名)。builder が Roslyn の ConvertedType から挿入する | e (透過) |
+| IlNullableHasValue(e) | HasValue / `!= null` / `is not null` | e ~= nil |
+| IlNullableValue(e) | .Value (値なしは fault) | __tcs_nval(e) |
+| IlNullableGetOrDefault(e, d) | `??` / GetValueOrDefault。d は T か T?、値なしのときだけ評価 | __tcs_nget / IIFE |
+| IlLiftedBin(op, l, r) / IlLiftedUn(op, e) | lifted 演算子 (il-spec §3)。op は IlLiftedOp (DivInt / RemInt を含む) | __tcs_nlift(l, r, __tcs_op_x) 等 |
 | IlCast(e, typeRef) | user class / record への明示 downcast。upcast と同型は IL に現れない (透過)。C backend は実行時型が typeRef 系でなければ fault | e (透過) |
 
 ### 文 (IlStat) — すべて Origin (SyntaxNode?) を持つ (source map 用・非意味論)

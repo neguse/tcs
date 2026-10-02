@@ -121,6 +121,12 @@ internal sealed class ContractFacts
             text = text[8..];
         if (text.EndsWith("[]", StringComparison.Ordinal))
             return CType.Array(MapType(text[..^2]));
+        // Nullable<T>: 値型なら T?、参照型の `string?` 等は参照そのもの
+        if (text.EndsWith('?'))
+            return MakeNullable(MapType(text[..^1]));
+        foreach (var prefix in new[] { "System.Nullable<", "Nullable<" })
+            if (text.StartsWith(prefix, StringComparison.Ordinal) && text.EndsWith('>'))
+                return MakeNullable(MapType(text[prefix.Length..^1]));
 
         if (text == "System.Action" || text == "Action")
             return CType.Closure(CType.Void, []);
@@ -187,6 +193,14 @@ internal sealed class ContractFacts
     }
 
     public IReadOnlyDictionary<string, IlStructInfo> Structs => _structs;
+
+    private static CType MakeNullable(CType element) => element.Kind switch
+    {
+        CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool or CTypeKind.StructVal =>
+            CType.Nullable(element),
+        CTypeKind.Nullable => element,
+        _ => element, // 参照型の ? は注釈のみ
+    };
 
     public bool IsEnum(string name) => _enums.ContainsKey(name);
 

@@ -459,9 +459,7 @@ public partial class LuaEmitter
                 origin, acc);
         var target = BuildExpr(model, operand);
         if (target == null) return false;
-        acc.Add(new IlAssign(target,
-                new IlBin(increment ? IlBinOp.AddNum : IlBinOp.Sub, target,
-                    new IlLit("1")))
+        acc.Add(new IlAssign(target, StepValue(model, operand, target, increment))
             { Origin = origin });
         return true;
     }
@@ -520,6 +518,8 @@ public partial class LuaEmitter
         AssignmentExpressionSyntax assign, string op, IlExpr read, IlExpr right)
     {
         var type = model.GetTypeInfo(assign.Left).Type;
+        if (IsNullableValueType(type) && LiftedOpFor(op, UnwrapNullable(type)) is { } lifted)
+            return new IlLiftedBin(lifted, read, right);
         return op switch
         {
             "/" when IsIntegralType(type) =>

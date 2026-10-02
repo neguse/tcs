@@ -30,6 +30,12 @@ public partial class LuaEmitter
             when model.GetSymbolInfo(cp.Expression).Symbol is ITypeSymbol patType =>
             BuildTypeCheck(governing, patType,
                 BuildTypeRefText(model, cp.Expression)),
+        ConstantPatternSyntax cp when IsNullLiteral(cp.Expression)
+            && IsNullableValueType(model.GetTypeInfo(cp.Expression).ConvertedType) =>
+            new IlUn(IlUnOp.Not, new IlNullableHasValue(governing)),
+        ConstantPatternSyntax cp when IsNullLiteral(cp.Expression)
+            && IsNullableValueType(model.GetTypeInfo(cp.Expression).ConvertedType) =>
+            new IlUn(IlUnOp.Not, new IlNullableHasValue(governing)),
         ConstantPatternSyntax cp => BuildExpr(model, cp.Expression) is { } value
             ? new IlBin(IlBinOp.Eq, governing, value) : null,
         DiscardPatternSyntax => new IlLit("true"),

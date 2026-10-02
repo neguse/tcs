@@ -37,6 +37,7 @@ internal sealed partial class CEmitter
         CTypeKind.Ref when IsRecordClass(type.Name!) =>
             $"{Names.RecordEq(type.Name!)}({left}, {right})",
         CTypeKind.StructVal => $"{Names.StructEq(type.Name!)}(&{left}, &{right})",
+        CTypeKind.Nullable => NullableEqualExpr(type, left, right),
         _ => $"({left} == {right})",
     };
 

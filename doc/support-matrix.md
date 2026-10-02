@@ -135,7 +135,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 型 | 状態 | 備考 |
 |----|:----:|------|
 | `void` | **Y** | 戻り値型として |
-| Nullable 値型 (`int?`) | **P** | `null`/値/HasValue/Value/GetValueOrDefault |
+| Nullable 値型 (`int?`) | **Y** | `null`/値/HasValue/Value/GetValueOrDefault/`??`/null 比較/lifted 演算子 (算術・bit・比較・`bool?` の三値 `&` `\|`)。IL は明示ノード (il-spec §3)、C backend は `{ has, v }`。`.Value` の値なしは fault、文字列化は空文字列 |
 | Nullable 参照型 (`string?`) | **N/A** | Lua は常に nil 可能 |
 | タプル `(int, string)` | **-** | |
 | 配列 `int[]` | **P** | 初期化子、index、Length。List\<T\> を推奨 |
@@ -569,7 +569,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `Array` | **-** | | List で代替 |
 | `Tuple` | **-** | | |
 | `ValueTuple` | **-** | | |
-| `Nullable<T>` | **-** | | |
+| `Nullable<T>` | **Y** | `int?` 等 (Part I 参照) | collection 要素の null は TCS1003 |
 | `Enum` (静的メソッド) | **-** | | |
 | `Exception` (全サブクラス) | **-** | | try/catch 未対応 |
 | `IDisposable` | **-** | | |

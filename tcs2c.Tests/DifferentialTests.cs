@@ -443,4 +443,81 @@ public class DifferentialTests
             }
             """, "P");
     }
+
+    [CFact]
+    public void Nullable_LiftedOperatorsAndMembers()
+    {
+        Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            public struct Vec { public int X; public int Y; }
+            public class Slot { public int? Hp; public float? Speed; public bool? Flag; public Vec? Pos; public static int? Counter; }
+            public class P
+            {
+                public static int Calls;
+                public static int Side() { Calls++; return 7; }
+                public static string Show(int? v) => v.HasValue ? "v=" + v.Value.ToString() : "none";
+                public static int? Pick(bool take) => take ? 5 : null;
+                public static void Main()
+                {
+                    int? a = 10;
+                    int? n = null;
+                    int b = 3;
+                    Console.WriteLine(Show(a) + "|" + Show(n) + "|" + Show(Pick(true)) + "|" + Show(Pick(false)));
+                    Console.WriteLine((a == null) + ":" + (n == null) + ":" + (a != null) + ":" + (n != null) + ":" + (n is null) + ":" + (a is not null));
+                    Console.WriteLine((a ?? 0) + ":" + (n ?? -1) + ":" + n.GetValueOrDefault() + ":" + n.GetValueOrDefault(9) + ":" + a.GetValueOrDefault(9));
+                    int? s1 = a + b;
+                    int? s2 = n + b;
+                    int? s3 = a * a - b;
+                    int? s4 = a / 3;
+                    int? s5 = a % 3;
+                    int? s6 = -a;
+                    int? s7 = n * 2;
+                    Console.WriteLine(Show(s1) + "|" + Show(s2) + "|" + Show(s3) + "|" + Show(s4) + "|" + Show(s5) + "|" + Show(s6) + "|" + Show(s7));
+                    Console.WriteLine((a == 10) + ":" + (n == 10) + ":" + (a != n) + ":" + (n == n) + ":" + (a < 20) + ":" + (n < 20) + ":" + (a >= 10) + ":" + (n >= 0) + ":" + (a > n));
+                    float? f = 1.5f;
+                    float? g = null;
+                    Console.WriteLine((f * 2f) + "|" + (g * 2f) + "|" + (f + a) + "|" + (f / 4f) + "|" + (f % 1f) + "|" + (f == 1.5f) + "|" + (g == null));
+                    bool? t = true;
+                    bool? u = false;
+                    bool? v = null;
+                    Console.WriteLine((t & v) + "|" + (u & v) + "|" + (t | v) + "|" + (u | v) + "|" + (v & v) + "|" + (!v) + "|" + (!t) + "|" + (t ^ u) + "|" + (t ^ v));
+                    int? c = 1;
+                    c++;
+                    c += 5;
+                    c = c << 2;
+                    c--;
+                    n++;
+                    n += 1;
+                    Console.WriteLine(Show(c) + "|" + Show(n) + "|" + Show(c & 6) + "|" + Show(c | 1) + "|" + Show(~c) + "|" + Show(c ^ 3));
+                    var sl = new Slot();
+                    Console.WriteLine(Show(sl.Hp) + "|" + sl.Speed.HasValue + "|" + (sl.Flag ?? true) + "|" + sl.Pos.HasValue);
+                    sl.Hp = 4;
+                    var pos = new Vec(); pos.X = 2; pos.Y = 3;
+                    sl.Pos = pos;
+                    Slot.Counter = sl.Hp * 2;
+                    Console.WriteLine(Show(sl.Hp) + "|" + sl.Pos.Value.X + "," + sl.Pos.Value.Y + "|" + Show(Slot.Counter) + "|" + (sl.Pos == null));
+                    sl.Hp = null;
+                    Console.WriteLine(Show(sl.Hp) + "|" + $"[{sl.Hp}][{a}][{f}][{g}][{t}][{v}]" + "|" + ("x" + n + a));
+                    Calls = 0;
+                    var w1 = a ?? Side();
+                    var w2 = n ?? Side();
+                    var w3 = a.GetValueOrDefault(Side());
+                    Console.WriteLine(w1 + ":" + w2 + ":" + w3 + ":" + Calls);
+                    var list = new List<int?> { 1, 3 };
+                    list.Add(Pick(true));
+                    var sum = 0;
+                    foreach (var item in list) sum += item ?? 100;
+                    Console.WriteLine(sum + ":" + list.Count + ":" + (list[1] == 3));
+                    var dict = new Dictionary<string, int?>();
+                    dict["b"] = 2;
+                    Console.WriteLine(Show(dict["b"]) + ":" + (dict["b"] ?? 0));
+                    int? sw = 2;
+                    var label = sw switch { 1 => "one", 2 => "two", null => "nil", _ => "other" };
+                    Console.WriteLine(label);
+                    Console.WriteLine((a ?? 0) + (s1 ?? 0));
+                }
+            }
+            """, "P");
+    }
 }

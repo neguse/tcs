@@ -19,6 +19,8 @@ internal sealed partial class CEmitter
         CTypeKind.String or CTypeKind.Ref or CTypeKind.Array or CTypeKind.List
             or CTypeKind.Dict or CTypeKind.Closure => "&tcs_layout_ptr",
         CTypeKind.StructVal => $"&{Names.StructLayout(type.Name!)}",
+        CTypeKind.Nullable => type.Element!.Kind == CTypeKind.StructVal
+            ? $"&{Names.NullableLayout(type.Element.Name!)}" : "NULL",
         _ => throw new Tcs2cException($"type has no storage layout: {type}"),
     };
 
@@ -41,6 +43,9 @@ internal sealed partial class CEmitter
             else if (type.Kind == CTypeKind.StructVal)
                 foreach (var inner in StructPointerSlots(type.Name!))
                     yield return $"{self} + {inner}";
+            else if (type is { Kind: CTypeKind.Nullable, Element.Kind: CTypeKind.StructVal })
+                foreach (var inner in StructPointerSlots(type.Element.Name!))
+                    yield return $"{self} + offsetof({type.CName}, v) + {inner}";
         }
     }
 
@@ -57,6 +62,9 @@ internal sealed partial class CEmitter
             else if (type.Kind == CTypeKind.StructVal)
                 foreach (var inner in StructPointerSlots(type.Name!))
                     yield return $"{self} + {inner}";
+            else if (type is { Kind: CTypeKind.Nullable, Element.Kind: CTypeKind.StructVal })
+                foreach (var inner in StructPointerSlots(type.Element.Name!))
+                    yield return $"{self} + offsetof({type.CName}, v) + {inner}";
         }
     }
 
@@ -82,8 +90,14 @@ internal sealed partial class CEmitter
     {
         if (!_program.Structs.IsDefault)
             foreach (var st in _program.Structs)
+            {
                 EmitLayout(Names.StructLayout(st.Name), Names.Class(st.Name),
                     [.. StructPointerSlots(st.Name)]);
+                var option = CType.Nullable(CType.Struct(st.Name));
+                EmitLayout(Names.NullableLayout(st.Name), option.CName,
+                    [.. StructPointerSlots(st.Name)
+                        .Select(inner => $"offsetof({option.CName}, v) + {inner}")]);
+            }
         foreach (var cls in _program.Classes)
             EmitLayout(Names.ClassLayout(cls.Name), Names.Class(cls.Name),
                 [.. ClassPointerSlots(cls.Name)]);
@@ -104,7 +118,8 @@ internal sealed partial class CEmitter
             var name = Names.StaticField(cls.Name, field.Name);
             if (IsPointerType(fact.Type))
                 Line($"tcs_gc_mark_ptr({name});");
-            else if (fact.Type.Kind == CTypeKind.StructVal)
+            else if (fact.Type.Kind == CTypeKind.StructVal
+                || fact.Type is { Kind: CTypeKind.Nullable, Element.Kind: CTypeKind.StructVal })
                 Line($"tcs_gc_mark_value(&{name}, {LayoutRef(fact.Type)});");
         }
         _indent--;

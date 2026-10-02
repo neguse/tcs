@@ -31,12 +31,24 @@ module / class / record class / enum / interface / method / field。
 ## 3. 型
 
 `i32` / `f32` / `bool` / `string` / `ref C`（class / record class）/
-`V`（struct / record struct、M5 で有効化）/ `T[]` / `List<T>` /
-`Dictionary<K,V>` / 関数型（closure）/ enum (= i32)。
+`V`（struct / record struct、M5 で有効化）/ `T?`（Nullable、T は i32 /
+f32 / bool / enum / V）/ `T[]` / `List<T>` / `Dictionary<K,V>` /
+関数型（closure）/ enum (= i32)。
 
 - 型引数は消去済み。IL ノードはすべて単型（examples 決定 3）
 - null は ref・string・List・Dict・関数型の値。i32 / f32 / bool / V は
-  非 null。Nullable<T> の位置づけは v0 未決（付録 C）
+  非 null
+- `T?` は「値なし」を持つ独立した型（T244）。IL は Lua の nil 方言を使わず
+  明示ノードで操作する: `IlNullableWrap` (T → T?)、`IlNullableHasValue`、
+  `IlNullableValue` (値なしは fault §12)、`IlNullableGetOrDefault`
+  (`??` / GetValueOrDefault。既定値は値なしのときだけ評価)、
+  `IlLiftedBin` / `IlLiftedUn` (lifted 演算子: 片方でも値なしなら値なし、
+  比較は false、Eq / Ne は両方値なしで等しい、`bool?` の `&` `|` は三値論理)。
+  意味論の規範は C# §12.4.8 で、dotnet differential がそれを検証する。
+  文字列化 (`__tcs_nstr`) は値なしを空文字列にする (C# の
+  `string.Concat(null)` / 補間と同じ)。backend 表現は dev = nil または値、
+  release = `{ bool has; T v; }`。collection 要素の値なしは TCS1003 のまま
+  (Lua table に nil を置けない)
 - double / long はサブセット外（M4 で診断化。il-design §4）
 
 ## 4. 評価モデル
@@ -211,7 +223,6 @@ rename 注釈（`[RenamedFrom]` 相当）/ ユーザーフック（`OnReload` �
 
 ## 付録 C: 未決事項
 
-- Nullable<T> の位置づけ
 - relaxed-fp (§6) の粒度を module 単位まで細分するか（mixed-mode ABI と
   絡むため v0 は出荷ビルド単位のみ）
 - 合意 PRNG（Random の backend 間一致）

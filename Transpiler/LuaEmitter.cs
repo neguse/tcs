@@ -60,6 +60,47 @@ public partial class LuaEmitter
             AppendLine("  if x >= 0 then return math.floor(x) end");
             AppendLine("  return math.ceil(x)");
             AppendLine("end");
+            // Nullable<T> (il-spec §13): nil = 値なし。.Value の値なしは fault、
+            // lifted 演算は片方でも nil なら nil (比較は false)、bool? の & |
+            // は三値論理。op 関数は定数なので closure 確保は無い
+            AppendLine("local function __tcs_nval(v)");
+            AppendLine("  if v == nil then error(\"Nullable object must have a value\") end");
+            AppendLine("  return v");
+            AppendLine("end");
+            AppendLine("local function __tcs_nget(v, d) if v == nil then return d end return v end");
+            AppendLine("local function __tcs_nlift(a, b, f) if a == nil or b == nil then return nil end return f(a, b) end");
+            AppendLine("local function __tcs_nlift1(a, f) if a == nil then return nil end return f(a) end");
+            AppendLine("local function __tcs_ncmp(a, b, f) if a == nil or b == nil then return false end return f(a, b) end");
+            AppendLine("local function __tcs_nand(a, b)");
+            AppendLine("  if a == false or b == false then return false end");
+            AppendLine("  if a == nil or b == nil then return nil end");
+            AppendLine("  return true");
+            AppendLine("end");
+            AppendLine("local function __tcs_nor(a, b)");
+            AppendLine("  if a == true or b == true then return true end");
+            AppendLine("  if a == nil or b == nil then return nil end");
+            AppendLine("  return false");
+            AppendLine("end");
+            AppendLine("local function __tcs_nnot(a) if a == nil then return nil end return not a end");
+            AppendLine("local function __tcs_op_add(a, b) return a + b end");
+            AppendLine("local function __tcs_op_sub(a, b) return a - b end");
+            AppendLine("local function __tcs_op_mul(a, b) return a * b end");
+            AppendLine("local function __tcs_op_div(a, b) return a / b end");
+            AppendLine("local function __tcs_op_idiv(a, b) return __tcs_idiv(a, b) end");
+            AppendLine("local function __tcs_op_irem(a, b) return __tcs_irem(a, b) end");
+            AppendLine("local function __tcs_op_fmod(a, b) return math.fmod(a, b) end");
+            AppendLine("local function __tcs_op_band(a, b) return a & b end");
+            AppendLine("local function __tcs_op_bor(a, b) return a | b end");
+            // bool? の ^ は boolean xor (a ~= b)
+            AppendLine("local function __tcs_op_bxor(a, b) if type(a) == \"boolean\" then return a ~= b end return a ~ b end");
+            AppendLine("local function __tcs_op_shl(a, b) return a << b end");
+            AppendLine("local function __tcs_op_shr(a, b) return a >> b end");
+            AppendLine("local function __tcs_op_lt(a, b) return a < b end");
+            AppendLine("local function __tcs_op_le(a, b) return a <= b end");
+            AppendLine("local function __tcs_op_gt(a, b) return a > b end");
+            AppendLine("local function __tcs_op_ge(a, b) return a >= b end");
+            AppendLine("local function __tcs_op_neg(a) return -a end");
+            AppendLine("local function __tcs_op_bnot(a) return ~a end");
             // C# の `is T` は「T またはその派生」(il-spec §9)。継承は
             // instance の metatable = class table、class table の
             // metatable.__index = base で表現しているため chain を辿る。
@@ -82,6 +123,12 @@ public partial class LuaEmitter
             AppendLine("  s = string.format(\"%.8g\", v)");
             AppendLine("  if tonumber(s) == v then return s end");
             AppendLine("  return string.format(\"%.9g\", v)");
+            AppendLine("end");
+            // T? の文字列化: null は C# と同じく空文字列
+            AppendLine("local function __tcs_nstr(v)");
+            AppendLine("  if v == nil then return \"\" end");
+            AppendLine("  if math.type(v) == \"float\" then return __tcs_fstr(v) end");
+            AppendLine("  return tostring(v)");
             AppendLine("end");
             // hot reload (il-design §6): 生存インスタンスの weak registry。
             // reload chunk と共有するため global。key = instance (weak)、

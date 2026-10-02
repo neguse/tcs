@@ -100,6 +100,39 @@ public sealed record IlClosure(
 /// 素の値代入として扱う。</summary>
 public sealed record IlStructCopy(IlExpr E, string TypeName) : IlExpr;
 
+// ---- Nullable<T> (il-spec §3 / §13)。T? は IL 上の独立した型で、backend は
+// Lua = nil または値、C = { has, v } 構造体で表現する。nil 比較や `or` の
+// Lua 方言を IL に残さず、以下のノードで操作を明示する ----
+
+/// <summary>T → T? の暗黙変換。Type は T の display 名 (backend の型付け用)。</summary>
+public sealed record IlNullableWrap(IlExpr E, string Type) : IlExpr;
+
+/// <summary>HasValue / `!= null` / `is not null` (bool)。</summary>
+public sealed record IlNullableHasValue(IlExpr E) : IlExpr;
+
+/// <summary>.Value。値なしは fault (C# の InvalidOperationException 相当)。</summary>
+public sealed record IlNullableValue(IlExpr E) : IlExpr;
+
+/// <summary>`e ?? d` / GetValueOrDefault(d)。d は T (結果 T) か T? (結果 T?)。
+/// d は e が値なしのときだけ評価する。</summary>
+public sealed record IlNullableGetOrDefault(IlExpr E, IlExpr Default) : IlExpr;
+
+/// <summary>lifted 演算子 (C# §12.4.8)。両 operand は T? (builder が
+/// IlNullableWrap で揃える)。算術 / bit / shift は片方でも値なしなら値なし、
+/// 比較は false、Eq / Ne は両方値なしで等しい、And / Or は bool? の三値論理。</summary>
+public enum IlLiftedOp
+{
+    Add, Sub, Mul, DivFloat, DivInt, RemFloat, RemInt,
+    BitAnd, BitOr, BitXor, Shl, Shr,
+    Eq, Ne, Lt, Le, Gt, Ge,
+    And, Or,
+}
+
+public sealed record IlLiftedBin(IlLiftedOp Op, IlExpr L, IlExpr R) : IlExpr;
+
+/// <summary>lifted 単項 (Neg / Not / BitNot)。値なしは値なし。</summary>
+public sealed record IlLiftedUn(IlUnOp Op, IlExpr E) : IlExpr;
+
 /// <summary>class 参照の明示 downcast `(T)e` (il-spec §9)。Lua backend は透過
 /// (型消去)、C backend は実行時型が T 系でなければ fault。upcast は IL に
 /// 現れない (暗黙変換)。</summary>

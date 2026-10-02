@@ -27,6 +27,12 @@ internal sealed partial class CEmitter
         // C の struct 値代入がそのまま copy (il-spec §10 は Lua 側の都合)
         IlStructCopy copy => RenderExpr(copy.E),
         IlCast cast => RenderCast(cast),
+        IlNullableWrap wrap => RenderNullableWrap(wrap),
+        IlNullableHasValue has => $"(({RenderExpr(has.E)}).has)",
+        IlNullableValue val => RenderNullableValue(val),
+        IlNullableGetOrDefault gd => RenderNullableGetOrDefault(gd),
+        IlLiftedBin lifted => RenderLiftedBin(lifted),
+        IlLiftedUn liftedUn => RenderLiftedUn(liftedUn),
         IlIife iife => RenderIife(iife),
         IlWith with => RenderWith(with),
         _ => throw Unsupported(expr),
@@ -57,6 +63,12 @@ internal sealed partial class CEmitter
         IlIsType typeTest => TypeOfIsType(typeTest),
         IlStructCopy copy => TypeOf(copy.E),
         IlCast cast => TypeOfCast(cast),
+        IlNullableWrap wrap => TypeOfNullableWrap(wrap),
+        IlNullableHasValue has => RequireNullable(has.E, "HasValue") is { } ? CType.Bool : CType.Bool,
+        IlNullableValue val => RequireNullable(val.E, "Value").Element!,
+        IlNullableGetOrDefault gd => TypeOfNullableGetOrDefault(gd),
+        IlLiftedBin lifted => TypeOfLiftedBin(lifted),
+        IlLiftedUn liftedUn => TypeOfLiftedUn(liftedUn),
         IlIife iife => TypeOfIife(iife),
         IlWith with => TypeOfWith(with),
         _ => throw Unsupported(expr),
@@ -217,6 +229,11 @@ internal sealed partial class CEmitter
         var left = RenderExpr(binary.L);
         var right = RenderExpr(binary.R);
 
+        // T? と null / T? / T の ==/!= (IL の nil 比較の残りを lifted 等価で受ける)
+        if (binary.Op is IlBinOp.Eq or IlBinOp.Ne
+            && (leftType.Kind == CTypeKind.Nullable || rightType.Kind == CTypeKind.Nullable))
+            return RenderNullableEquality(binary, leftType, rightType);
+
         // record の ==/!= は構造等価 (Lua の __eq と同じ)
         if (binary.Op is IlBinOp.Eq or IlBinOp.Ne
             && RecordEqualityType(leftType, rightType) is { } recordType)
@@ -370,6 +387,7 @@ internal sealed partial class CEmitter
             // Lua backend の f32 shortest round-trip helper。C 側の
             // to-string は元々 shortest round-trip なので同一経路で良い
             "__tcs_fstr" => RenderToString(call.Args[0]),
+            "__tcs_nstr" => RenderNullableToString(call.Args[0]),
             "table.insert" => RenderListAdd(call),
             _ when IsIntrinsicCallee(call.Callee) => RenderIntrinsic(call),
             _ => RenderUserCall(call),
@@ -419,6 +437,12 @@ internal sealed partial class CEmitter
             RequireArity(call.Callee, call.Args.Length, 1);
             _ = RequireDict(call.Args[0], out _);
             return CType.I32;
+        }
+        if (call.Callee == "__tcs_nstr")
+        {
+            RequireArity(call.Callee, call.Args.Length, 1);
+            _ = RequireNullable(call.Args[0], "__tcs_nstr");
+            return CType.String;
         }
         if (call.Callee is "tostring" or "__tcs_fstr")
         {
