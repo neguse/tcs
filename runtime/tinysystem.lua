@@ -441,6 +441,12 @@ function Random.Next(min, max)
   end
 end
 
+-- seed 固定 (il-spec §13: Lua 5.5 の xoshiro256** が合意 PRNG。C backend は
+-- 同じ列を出す)
+function Random.Seed(seed)
+  math.randomseed(seed)
+end
+
 function Random.NextFloat()
   return math.random()
 end

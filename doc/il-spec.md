@@ -180,7 +180,13 @@ fault = 決定的に検出される実行時異常。発生した fault はプ�
 - 数学関数（Sin / Cos / Sqrt 等）の規範は「同一プラットフォーム上で全
   backend が同一値」。プラットフォーム間のビット一致は保証しない。
   digest workload は数学関数を使わない（perf の libm 排除方針と同一）
-- Random は backend 間一致の対象外（v0）。合意 PRNG の導入は付録 C
+- Random の合意 PRNG は Lua 5.5 の `math.random` (xoshiro256**、LUA_32BITS
+  構成の 32bit 射影と FIGS=24 の float 化) で、C backend は同じ実装を持つ
+  (T245)。`Random.Seed(n)` (= `math.randomseed(n)`) で seed を固定すれば
+  Next / NextFloat / Range の列が backend 間で bit 一致する。seed 未指定時は
+  両 backend とも起動ごとに異なる (Lua の `luai_makeseed` 相当)。dotnet 側
+  facade は System.Random なので列は一致しない (乱数は dotnet differential
+  の対象外のまま)
 
 ## 14. migration metadata（v0 はスキーマのみ。実装は T220）
 
@@ -225,7 +231,6 @@ rename 注釈（`[RenamedFrom]` 相当）/ ユーザーフック（`OnReload` �
 
 - relaxed-fp (§6) の粒度を module 単位まで細分するか（mixed-mode ABI と
   絡むため v0 は出荷ビルド単位のみ）
-- 合意 PRNG（Random の backend 間一致）
 - シリアライズ形式（M2 / T217）
 - Lua 側 struct 配列の連続表現最適化（perf 実測駆動。release 側 class 表現は native に決着済み）
 - mixed-mode の module 境界 ABI（il-design §5）

@@ -9,14 +9,20 @@ namespace TinyCs.Tcs2c;
 internal sealed partial class CEmitter
 {
     private static readonly HashSet<string> IntrinsicPrefixes =
-        ["String.", "Math.", "List.", "string.", "math."];
+        ["String.", "Math.", "List.", "string.", "math.", "Random."];
 
     private static readonly HashSet<string> IntrinsicNames =
         ["tonumber", "os.getenv", "table.remove", "__tcs_trunc",
          "Dict.Keys", "Dict.Values"];
 
-    private bool IsIntrinsicCallee(string callee)
+    // facade 経由 (`using TinySystem;`) は "TinySystem.X.Y" で来る
+    private static string NormalizeCallee(string callee) =>
+        callee.StartsWith("TinySystem.", StringComparison.Ordinal)
+            ? callee["TinySystem.".Length..] : callee;
+
+    private bool IsIntrinsicCallee(string rawCallee)
     {
+        var callee = NormalizeCallee(rawCallee);
         if (IntrinsicNames.Contains(callee)) return true;
         var dot = callee.IndexOf('.');
         if (dot <= 0) return false;
@@ -25,9 +31,12 @@ internal sealed partial class CEmitter
         return IntrinsicPrefixes.Contains(callee[..(dot + 1)]);
     }
 
-    private CType TypeOfIntrinsic(IlCall call)
+    private CType TypeOfIntrinsic(IlCall rawCall)
     {
+        var call = rawCall with { Callee = NormalizeCallee(rawCall.Callee) };
         var args = call.Args;
+        if (call.Callee.StartsWith("Random.", StringComparison.Ordinal))
+            return TypeOfRandomOp(call);
         if (call.Callee.StartsWith("List.", StringComparison.Ordinal))
             return TypeOfListOp(call);
         switch (call.Callee)
@@ -95,10 +104,13 @@ internal sealed partial class CEmitter
         throw new Tcs2cException($"unsupported intrinsic: {call.Callee}");
     }
 
-    private string RenderIntrinsic(IlCall call)
+    private string RenderIntrinsic(IlCall rawCall)
     {
+        var call = rawCall with { Callee = NormalizeCallee(rawCall.Callee) };
         var type = TypeOfIntrinsic(call);
         var args = call.Args;
+        if (call.Callee.StartsWith("Random.", StringComparison.Ordinal))
+            return RenderRandomOp(call, type);
         if (call.Callee.StartsWith("List.", StringComparison.Ordinal))
             return RenderListOp(call);
         switch (call.Callee)
@@ -311,6 +323,62 @@ internal sealed partial class CEmitter
             }
             default:
                 throw new Tcs2cException($"unsupported String member: {name}");
+        }
+    }
+
+    // ---- Random.* (TinySystem.Random → Lua math.random と同じ列) ----
+    private CType TypeOfRandomOp(IlCall call)
+    {
+        var name = call.Callee["Random.".Length..];
+        var args = call.Args;
+        switch (name)
+        {
+            case "Seed":
+                RequireArity(call.Callee, args.Length, 1);
+                RequireType(CType.I32, TypeOf(args[0]), "Random.Seed");
+                return CType.Void;
+            case "NextFloat":
+                RequireArity(call.Callee, args.Length, 0);
+                return CType.F32;
+            case "Next":
+                if (args.Length > 2) throw new Tcs2cException("Random.Next: expected 0-2 arguments");
+                foreach (var a in args) RequireType(CType.I32, TypeOf(a), "Random.Next");
+                return CType.I32;
+            case "Range":
+                RequireArity(call.Callee, args.Length, 2);
+                RequireType(CType.I32, TypeOf(args[0]), "Random.Range");
+                RequireType(CType.I32, TypeOf(args[1]), "Random.Range");
+                return CType.I32;
+            default:
+                throw new Tcs2cException($"unsupported Random member: {name}");
+        }
+    }
+
+    private string RenderRandomOp(IlCall call, CType type)
+    {
+        var name = call.Callee["Random.".Length..];
+        var args = call.Args;
+        switch (name)
+        {
+            case "Seed":
+                return $"tcs_rand_seed((uint32_t)({RenderExpr(args[0])}), 0)";
+            case "NextFloat":
+                return "tcs_rand_float()";
+            case "Next":
+                // Lua facade: Next() = random(0, 2147483646)、Next(max) =
+                // random(0, max - 1)、Next(min, max) = random(min, max - 1)
+                if (args.Length == 0) return "tcs_rand_range(0, INT32_C(2147483646))";
+                if (args.Length == 1)
+                    return RenderOrderedCall("tcs_rand_range", type,
+                        [(CType.I32, "0"), (CType.I32, $"({RenderExpr(args[0])}) - INT32_C(1)")]);
+                return RenderOrderedCall("tcs_rand_range", type,
+                    [(CType.I32, RenderExpr(args[0])),
+                     (CType.I32, $"({RenderExpr(args[1])}) - INT32_C(1)")]);
+            case "Range":
+                return RenderOrderedCall("tcs_rand_range", type,
+                    [(CType.I32, RenderExpr(args[0])), (CType.I32, RenderExpr(args[1]))]);
+            default:
+                throw new Tcs2cException($"unsupported Random member: {name}");
         }
     }
 

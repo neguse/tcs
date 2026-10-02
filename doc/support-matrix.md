@@ -677,6 +677,7 @@ using(宣言)  virtual(部分)  volatile  yield
 
 | メンバー | 状態 | Lua マッピング | 区分 |
 |---------|:----:|--------------|:----:|
+| `Random.Seed(seed)` | **Y** | `math.randomseed(seed)` | 列の固定。tcs の 2 backend (Lua / C) は同じ xoshiro256** なので seed 固定時に列が bit 一致 (il-spec §13) |
 | `Random.Next()` | **Y** | `Random.Next()` | R |
 | `Random.NextFloat()` | **Y** | `Random.NextFloat()` | R |
 | `Random.Range(min, max)` | **Y** | `Random.Range(min, max)` | R |

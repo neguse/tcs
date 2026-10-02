@@ -38,8 +38,10 @@
       mark-sweep、`-DTCS_GC_STRESS`) と対応面の完成 (enum / LINQ / String /
       Math / Dict / format / IIFE)。tcs2c.Tests が samples + 機能別 program の
       2 backend stdout 一致 (GC stress 込み) を恒常ゲートにする
-      - 残: record の IL 契約収載と C 対応、Nullable<T>、closure 型 field の
-        直接呼び出しの IL 化、`int.TryParse` (いずれも需要待ち)
+      - T242–T245 完 (2026-10-02): delegate 型 field の直接呼び出し /
+        `int.TryParse`、record class の IL 収載と C 構造等価、Nullable<T> の
+        IL 明示ノード + lifted 演算子、Random の合意 PRNG (xoshiro256** 移植)
+      - 残: record struct の IlExport、`T?` の `?.` (IlIife の nil 比較のまま)
 - T219b 完 (done.md 参照): struct / record struct の値セマンティクス
   対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
 - [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で

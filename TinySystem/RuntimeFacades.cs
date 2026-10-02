@@ -7,7 +7,12 @@ namespace TinySystem;
 
 public static class Random
 {
-    private static readonly global::System.Random Shared = new();
+    private static global::System.Random Shared = new();
+
+    /// <summary>乱数列を seed で固定する (Lua 側は math.randomseed)。tcs の
+    /// 2 backend (Lua / C) は同じ PRNG (xoshiro256**) なので seed 固定時に
+    /// 列が一致する。dotnet 側は System.Random なので列は異なる。</summary>
+    public static void Seed(int seed) => Shared = new global::System.Random(seed);
 
     public static int Next() => Shared.Next();
     public static int Next(int max) => Shared.Next(max);

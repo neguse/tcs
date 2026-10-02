@@ -18,6 +18,7 @@ internal sealed partial class CEmitter
         #include <stdio.h>
         #include <stdlib.h>
         #include <string.h>
+        #include <time.h>
 
         _Static_assert(sizeof(float) == 4, "tcs2c requires IEEE-754 binary32");
         _Static_assert(FLT_RADIX == 2 && FLT_MANT_DIG == 24,

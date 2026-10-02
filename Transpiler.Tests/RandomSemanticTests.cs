@@ -49,4 +49,26 @@ public class RandomSemanticTests
             """, "tostring(T.test())");
         Assert.Equal("true", result);
     }
+
+    [Fact]
+    public void Random_Seed_MakesSequenceDeterministic()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            public class T
+            {
+                public static string Test()
+                {
+                    TinySystem.Random.Seed(42);
+                    var a = TinySystem.Random.Next(1000) + "," + TinySystem.Random.Range(1, 6)
+                        + "," + TinySystem.Random.NextFloat();
+                    TinySystem.Random.Seed(42);
+                    var b = TinySystem.Random.Next(1000) + "," + TinySystem.Random.Range(1, 6)
+                        + "," + TinySystem.Random.NextFloat();
+                    return (a == b) + ":" + a;
+                }
+            }
+            """, "T.test()");
+        // seed 42 の列は Lua 5.5 の math.randomseed(42) そのもの (C backend も同じ)
+        Assert.StartsWith("true:", result);
+    }
 }

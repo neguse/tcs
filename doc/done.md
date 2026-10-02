@@ -1685,3 +1685,9 @@
 - 判断: lifted 演算は診断で外さず全面対応 (ユーザー合意)。Lua の lifted helper は定数 op 関数 + 汎用 lift で closure 確保を避けた。`List<int?>` / `Dictionary<K, int?>` の null 要素は Lua table の穴になるため TCS1003 の範囲のまま (C は表現できるが仕様に揃える)。il-spec 付録 C の「Nullable<T> の位置づけ」は決着として削除
 - 残課題: `T?` の `?.` (IlIife の nil 比較のまま。C は安全網で動く)、`switch` の `case null` は ConstantPattern 経由で動くが Lua 側の legacy visitor は旧 nil 流儀のまま
 
+### T245: Random の合意 PRNG — Lua 5.5 xoshiro256** の C 移植と Random.Seed ✓ (2026-10-02)
+- facade `Random.Seed(int)` を TinySystem に追加 (Lua は `math.randomseed(n)`、dotnet は `Random.Shared = new Random(n)`)。tcs2c の C runtime に Lua 5.5 lmathlib の xoshiro256** を LUA_32BITS 構成のまま移植 (seed は `{n, 0xff, 0, 0}` + 16 回捨て、float は上位 24 bit から、整数範囲は `project` の rejection sampling)。`Random.Next / Next(max) / Next(min, max) / NextFloat / Range` を intrinsic として `tcs_rand_*` へ直結し、seed 未指定は起動ごとに time と address から seed する
+- 検証: tcs2c.Tests に seed 固定 program の 2 backend differential (Lua と C の列が bit 一致。C 通常 + GC stress)、RandomSemanticTests に Seed の決定性テスト、tcs2c.Tests 25/25、Transpiler.Tests は root 環境固有の permission テスト 1 件を除き green、verify-digests 3/3 不変
+- よかったこと: Lua の `math.random` を仕様として採用したので「Lua と C の列が一致する」が機械的に検証でき、il-spec §13 の Random 条項と付録 C の未決項目を決着できた
+- 判断: dotnet facade は System.Random のままなので乱数列は dotnet differential の対象外 (seed 固定テストは Lua / C 間のみ)。独自 PRNG を 3 backend に載せる案は、Lua backend の `math.random` を置き換える不利益の方が大きいので却下
+- 残課題: `Random` インスタンス (`new Random(seed)`) は facade 外のまま。必要になれば Seed 付き状態を持つ型として IL に載せる

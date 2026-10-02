@@ -520,4 +520,38 @@ public class DifferentialTests
             }
             """, "P");
     }
+
+    [CFact]
+    public void Random_SeededSequencesMatchLua()
+    {
+        // Lua 5.5 の xoshiro256** (LUA_32BITS 構成) を C に移植した合意 PRNG。
+        // seed 固定で Next / Next(max) / Next(min, max) / Range / NextFloat が
+        // bit 一致する
+        Backends.AssertParity("""
+            using TinySystem;
+            public class P
+            {
+                public static void Main()
+                {
+                    Random.Seed(12345);
+                    var s = "";
+                    for (int i = 0; i < 6; i++) s += Random.Next(100) + ",";
+                    System.Console.WriteLine(s);
+                    s = "";
+                    for (int i = 0; i < 6; i++) s += Random.Range(-5, 5) + ",";
+                    System.Console.WriteLine(s);
+                    s = "";
+                    for (int i = 0; i < 4; i++) s += Random.NextFloat() + ",";
+                    System.Console.WriteLine(s);
+                    s = "";
+                    for (int i = 0; i < 4; i++) s += Random.Next(1000, 2000) + "," + Random.Next() % 1000 + ";";
+                    System.Console.WriteLine(s);
+                    Random.Seed(-7);
+                    System.Console.WriteLine(Random.Next(1 << 30) + ":" + Random.Next(3) + ":" + Random.Range(0, 0) + ":" + Random.Next(2147483647));
+                    Random.Seed(12345);
+                    System.Console.WriteLine(Random.Next(100));
+                }
+            }
+            """, "P");
+    }
 }
