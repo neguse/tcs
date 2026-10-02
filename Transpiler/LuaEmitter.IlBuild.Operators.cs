@@ -23,6 +23,14 @@ public partial class LuaEmitter
         return new IlTable([.. items], elementType);
     }
 
+    private static IlExpr IntMinValueIl() =>
+        new IlParen(new IlBin(IlBinOp.Sub,
+            new IlUn(IlUnOp.Neg, new IlLit("2147483647")), new IlLit("1")));
+
+    // const の IL literal。int.MinValue だけは式形 (上記)
+    private static IlExpr LitFromConst(string text) =>
+        text == "-2147483648" ? IntMinValueIl() : new IlLit(text);
+
     private IlExpr? BuildWithExpr(SemanticModel model,
         WithExpressionSyntax withExpr)
     {
@@ -61,6 +69,11 @@ public partial class LuaEmitter
                     operand, new IlNullableWrap(new IlLit("1"), "int")),
                 _ => null,
             };
+        // `-2147483648` (int.MinValue) は literal 2147483648 が i32 に収まらない
+        // ので (-2147483647 - 1) の形で両 backend に渡す
+        if (prefix.IsKind(SyntaxKind.UnaryMinusExpression)
+            && model.GetConstantValue(prefix) is { HasValue: true, Value: int.MinValue })
+            return IntMinValueIl();
         return prefix.Kind() switch
         {
             SyntaxKind.UnaryMinusExpression => new IlUn(IlUnOp.Neg, operand),

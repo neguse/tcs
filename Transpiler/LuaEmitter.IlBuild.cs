@@ -507,7 +507,10 @@ public partial class LuaEmitter
         var read = BuildExpr(model, assign.Left);
         var right = BuildExpr(model, assign.Right);
         if (read == null || right == null) return false;
-        var applied = BuildCompoundValue(model, assign, op, read, right);
+        // `x op= a ⊕ b` は x = x op (a ⊕ b)。Lua の演算子優先順位 (xor / | /
+        // shift は + より弱い) に依らず右辺を 1 項として括る
+        var applied = BuildCompoundValue(model, assign, op, read,
+            right is IlBin or IlLiftedBin or IlTernary ? new IlParen(right) : right);
         if (applied == null) return false;
         acc.Add(new IlAssign(read, applied) { Origin = origin });
         return true;

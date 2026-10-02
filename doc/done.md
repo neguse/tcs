@@ -1716,3 +1716,11 @@
 - 判断: 静的 `Random.Next()` の facade は廃止 (同名 instance method と共存できない)。BCL と同じ `Random.Shared` の形を取る方が CoreCLR 側の経験に揃う。auto seed は時刻 + カウンタ (instance ごとに異なる) で、Shared の列を消費しない
 - 残課題: `NextDouble` / `NextBytes` / `Shuffle` は double / Span がサブセット外のため対象外のまま
 
+### T249: シフトの C# 意味論と compound 右辺の括り、int.MinValue literal ✓ (2026-10-02)
+- Lua backend の `<<` / `>>` を `__tcs_shl` / `__tcs_shr` (count は 31 でマスク、int の `>>` は算術シフト) に変更し、support-matrix §4.2 の既知差異「負数 `>>`」「シフト量の無マスク」を解消。IL emit / lifted op / legacy visitor / runtime alias の全経路
+- `x op= a ⊕ b` の展開で右辺を括っていなかった (`s += a ^ b` が Lua の優先順位で `(s + a) ~ b` に化ける silent wrong-code。`x *= a + b` も同様) のを IL builder / legacy の両方で修正
+- `-2147483648` / `int.MinValue` const は literal 2147483648 が lua32 で float になり C でも i32 literal として読めないため、`(-2147483647 - 1)` の式形で出す
+- 検証: BitwiseOperatorTests に算術シフト / count マスク / compound 右辺 / int.MinValue (いずれも dotnet differential で実 .NET と一致)、tcs2c.Tests にシフトの 2 backend differential (40 段の総和まで一致)
+- 判断: 数値基準は lua32 (LUA_32BITS) なので、64bit Lua での上位 32bit の差は基準外として matrix の注記を書き換えた
+- 残課題: for の増分式 (`i += a ^ b`) の StepValue 経路は compound と別経路のまま (括りは不要な形のみ受ける)
+

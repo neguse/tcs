@@ -617,6 +617,18 @@ function TinySystem.arr(n, init)
   return t
 end
 
+-- C# のシフト (生成コードは __tcs_shl / __tcs_shr global 経由): count は
+-- 31 でマスク、int の >> は算術シフト (Lua native は論理)
+function TinySystem.shl(a, n)
+  return a << (n & 31)
+end
+
+function TinySystem.shr(a, n)
+  n = n & 31
+  if a >= 0 then return a >> n end
+  return ~((~a) >> n)
+end
+
 -- (int)f: 0 方向 truncation (生成コードは __tcs_trunc global 経由)
 function TinySystem.trunc(x)
   local i = math.tointeger(x)
@@ -656,8 +668,8 @@ TinySystem.nops = {
   band = function(a, b) return a & b end,
   bor = function(a, b) return a | b end,
   bxor = function(a, b) if type(a) == "boolean" then return a ~= b end return a ~ b end,
-  shl = function(a, b) return a << b end,
-  shr = function(a, b) return a >> b end,
+  shl = function(a, b) return TinySystem.shl(a, b) end,
+  shr = function(a, b) return TinySystem.shr(a, b) end,
   lt = function(a, b) return a < b end,
   le = function(a, b) return a <= b end,
   gt = function(a, b) return a > b end,

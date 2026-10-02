@@ -199,7 +199,7 @@ public partial class LuaEmitter
         var symbol = model.GetSymbolInfo(id).Symbol;
         var name = id.Identifier.ValueText;
         if (ConstLiteral(symbol) is { } constLit)
-            return new IlLit(constLit);
+            return LitFromConst(constLit);
         switch (symbol)
         {
             case IMethodSymbol { IsStatic: true, ContainingType: not null } sm:
@@ -580,7 +580,7 @@ public partial class LuaEmitter
         if (symbol is INamedTypeSymbol namedType)
             return new IlVar(TypeRef(namedType));
         if (ConstLiteral(symbol) is { } constLit)
-            return new IlLit(constLit);
+            return LitFromConst(constLit);
         // Rune.Value: utf8.codes の値は codepoint 整数そのもの
         if (IsRuneValue(symbol))
             return BuildExpr(model, ma.Expression);

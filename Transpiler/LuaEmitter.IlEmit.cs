@@ -303,6 +303,10 @@ public partial class LuaEmitter
         IlField f => $"{RenderIl(f.Recv)}.{f.Name}",
         IlIndex ix => $"{RenderIl(ix.Recv)}[{RenderIl(ix.Idx)}{(ix.PlusOne ? " + 1" : "")}]",
         IlLen len => $"#{RenderIl(len.E)}",
+        // シフトは C# 意味論 (count & 31、>> は算術) を helper で与える。
+        // Lua native の >> は論理、count は無マスク (il-spec §4 / support-matrix §4.2)
+        IlBin { Op: IlBinOp.Shl } shl => $"__tcs_shl({RenderIl(shl.L)}, {RenderIl(shl.R)})",
+        IlBin { Op: IlBinOp.Shr } shr => $"__tcs_shr({RenderIl(shr.L)}, {RenderIl(shr.R)})",
         IlBin bin => $"{RenderIl(bin.L)} {RenderIlOp(bin.Op)} {RenderIl(bin.R)}",
         IlUn { Op: IlUnOp.Neg } un => $"-{RenderIl(un.E)}",
         IlUn { Op: IlUnOp.Not } un => $"not {RenderIl(un.E)}",

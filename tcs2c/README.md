@@ -70,8 +70,8 @@ Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要�
   `tcs_fault(kind)` で stderr へ出して exit 1 (il-spec §12)
 
 明示エラー (未対応): `object` 型の local、
-`StringBuilder`、char の算術 / `CompareTo`、Lua 固有の `IlIsLuaType`。Lua backend 側の既知差異 (`new T[n]` の `.Length`、負数の
-`>>`) は support-matrix 参照。
+`StringBuilder`、char の算術 / `CompareTo`、Lua 固有の `IlIsLuaType`。Lua backend 側の既知差異は
+参照型要素の `new T[n]` (要素 nil / `.Length` 0) のみ (support-matrix 参照)。
 
 通常の `print` は stdout へ値を出す。digest kernel 回帰用だけは
 `--digest-f32` を付け、各 f32 の bit 列を FNV-1a へ直接投入する。

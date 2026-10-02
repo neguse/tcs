@@ -753,4 +753,27 @@ public class DifferentialTests
             }
             """, "P");
     }
+
+    // シフトの C# 意味論 (負数 >> は算術、count は 31 でマスク) を両 backend で
+    [CFact]
+    public void Shifts_ArithmeticRightShiftAndMaskedCount()
+    {
+        Backends.AssertParity("""
+            using System;
+            public class P
+            {
+                public static void Main()
+                {
+                    int a = -8; int b = -1; int c = 1; int n = 33; int m = -1;
+                    int x = -1024; x >>= 2;
+                    int y = 3; y <<= 34;
+                    int? q = -16; int? r = q >> 2;
+                    Console.WriteLine((a >> 1) + "|" + (b >> 31) + "|" + (c << n) + "|" + (a >> n) + "|" + (c << m) + "|" + (b >> 0) + "|" + x + "|" + y + "|" + (-2147483648 >> 31) + "|" + r);
+                    var s = 0;
+                    for (int i = 0; i < 40; i++) s += (0x12345678 >> i) ^ (-0x12345678 >> i) ^ (1 << i);
+                    Console.WriteLine(s);
+                }
+            }
+            """, "P");
+    }
 }

@@ -258,6 +258,11 @@ public partial class LuaEmitter
             SyntaxKind.RightShiftExpression => ">>",
             _ => WarnUnsupported(bin, $"binary expression: {bin.Kind()}")
         };
+        // シフトは C# 意味論の helper (IL backend と同じ)
+        if (bin.IsKind(SyntaxKind.LeftShiftExpression))
+            return $"__tcs_shl({left}, {right})";
+        if (bin.IsKind(SyntaxKind.RightShiftExpression))
+            return $"__tcs_shr({left}, {right})";
         return $"{left} {op} {right}";
     }
 
@@ -293,6 +298,9 @@ public partial class LuaEmitter
     private string VisitPrefixUnary(SemanticModel model, PrefixUnaryExpressionSyntax prefix)
     {
         var operand = VisitExpression(model, prefix.Operand);
+        if (prefix.IsKind(SyntaxKind.UnaryMinusExpression)
+            && model.GetConstantValue(prefix) is { HasValue: true, Value: int.MinValue })
+            return "(-2147483647 - 1)"; // 2147483648 は lua32 で float literal になる
         return prefix.Kind() switch
         {
             SyntaxKind.UnaryMinusExpression => $"-{operand}",
@@ -422,7 +430,8 @@ public partial class LuaEmitter
         }
 
         var left = VisitExpression(model, assign.Left);
-        return CompoundWrite(model, assign, op, left, right);
+        // 右辺は 1 項 (Lua の xor / | / shift は + より弱い)
+        return CompoundWrite(model, assign, op, left, $"({right})");
     }
 
     private string CompoundWrite(SemanticModel model,

@@ -33,6 +33,14 @@ public partial class LuaEmitter
         AppendLine("  if x >= 0 then return math.floor(x) end");
         AppendLine("  return math.ceil(x)");
         AppendLine("end");
+        // C# のシフト: count は 31 でマスク、int の >> は算術 (符号拡張)。
+        // Lua native は count 無マスク・>> 論理なので helper を通す
+        AppendLine("local function __tcs_shl(a, n) return a << (n & 31) end");
+        AppendLine("local function __tcs_shr(a, n)");
+        AppendLine("  n = n & 31");
+        AppendLine("  if a >= 0 then return a >> n end");
+        AppendLine("  return ~((~a) >> n)");
+        AppendLine("end");
         // Nullable<T> (il-spec §13): nil = 値なし。.Value の値なしは fault、
         // lifted 演算は片方でも nil なら nil (比較は false)、bool? の & |
         // は三値論理。op 関数は定数なので closure 確保は無い
@@ -66,8 +74,8 @@ public partial class LuaEmitter
         AppendLine("local function __tcs_op_bor(a, b) return a | b end");
         // bool? の ^ は boolean xor (a ~= b)
         AppendLine("local function __tcs_op_bxor(a, b) if type(a) == \"boolean\" then return a ~= b end return a ~ b end");
-        AppendLine("local function __tcs_op_shl(a, b) return a << b end");
-        AppendLine("local function __tcs_op_shr(a, b) return a >> b end");
+        AppendLine("local function __tcs_op_shl(a, b) return __tcs_shl(a, b) end");
+        AppendLine("local function __tcs_op_shr(a, b) return __tcs_shr(a, b) end");
         AppendLine("local function __tcs_op_lt(a, b) return a < b end");
         AppendLine("local function __tcs_op_le(a, b) return a <= b end");
         AppendLine("local function __tcs_op_gt(a, b) return a > b end");
