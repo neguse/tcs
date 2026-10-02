@@ -5,7 +5,7 @@ namespace TinyCs.Tcs2c;
 
 internal sealed class Tcs2cException(string message) : Exception(message);
 
-internal enum CTypeKind { Void, I32, F32, Bool, String, Ref, Array, List, Null, Dict, Kvp, Closure, StructVal, Nullable, Random }
+internal enum CTypeKind { Void, I32, F32, Bool, String, Ref, Array, List, Null, Dict, Kvp, Closure, StructVal, Nullable, Random, Object }
 
 internal sealed record CType(CTypeKind Kind, string? Name = null,
     CType? Element = null, CType? Key = null,
@@ -19,6 +19,9 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
     public static readonly CType Null = new(CTypeKind.Null);
     /// <summary>TinySystem.Random の instance (runtime の TcsRandom、GC object)。</summary>
     public static readonly CType Random = new(CTypeKind.Random);
+    /// <summary>`object`: 参照型はそのまま、int / float / bool は box (TcsBox)。
+    /// 実行時型 tag (GC header の type_id) で cast を検査する。</summary>
+    public static readonly CType Object = new(CTypeKind.Object);
 
     public static CType Ref(string name) => new(CTypeKind.Ref, name);
     /// <summary>データ struct。C では素の値型 (ポインタなし)。</summary>
@@ -52,6 +55,7 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
         CTypeKind.Dict => "TcsDict *",
         CTypeKind.Closure => "TcsClosure *",
         CTypeKind.Random => "TcsRandom *",
+        CTypeKind.Object => "void *",
         CTypeKind.Nullable => Element!.Kind switch
         {
             CTypeKind.I32 => "TcsOptI32",
@@ -70,6 +74,8 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
     public bool CanAssignFrom(CType source) =>
         this == source
         || (Kind == CTypeKind.F32 && source.Kind == CTypeKind.I32)
+        || (Kind == CTypeKind.Object && (source.IsNullable
+            || source.Kind is CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool))
         || (Kind == CTypeKind.Nullable
             && (source.Kind == CTypeKind.Null || Element!.CanAssignFrom(source)))
         || (IsNullable && source.Kind == CTypeKind.Null)
@@ -85,7 +91,7 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
 
     public bool IsNullable => Kind is CTypeKind.String or CTypeKind.Ref
         or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
-        or CTypeKind.Closure or CTypeKind.Random;
+        or CTypeKind.Closure or CTypeKind.Random or CTypeKind.Object;
 
     public override string ToString() => Kind switch
     {
@@ -118,6 +124,10 @@ internal static partial class Names
         $"tcs_s_{Id(cls)}_{Id(name)}";
     public static string Method(string cls, string name) =>
         $"tcs_m_{Id(cls)}_{Id(name)}";
+    public static string StaticInit(string cls) => $"tcs_sinit_{Id(cls)}";
+    public static string InterfaceCheck(string iface) => $"tcs_is_{Id(iface)}";
+    public static string StaticPlace(string cls, string name) =>
+        $"tcs_sp_{Id(cls)}_{Id(name)}";
     public static string New(string cls) => $"tcs_new_{Id(cls)}";
     public static string TypeId(string cls) => $"TCS_TYPE_{Id(cls)}";
     public static string TypeIdMax(string cls) => $"TCS_TYPE_MAX_{Id(cls)}";

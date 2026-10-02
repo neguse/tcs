@@ -1,7 +1,7 @@
 namespace TinyCs.Tcs2c.Tests;
 
 // GC の意味論テスト (T252: フレーム同期の世代別 GC)。GC はフレーム境界
-// (lib 形の tcs_lib_gc) でだけ走るので、lib 形で Setup / Frame×N / Report
+// (lib 形の entry から戻った点 / tcs_lib_gc) でだけ走るので、lib 形で Setup / Frame×N / Report
 // を回し、各 root (static / host hold) と各 container 種別 / ライトバリア
 // 経路で保持した object がフレームを跨いで生きること、到達不能な garbage が
 // 境界で解放されて heap が有界に保たれることを、stress (毎境界で旧世代 full
@@ -193,9 +193,10 @@ public class GcTests
     [CFact]
     public void Garbage_IsReclaimed_AtFrameBoundary_HeapStaysBounded()
     {
-        // 毎フレーム ~2 MB の到達不能な確保 + 64 KB の static 保持。境界で
-        // nursery は chunk 1 個に戻り、昇格は保持分だけ、昇格 bytes が閾値
-        // (1 MiB) を超えた境界で旧世代 mark-sweep が走り生存は 1 個分に収まる
+        // 毎フレーム ~2 MB の到達不能な確保 + 64 KB の static 保持。entry から
+        // 戻った境界で nursery は chunk 1 個に戻り、昇格は保持分だけ、昇格
+        // bytes が閾値 (1 MiB) を超えた境界で旧世代 mark-sweep が走り生存は
+        // 1 個分に収まる (host 側の統計 tcs_lib_heap_bytes も同じ値を返す)
         const string source = """
             public class Blob { public int[] Data; public Blob(int n) { Data = new int[n]; } }
             public class Program
@@ -228,17 +229,14 @@ public class GcTests
             int main(void)
             {
                 int i;
-                size_t peak_chunks = 0;
                 tcs_lib_init();
-                for (i = 0; i < 50; i++) {
-                    tcs_entry_Program_frame();
-                    if (tcs_gc_nursery_chunks > peak_chunks) peak_chunks = tcs_gc_nursery_chunks;
-                    tcs_lib_gc();
-                }
+                for (i = 0; i < 50; i++) tcs_entry_Program_frame();
                 tcs_entry_Program_report();
-                printf("frames=%zu collections=%zu promoted=%zu live=%zu chunks=%zu peak=%zu nursery=%zu\n",
+                tcs_lib_collect();
+                printf("frames=%zu collections=%zu promoted=%zu live=%zu chunks=%zu nursery=%zu heap=%zu objects=%zu\n",
                     tcs_gc_frames, tcs_gc_collections, tcs_gc_promoted_bytes,
-                    tcs_gc_live_bytes, tcs_gc_nursery_chunks, peak_chunks, tcs_gc_nursery_bytes);
+                    tcs_gc_live_bytes, tcs_gc_nursery_chunks, tcs_gc_nursery_bytes,
+                    tcs_lib_heap_bytes(), tcs_lib_heap_objects());
                 return 0;
             }
             """;
@@ -248,14 +246,17 @@ public class GcTests
         var stats = lines[2].Split(' ')
             .Select(kv => kv.Split('='))
             .ToDictionary(kv => kv[0], kv => long.Parse(kv[1]));
-        Assert.Equal(50, stats["frames"]);
-        Assert.True(stats["peak"] > 1, "frame garbage should span several nursery chunks");
+        // init + 50 frame + report の各 entry と明示 collect が境界
+        Assert.Equal(53, stats["frames"]);
         Assert.Equal(1, stats["chunks"]);
         Assert.Equal(0, stats["nursery"]);
         // 50 × (64 KB + Blob) の昇格 ≈ 3.3 MB (garbage は昇格されない)
         Assert.InRange(stats["promoted"], 50L * 65536, 50L * 65536 + 50 * 1024);
         Assert.True(stats["collections"] >= 2, $"expected old-gen collections, got {stats["collections"]}");
         Assert.True(stats["live"] < 3 * 65536, $"live bytes after last GC too large: {stats["live"]}");
+        // 明示 collect の後は host 統計 = 旧世代の生存 (Last 1 個 + Blob) だけ
+        Assert.True(stats["heap"] < 3 * 65536, $"heap bytes too large: {stats["heap"]}");
+        Assert.InRange(stats["objects"], 2, 4);
     }
 
     [CFact]

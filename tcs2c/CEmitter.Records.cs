@@ -117,6 +117,7 @@ internal sealed partial class CEmitter
         sb.Append($"TcsGcHeader *{header} = TCS_GC_HEADER({src}); ");
         sb.Append($"{type.CName} {copy} = tcs_new_object({header}->layout); ");
         sb.Append($"memcpy({copy}, {src}, {header}->layout->size); ");
+        sb.Append($"TCS_GC_HEADER({copy})->type_id = {header}->type_id; ");
         foreach (var (name, value) in with.Overrides)
         {
             var fieldType = FieldInChain(type.Name!, name).Type;

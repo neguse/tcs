@@ -12,7 +12,7 @@ public partial class LuaEmitter
     private IlExpr? BuildArrayItems(SemanticModel model,
         InitializerExpressionSyntax? initializer, string? elementType = null)
     {
-        if (initializer == null) return new IlTable([], elementType);
+        if (initializer == null) return new IlTable([], elementType, IsArray: true);
         var items = new List<IlTableEntry>();
         foreach (var e in initializer.Expressions)
         {
@@ -20,16 +20,23 @@ public partial class LuaEmitter
             if (built == null) return null;
             items.Add(new IlTableEntry(null, built));
         }
-        return new IlTable([.. items], elementType);
+        return new IlTable([.. items], elementType, IsArray: true);
     }
 
     private static IlExpr IntMinValueIl() =>
         new IlParen(new IlBin(IlBinOp.Sub,
             new IlUn(IlUnOp.Neg, new IlLit("2147483647")), new IlLit("1")));
 
-    // const の IL literal。int.MinValue だけは式形 (上記)
-    private static IlExpr LitFromConst(string text) =>
-        text == "-2147483648" ? IntMinValueIl() : new IlLit(text);
+    // const の IL literal。int.MinValue だけは式形 (上記)。float / double の
+    // const は Type = "float" を付け、C backend が整数 literal に見える値
+    // (2f 等) を F32 のまま扱えるようにする
+    private static IlExpr LitFromConst(string text, ISymbol? symbol = null) =>
+        text == "-2147483648" ? IntMinValueIl() : new IlLit(text, symbol switch
+        {
+            IFieldSymbol { Type.SpecialType: SpecialType.System_Single or SpecialType.System_Double }
+                or ILocalSymbol { Type.SpecialType: SpecialType.System_Single or SpecialType.System_Double } => "float",
+            _ => null,
+        });
 
     private IlExpr? BuildWithExpr(SemanticModel model,
         WithExpressionSyntax withExpr)

@@ -57,6 +57,9 @@ internal sealed partial class CEmitter
         static size_t tcs_gc_collections;       /* 旧世代 mark-sweep 回数 */
         static size_t tcs_gc_frames;            /* 境界回数 */
         static size_t tcs_gc_promoted_bytes;    /* 累計昇格 bytes */
+        static size_t tcs_gc_old_bytes;         /* 旧世代の現在 bytes (header 込み) */
+        static size_t tcs_gc_nursery_objects;   /* 今フレームの確保 object 数 */
+        static unsigned tcs_gc_call_depth;      /* entry の入れ子深さ (0 = 境界) */
         static int tcs_gc_collecting;
 
         static TcsGcHeader **tcs_gc_mark_stack; /* mark / 昇格 scan の両方で使う */
@@ -211,6 +214,7 @@ internal sealed partial class CEmitter
             }
             tcs_gc_object_count = survivors;
             tcs_gc_live_bytes = live;
+            tcs_gc_old_bytes = live;
             tcs_gc_allocated_since = 0;
             tcs_gc_threshold = live > TCS_GC_MIN_THRESHOLD
                 ? live : TCS_GC_MIN_THRESHOLD;
@@ -249,11 +253,13 @@ internal sealed partial class CEmitter
             hdr = (TcsGcHeader *)(tcs_gc_nursery_cur->data + tcs_gc_nursery_cur->used);
             tcs_gc_nursery_cur->used += need;
             tcs_gc_nursery_bytes += need;
+            tcs_gc_nursery_objects++;
             hdr->next = NULL;
             hdr->layout = layout;
             hdr->size = size;
-            hdr->kind = kind;
+            hdr->kind = (uint16_t)kind;
             hdr->flags = 0;
+            hdr->type_id = 0;
             return TCS_GC_PAYLOAD(hdr);
         }
 
@@ -275,6 +281,7 @@ internal sealed partial class CEmitter
             tcs_gc_nursery_cur = tcs_gc_nursery;
             tcs_gc_nursery_chunks = 1;
             tcs_gc_nursery_bytes = 0;
+            tcs_gc_nursery_objects = 0;
         }
 
         /* ---- 昇格 (若い object を旧世代へ copy、Cheney) ---- */
@@ -296,6 +303,7 @@ internal sealed partial class CEmitter
             tcs_gc_object_count++;
             tcs_gc_allocated_since += sizeof(*copy) + hdr->size;
             tcs_gc_promoted_bytes += sizeof(*copy) + hdr->size;
+            tcs_gc_old_bytes += sizeof(*copy) + hdr->size;
             hdr->next = copy;
             hdr->flags |= TCS_GC_FORWARD;
             /* 中身の slot は後で tcs_gc_forward_object (scan queue) */

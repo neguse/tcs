@@ -56,6 +56,10 @@
       - T252 完 (2026-10-02): GC をフレーム同期の世代別 (nursery bump +
         境界で精密 copy 昇格 + 旧世代 mark-sweep、ライトバリア) に置き換え、
         保守的 stack 走査を廃止。実行形は Main 全体が 1 フレーム
+      - T253 完 (2026-10-02): master の Codex 系列 (foreign --ref / interface /
+        object / generic 単相化 / 遅延 static 初期化 / 省略引数) をこちらの
+        runtime に移植して衝突解消。verify-gc / game-core / object-values /
+        host が run-tests のゲート
 - T219b 完 (done.md 参照): struct / record struct の値セマンティクス
   対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
 - [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で

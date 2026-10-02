@@ -34,10 +34,14 @@ internal sealed partial class CEmitter
         {
             if (entry.Key is null)
                 throw new Tcs2cException("dict IlTable entry without key");
-            var k = TypeOf(entry.Key);
-            var v = TypeOf(entry.Value);
-            key = key is null ? k : CommonType(key, k, "dict keys");
-            value = value is null ? v : CommonType(value, v, "dict values");
+            // 契約の key / value 型があれば各項はそれへ代入可能であれば良い
+            // (object 値の box、派生 → 基底の upcast)。無ければ共通型で推論
+            if (table.KeyType is not null) CheckAssignable(key!, entry.Key, "dict key");
+            else key = key is null ? TypeOf(entry.Key)
+                : CommonType(key, TypeOf(entry.Key), "dict keys");
+            if (table.ElementType is not null) CheckAssignable(value!, entry.Value, "dict value");
+            else value = value is null ? TypeOf(entry.Value)
+                : CommonType(value, TypeOf(entry.Value), "dict values");
         }
         if (key is null || value is null)
             throw new Tcs2cException(
@@ -52,9 +56,9 @@ internal sealed partial class CEmitter
         var type = TypeOfDictTable(table);
         var dictTemp = Temp("dict");
         var sb = new StringBuilder();
-        sb.Append($"TcsDict *{dictTemp} = tcs_dict_new(" +
+        sb.Append($"TcsDict *{dictTemp} = tcs_typed(tcs_dict_new(" +
             $"{(type.Key!.Kind == CTypeKind.String ? 1 : 0)}, " +
-            $"sizeof({type.Element!.CName}), {LayoutRef(type.Element)}); ");
+            $"sizeof({type.Element!.CName}), {LayoutRef(type.Element)}), {RuntimeTypeId(type)}); ");
         foreach (var entry in table.Entries)
         {
             var valueTemp = Temp("dict_value");
@@ -88,6 +92,7 @@ internal sealed partial class CEmitter
 
     private void EmitMultiAssign(IlMultiAssign multi)
     {
+        if (EmitForeignMultiAssign(multi)) return;
         if (multi.Values.Length == multi.Targets.Length && multi.Values.Length > 0)
         {
             EmitPairwiseMultiAssign(multi);

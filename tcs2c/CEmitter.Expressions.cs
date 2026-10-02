@@ -27,6 +27,8 @@ internal sealed partial class CEmitter
         // C の struct 値代入がそのまま copy (il-spec §10 は Lua 側の都合)
         IlStructCopy copy => RenderExpr(copy.E),
         IlCast cast => RenderCast(cast),
+        IlNumericConvert convert => RenderNumericConvert(convert),
+        IlRefCast refCast => RenderRefCast(refCast),
         IlNullableWrap wrap => RenderNullableWrap(wrap),
         IlNullableHasValue has => $"(({RenderExpr(has.E)}).has)",
         IlNullableValue val => RenderNullableValue(val),
@@ -65,6 +67,8 @@ internal sealed partial class CEmitter
         IlIsType typeTest => TypeOfIsType(typeTest),
         IlStructCopy copy => TypeOf(copy.E),
         IlCast cast => TypeOfCast(cast),
+        IlNumericConvert convert => TypeOfNumericConvert(convert),
+        IlRefCast refCast => TypeOfRefCast(refCast),
         IlNullableWrap wrap => TypeOfNullableWrap(wrap),
         IlNullableHasValue has => RequireNullable(has.E, "HasValue") is { } ? CType.Bool : CType.Bool,
         IlNullableValue val => RequireNullable(val.E, "Value").Element!,
@@ -84,6 +88,7 @@ internal sealed partial class CEmitter
 
     private string RenderField(IlField field)
     {
+        if (ForeignValue(field) is { } foreignValue) return RenderForeignValue(foreignValue).Value;
         if (TryStaticField(field, out var staticName, out _)) return staticName;
         var receiver = TypeOf(field.Recv);
         if (receiver.Kind == CTypeKind.Kvp && field.Recv is IlVar kvpVar)
@@ -109,6 +114,7 @@ internal sealed partial class CEmitter
 
     private CType TypeOfField(IlField field)
     {
+        if (ForeignValue(field) is { } foreignValue) return RenderForeignValue(foreignValue).Type;
         if (TryStaticField(field, out _, out var staticType)) return staticType;
         var receiver = TypeOf(field.Recv);
         if (receiver.Kind == CTypeKind.Kvp)
@@ -154,7 +160,7 @@ internal sealed partial class CEmitter
             var metadata = cls.Fields.FirstOrDefault(f => f.Name == field.Name && f.IsStatic);
             if (metadata is not null)
             {
-                cName = Names.StaticField(cls.Name, field.Name);
+                cName = StaticFieldPlace(cls, field.Name);
                 type = _facts.Field(cls.Name, field.Name).Type;
                 return true;
             }
@@ -289,6 +295,11 @@ internal sealed partial class CEmitter
             $"tcs_string_equal({left}, {right})",
         IlBinOp.Ne when leftType == CType.String && rightType == CType.String =>
             $"(!tcs_string_equal({left}, {right}))",
+        // 参照の同一性: 関連 class / object / null は型が違っても pointer 比較
+        IlBinOp.Eq when leftType.IsNullable || rightType.IsNullable =>
+            $"((void *){left} == (void *){right})",
+        IlBinOp.Ne when leftType.IsNullable || rightType.IsNullable =>
+            $"((void *){left} != (void *){right})",
         IlBinOp.Eq => $"({left} == {right})",
         IlBinOp.Ne => $"({left} != {right})",
         IlBinOp.Lt => $"({left} < {right})",
@@ -378,6 +389,7 @@ internal sealed partial class CEmitter
 
     private string RenderCall(IlCall call)
     {
+        if (ForeignMethod(call.Callee) is { } foreign) return RenderForeignCall(foreign, call.Args);
         var type = TypeOfCall(call);
         return call.Callee switch
         {
@@ -405,6 +417,7 @@ internal sealed partial class CEmitter
 
     private CType TypeOfCall(IlCall call)
     {
+        if (ForeignMethod(call.Callee) is { } foreign) return TypeOfForeignCall(foreign, call.Args);
         if (call.Callee is "__tcs_idiv" or "__tcs_irem")
         {
             RequireArity(call.Callee, call.Args.Length, 2);
@@ -475,7 +488,7 @@ internal sealed partial class CEmitter
         var (cls, method) = ParseUserCallee(call.Callee);
         var fact = _facts.Method(cls, method);
         // base 呼び出し (IlCall "Base.M" with self 先頭) は非仮想の直呼び
-        if (!fact.IsStatic && call.Args.Length == fact.Parameters.Count + 1)
+        if (!fact.IsStatic && call.Args.Length >= 1)
         {
             var self = TypeOf(call.Args[0]);
             if (self.Kind != CTypeKind.Ref
@@ -572,7 +585,7 @@ internal sealed partial class CEmitter
             return RenderStructCall(st, member, call.Args);
         var (cls, method) = ParseUserCallee(call.Callee);
         var fact = _facts.Method(cls, method);
-        if (!fact.IsStatic && call.Args.Length == fact.Parameters.Count + 1)
+        if (!fact.IsStatic && call.Args.Length >= 1)
         {
             // base 呼び出し: dispatcher を通さない直呼び
             return RenderMethodCall(fact, call.Args[0],
@@ -595,6 +608,7 @@ internal sealed partial class CEmitter
 
     private CType TypeOfDynCall(IlDynCall call)
     {
+        if (ForeignCallee(call.Callee) is { } foreign) return TypeOfForeignCall(foreign, call.Args);
         if (AsMathCall(call) is { } mathCall) return TypeOfIntrinsic(mathCall);
         if (IsConsoleWrite(call))
         {
@@ -634,6 +648,7 @@ internal sealed partial class CEmitter
 
     private string RenderDynCall(IlDynCall call)
     {
+        if (ForeignCallee(call.Callee) is { } foreign) return RenderForeignCall(foreign, call.Args);
         if (AsMathCall(call) is { } mathCall) return RenderIntrinsic(mathCall);
         if (IsConsoleWrite(call))
             return RenderOrderedCall("tcs_write_string", CType.Void,
@@ -722,7 +737,7 @@ internal sealed partial class CEmitter
             throw new Tcs2cException($"call target is not static: {fact.ClassName}.{fact.Name}");
         if (receiver is not null && fact.IsStatic)
             throw new Tcs2cException($"IlInvoke target is static: {fact.ClassName}.{fact.Name}");
-        RequireArity($"{fact.ClassName}.{fact.Name}", args.Count, fact.Parameters.Count);
+        args = CompleteArguments(fact.Parameters, args, $"{fact.ClassName}.{fact.Name}");
         for (var i = 0; i < args.Count; i++)
             CheckAssignable(fact.Parameters[i].Type, args[i],
                 $"argument {i} of {fact.ClassName}.{fact.Name}");
@@ -732,6 +747,7 @@ internal sealed partial class CEmitter
     private string RenderMethodCall(MethodFact fact, IlExpr? receiver,
         IReadOnlyList<IlExpr> args, string? function = null)
     {
+        args = CompleteArguments(fact.Parameters, args, $"{fact.ClassName}.{fact.Name}");
         var values = new List<(CType Type, string Value)>();
         if (receiver is not null)
         {

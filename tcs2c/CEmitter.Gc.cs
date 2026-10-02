@@ -17,7 +17,8 @@ internal sealed partial class CEmitter
     {
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool => "NULL",
         CTypeKind.String or CTypeKind.Ref or CTypeKind.Array or CTypeKind.List
-            or CTypeKind.Dict or CTypeKind.Closure or CTypeKind.Random => "&tcs_layout_ptr",
+            or CTypeKind.Dict or CTypeKind.Closure or CTypeKind.Random
+            or CTypeKind.Object => "&tcs_layout_ptr",
         CTypeKind.StructVal => $"&{Names.StructLayout(type.Name!)}",
         CTypeKind.Nullable => type.Element!.Kind == CTypeKind.StructVal
             ? $"&{Names.NullableLayout(type.Element.Name!)}" : "NULL",
@@ -26,7 +27,7 @@ internal sealed partial class CEmitter
 
     private static bool IsPointerType(CType type) => type.Kind
         is CTypeKind.String or CTypeKind.Ref or CTypeKind.Array or CTypeKind.List
-        or CTypeKind.Dict or CTypeKind.Closure or CTypeKind.Random;
+        or CTypeKind.Dict or CTypeKind.Closure or CTypeKind.Random or CTypeKind.Object;
 
     // struct 値 1 個の中の pointer slot (byte offset 式)。struct-in-struct は
     // offsetof の加算で平坦化する
@@ -179,7 +180,7 @@ internal sealed partial class CEmitter
             $"static const struct {{ TcsGcHeader h; size_t length; " +
             $"unsigned char data[{bytes.Length + 1}]; }} {name} = " +
             $"{{ {{ NULL, NULL, sizeof(size_t) + {bytes.Length}, TCS_KIND_RAW, " +
-            $"TCS_GC_STATIC }}, {bytes.Length}, \"{escaped}\" }};");
+            $"TCS_GC_STATIC, TCS_TYPE_STRING }}, {bytes.Length}, \"{escaped}\" }};");
         var reference = $"((TcsString *)&{name}.length)";
         _literals[key] = reference;
         return reference;

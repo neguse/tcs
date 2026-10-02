@@ -94,12 +94,28 @@ internal sealed partial class CEmitter
         return chain;
     }
 
+    // ancestor は base chain 上の class か、chain のどこかが実装する interface
     internal bool IsAncestorOrSame(string ancestor, string derived)
     {
         for (string? cur = derived; cur != null; cur = _classes[cur].BaseName)
+        {
             if (cur == ancestor) return true;
+            if (!_classes[cur].Interfaces.IsDefault
+                && _classes[cur].Interfaces.Any(i => SimpleTypeName(i) == ancestor))
+                return true;
+        }
         return false;
     }
+
+    private static string SimpleTypeName(string displayName)
+    {
+        var text = displayName.StartsWith("global::", StringComparison.Ordinal)
+            ? displayName[8..] : displayName;
+        var dot = text.LastIndexOf('.');
+        return dot < 0 ? text : text[(dot + 1)..];
+    }
+
+    private bool IsInterface(string cls) => _classes[cls].IsInterface;
 
     // name を宣言する最も近い chain 上の class (自身含む)
     private string? FindDeclaringClass(string cls, string method)
@@ -117,9 +133,11 @@ internal sealed partial class CEmitter
         throw new Tcs2cException($"unknown field: {cls}.{name}");
     }
 
-    // declaring で宣言された method を strict 子孫が再宣言しているか
+    // declaring で宣言された method を strict 子孫が再宣言しているか。
+    // interface の method は常に実装側へ dispatch する
     private bool IsPolymorphic(string declaring, string method) =>
-        _program.Classes.Any(c => c.Name != declaring
+        IsInterface(declaring)
+        || _program.Classes.Any(c => c.Name != declaring
             && IsAncestorOrSame(declaring, c.Name)
             && c.Methods.Any(m => m.Name == method));
 
@@ -147,6 +165,7 @@ internal sealed partial class CEmitter
         _output.Append(RuntimeLib);
         Line(LiteralsMarker);
         EmitClassDeclarations();
+        EmitInterfaceChecks();
         EmitStaticFields();
         EmitStaticRoots();
         EmitMethodPrototypes();
@@ -189,7 +208,7 @@ internal sealed partial class CEmitter
                 if (!methodNames.Add(method.Name))
                     throw new Tcs2cException($"method overloads are not supported: " +
                         $"{cls.Name}.{method.Name}");
-                if (method.Body is null)
+                if (method.Body is null && !method.IsAbstract && !cls.IsInterface)
                     throw new Tcs2cException($"method has no IL body: {cls.Name}.{method.Name}");
                 var fact = _facts.Method(cls.Name, method.Name);
                 EnsureSupportedStorageType(fact.ReturnType,
@@ -215,7 +234,7 @@ internal sealed partial class CEmitter
     {
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool or CTypeKind.String
             or CTypeKind.Ref or CTypeKind.StructVal or CTypeKind.Closure
-            or CTypeKind.Nullable or CTypeKind.Random => true,
+            or CTypeKind.Nullable or CTypeKind.Random or CTypeKind.Object => true,
         CTypeKind.Dict => type.Key is not null && type.Element is not null
             && IsStorageType(type.Element),
         CTypeKind.Array or CTypeKind.List => type.Element is not null
@@ -273,6 +292,9 @@ internal sealed partial class CEmitter
             Line($"struct {Names.Class(cls.Name)} {{");
             _indent++;
             Line("uint32_t type_id;");
+            // host と共有する外部 data class: host 側の handle (GC は見ない)
+            if (ChainRootFirst(cls.Name).Any(c => c.IsExternal))
+                Line("uint64_t host_value;");
             // 継承 chain を root から平坦化 (先頭 layout 一致で upcast 可能)
             foreach (var link in ChainRootFirst(cls.Name))
             foreach (var field in link.Fields.Where(f => !f.IsStatic))
@@ -296,11 +318,45 @@ internal sealed partial class CEmitter
             Line($"static {fact.Type.CName} {Names.StaticField(cls.Name, field.Name)};");
         }
         Line();
+        // 遅延初期化 class の static は accessor (lvalue) 経由で触る
+        foreach (var cls in _program.Classes.Where(HasLazyStatics))
+        {
+            Line($"static void {Names.StaticInit(cls.Name)}(void);");
+            foreach (var field in cls.Fields.Where(f => f.IsStatic))
+            {
+                var fact = _facts.Field(cls.Name, field.Name);
+                Line($"static inline {fact.Type.CName} *" +
+                    $"{Names.StaticPlace(cls.Name, field.Name)}(void) " +
+                    $"{{ {Names.StaticInit(cls.Name)}(); " +
+                    $"return &{Names.StaticField(cls.Name, field.Name)}; }}");
+            }
+        }
+        Line();
     }
+
+    // 定数式 (literal の組み合わせ) か。定数でない static initializer を持つ
+    // class は C# と同じく最初のアクセスで初期化する (前方参照 / 循環対応)
+    private static bool IsConstantExpr(IlExpr expr) => expr switch
+    {
+        IlLit => true,
+        IlParen paren => IsConstantExpr(paren.E),
+        IlUn unary => IsConstantExpr(unary.E),
+        IlBin binary => IsConstantExpr(binary.L) && IsConstantExpr(binary.R),
+        _ => false,
+    };
+
+    private bool HasLazyStatics(IlClassInfo cls) =>
+        cls.Fields.Any(f => f.IsStatic && f.Init is { } init && !IsConstantExpr(init));
+
+    // static field の place 式 (遅延 class なら初期化を保証する accessor)
+    private string StaticFieldPlace(IlClassInfo cls, string field) =>
+        HasLazyStatics(cls)
+            ? $"(*{Names.StaticPlace(cls.Name, field)}())"
+            : Names.StaticField(cls.Name, field);
 
     private void EmitMethodPrototypes()
     {
-        foreach (var cls in _program.Classes)
+        foreach (var cls in _program.Classes.Where(c => !c.IsInterface))
         {
             var protoParams = CtorParamFacts(cls);
             var signature = protoParams.Count == 0
@@ -337,6 +393,7 @@ internal sealed partial class CEmitter
         }
         EmitStructMemberPrototypes();
         EmitRecordEqualityPrototypes();
+        EmitForeignPrototypes();
         Line(ClosureDeclMarker);
     }
 
@@ -379,7 +436,7 @@ internal sealed partial class CEmitter
         _scopes.Clear();
         _continueTargets.Clear();
         _breakTargets.Clear();
-        CollectCapturedNames(method.Body!);
+        if (method.Body is not null) CollectCapturedNames(method.Body);
         PushScope();
         if (self is not null) AddVariable("self", self);
         for (var i = 0; i < _currentMethodFact.Parameters.Count; i++)
@@ -394,7 +451,10 @@ internal sealed partial class CEmitter
         Line("{");
         _indent++;
         BoxCapturedParameters();
-        EmitStats(method.Body!.Stats);
+        // abstract / interface method: 実体は dispatcher が実装へ飛ばすので
+        // 本体には到達しない
+        if (method.Body is null) Line("tcs_fault(\"abstract-method\");");
+        else EmitStats(method.Body.Stats);
         _indent--;
         Line("}");
         Line();
@@ -439,6 +499,8 @@ internal sealed partial class CEmitter
 
     private void EmitLocal(IlLocal local)
     {
+        // discard の前宣言 (`out _`): 受け手は呼び出し側が一時変数で用意する
+        if (local.Name == "_" && local.Init is null && local.Type is null) return;
         if (local.Init is null)
         {
             // 型は契約 (IlLocal.Type) から。C の zero 初期化 = default 値
@@ -618,102 +680,53 @@ internal sealed partial class CEmitter
 
     private void EmitStaticInitializer()
     {
+        // 定数でない initializer を持つ class: 最初のアクセスで 1 回だけ。
+        // flag を先に立てるので循環参照は C# と同じく初期化中の値 (default)
+        // を読む
+        foreach (var cls in _program.Classes.Where(HasLazyStatics))
+        {
+            Line("static void");
+            Line($"{Names.StaticInit(cls.Name)}(void)");
+            Line("{");
+            _indent++;
+            Line("static bool initialized;");
+            Line("if (initialized) return;");
+            Line("initialized = true;");
+            EmitStaticFieldInits(cls);
+            _indent--;
+            Line("}");
+            Line();
+        }
         Line("static void");
         Line("tcs_init_statics(void)");
         Line("{");
         _indent++;
         foreach (var cls in _program.Classes)
         {
-            _currentClass = cls;
-            _scopes.Clear();
-            PushScope();
-            foreach (var field in cls.Fields.Where(f => f.IsStatic))
-            {
-                var fact = _facts.Field(cls.Name, field.Name);
-                if (fact.Init is null) continue;
-                CheckAssignable(fact.Type, fact.Init,
-                    $"initializer of {cls.Name}.{field.Name}");
-                Line($"{Names.StaticField(cls.Name, field.Name)} = " +
-                    $"{RenderCoerced(fact.Init, fact.Type)};");
-            }
-            PopScope();
+            if (HasLazyStatics(cls)) Line($"{Names.StaticInit(cls.Name)}();");
+            else EmitStaticFieldInits(cls);
         }
         _indent--;
         Line("}");
         Line();
     }
 
-    // 静的 link 出荷形 (--lib): main を持たず、初期化と各 static void
-    // 引数なし public method を外部 linkage で公開する
-    private void EmitLibEntryPoints()
+    private void EmitStaticFieldInits(IlClassInfo cls)
     {
-        Line("void");
-        Line("tcs_lib_init(void)");
-        Line("{");
-        _indent++;
-        Line("tcs_init_statics();");
-        _indent--;
-        Line("}");
-        Line();
-        // フレーム境界: entry から戻った後 (C# スタックが空) に host が呼ぶ。
-        // 若い object の昇格 + nursery リセット (+ 閾値で旧世代 mark-sweep)
-        Line("void");
-        Line("tcs_lib_gc(void)");
-        Line("{");
-        _indent++;
-        Line("tcs_gc_frame();");
-        _indent--;
-        Line("}");
-        Line();
-        // host が frame を跨いで持つ tcs object の slot (境界で昇格先に書き換わる)
-        Line("void");
-        Line("tcs_lib_hold(void **slot)");
-        Line("{");
-        _indent++;
-        Line("tcs_gc_hold(slot);");
-        _indent--;
-        Line("}");
-        Line();
-        Line("void");
-        Line("tcs_lib_release(void **slot)");
-        Line("{");
-        _indent++;
-        Line("tcs_gc_release(slot);");
-        _indent--;
-        Line("}");
-        Line();
-        foreach (var cls in _program.Classes)
-        foreach (var method in cls.Methods.Where(m => m.IsStatic
-            && m.Parameters.Length == 0
-            && _facts.Method(cls.Name, m.Name).ReturnType == CType.Void))
+        _currentClass = cls;
+        _scopes.Clear();
+        PushScope();
+        foreach (var field in cls.Fields.Where(f => f.IsStatic))
         {
-            Line("void");
-            Line($"tcs_entry_{Names.Id(cls.Name)}_{Names.Id(method.Name)}(void)");
-            Line("{");
-            _indent++;
-            Line($"{Names.Method(cls.Name, method.Name)}();");
-            _indent--;
-            Line("}");
-            Line();
+            var fact = _facts.Field(cls.Name, field.Name);
+            if (fact.Init is null) continue;
+            CheckAssignable(fact.Type, fact.Init,
+                $"initializer of {cls.Name}.{field.Name}");
+            Line($"{Names.StaticField(cls.Name, field.Name)} = " +
+                $"{RenderCoerced(fact.Init, fact.Type)};");
         }
-    }
-
-    private void EmitEntryPoint((IlClassInfo Class, IlMethodInfo Method)? entry)
-    {
-        Line("int");
-        Line("main(void)");
-        Line("{");
-        _indent++;
-        // 実行形は Main 全体が 1 フレーム (境界が無いので GC は走らない)
-        Line("tcs_init_statics();");
-        if (_digestF32) Line("tcs_digest = UINT32_C(2166136261);");
-        if (entry is { } selected)
-            Line($"{Names.Method(selected.Class.Name, selected.Method.Name)}();");
-        if (_digestF32)
-            Line("printf(\"%08\" PRIx32 \"\\n\", tcs_digest);");
-        Line("return 0;");
-        _indent--;
-        Line("}");
+        PopScope();
+        FlushPendingClosures();
     }
 
     private void Line(string text = "") =>

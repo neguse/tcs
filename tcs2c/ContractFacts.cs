@@ -2,7 +2,7 @@ using TinyCs;
 
 namespace TinyCs.Tcs2c;
 
-internal sealed record ParameterFact(string Name, CType Type);
+internal sealed record ParameterFact(string Name, CType Type, IlExpr? Default = null);
 
 internal sealed record MethodFact(
     string ClassName,
@@ -76,8 +76,8 @@ internal sealed class ContractFacts
             if (method.Parameters.Length != method.ParameterTypes.Length)
                 throw new Tcs2cException($"method parameter metadata mismatch: " +
                     $"{owner}.{method.Name}");
-            var parameters = method.Parameters.Select((name, i) =>
-                new ParameterFact(name, MapType(method.ParameterTypes[i]))).ToArray();
+            var parameters = ParameterFacts(method.Parameters, method.ParameterTypes,
+                method.ParameterDefaults);
             var fact = new MethodFact(owner, method.Name, method.IsStatic,
                 MapType(method.ReturnType), parameters, method);
             if (!_methods.TryAdd((owner, method.Name), fact))
@@ -87,6 +87,15 @@ internal sealed class ContractFacts
     }
 
     public IReadOnlyDictionary<string, IlClassInfo> Classes => _classes;
+
+    /// <summary>parameter の名前 / 型 / 省略時の既定値 (IL の ParameterDefaults。
+    /// 末尾の省略は呼び出し側が既定値で補う)。</summary>
+    public ParameterFact[] ParameterFacts(
+        System.Collections.Immutable.ImmutableArray<string> names,
+        System.Collections.Immutable.ImmutableArray<string> types,
+        System.Collections.Immutable.ImmutableArray<IlExpr?> defaults) =>
+        names.Select((name, i) => new ParameterFact(name, MapType(types[i]),
+            defaults.IsDefault || i >= defaults.Length ? null : defaults[i])).ToArray();
 
     public MethodFact Method(string cls, string name) =>
         _methods.TryGetValue((cls, name), out var fact)
@@ -192,6 +201,7 @@ internal sealed class ContractFacts
             "float" or "System.Single" => CType.F32,
             "bool" or "System.Boolean" => CType.Bool,
             "string" or "System.String" => CType.String,
+            "object" or "System.Object" => CType.Object,
             // char は整数 code unit (il-spec §3)
             "char" or "System.Char" => CType.I32,
             // enum は整数定数 (Lua と同じ。tostring も整数表記)

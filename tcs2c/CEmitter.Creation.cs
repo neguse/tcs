@@ -22,18 +22,18 @@ internal sealed partial class CEmitter
         }
         if (!_classes.TryGetValue(creation.TypeName, out var cls))
             throw new Tcs2cException($"unknown class: {creation.TypeName}");
+        if (cls.IsInterface)
+            throw new Tcs2cException($"cannot instantiate interface: {cls.Name}");
         var paramFacts = CtorParamFacts(cls);
-        if (creation.Args.Length != paramFacts.Count)
-            throw new Tcs2cException($"constructor {cls.Name}: expected " +
-                $"{paramFacts.Count} arguments, got {creation.Args.Length}");
-        if (creation.Args.Length == 0) return $"{Names.New(cls.Name)}()";
+        var args = CompleteArguments(paramFacts, creation.Args, $"constructor {cls.Name}");
+        if (args.Count == 0) return $"{Names.New(cls.Name)}()";
         var values = new List<(CType Type, string Value)>();
-        for (var i = 0; i < creation.Args.Length; i++)
+        for (var i = 0; i < args.Count; i++)
         {
-            CheckAssignable(paramFacts[i].Type, creation.Args[i],
+            CheckAssignable(paramFacts[i].Type, args[i],
                 $"constructor argument {i} of {cls.Name}");
             values.Add((paramFacts[i].Type,
-                RenderCoerced(creation.Args[i], paramFacts[i].Type)));
+                RenderCoerced(args[i], paramFacts[i].Type)));
         }
         return RenderOrderedCall(Names.New(cls.Name),
             CType.Ref(cls.Name), values);
@@ -41,6 +41,7 @@ internal sealed partial class CEmitter
 
     private CType TypeOfTable(IlTable table)
     {
+        if (table.ObjectType is not null) return _facts.MapType(table.ObjectType);
         if (table.KeyType is not null
             || table.Entries.Any(e => e.Key is not null))
             return TypeOfDictTable(table);
@@ -62,19 +63,39 @@ internal sealed partial class CEmitter
         }
         if (element is not null && !IsStorageType(element))
             throw new Tcs2cException($"unsupported List element type: {element}");
+        if (table.IsArray)
+            return CType.Array(element
+                ?? throw new Tcs2cException("array literal needs an element type"));
         return CType.List(element);
+    }
+
+    // 固定長配列 literal (new T[] { ... }): 要素数で確保して順に store
+    private string RenderArrayLiteral(IlTable table, CType type)
+    {
+        var array = Temp("array");
+        var statements = new StringBuilder(
+            $"TcsArray *{array} = tcs_typed(tcs_array_new({table.Entries.Length}, " +
+            $"sizeof({type.ElementCName}), {LayoutRef(type.Element!)}), {RuntimeTypeId(type)}); ");
+        for (var i = 0; i < table.Entries.Length; i++)
+            statements.Append($"(({type.ElementCName} *){array}->data)[{i}] = " +
+                $"{RenderCoerced(table.Entries[i].Value, type.Element!)}; ");
+        return $"({{ {statements}{array}; }})";
     }
 
     private string RenderTable(IlTable table)
     {
+        if (table.ObjectType is not null)
+            return RenderObjectInitializer(table, TypeOfTable(table));
         if (table.KeyType is not null || table.Entries.Any(e => e.Key is not null))
             return RenderDictTable(table);
         var type = TypeOfTable(table);
+        if (type.Kind == CTypeKind.Array) return RenderArrayLiteral(table, type);
         var list = Temp("list");
         var elementSize = type.Element is null ? "0" : $"sizeof({type.ElementCName})";
         var layout = type.Element is null ? "NULL" : LayoutRef(type.Element);
         var statements = new StringBuilder(
-            $"TcsList *{list} = tcs_list_new({elementSize}, {layout}); ");
+            $"TcsList *{list} = tcs_typed(tcs_list_new({elementSize}, {layout}), " +
+            $"{RuntimeTypeId(type)}); ");
         foreach (var entry in table.Entries)
         {
             var value = Temp("list_item");
@@ -100,7 +121,7 @@ internal sealed partial class CEmitter
     private string RenderNewArray(IlNewArray array)
     {
         var type = TypeOfNewArray(array);
-        return $"tcs_array_new({RenderExpr(array.Length)}, " +
-            $"sizeof({type.ElementCName}), {LayoutRef(type.Element!)})";
+        return $"tcs_typed(tcs_array_new({RenderExpr(array.Length)}, " +
+            $"sizeof({type.ElementCName}), {LayoutRef(type.Element!)}), {RuntimeTypeId(type)})";
     }
 }

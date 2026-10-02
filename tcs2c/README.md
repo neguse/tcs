@@ -94,8 +94,8 @@ TCS_ROOT=../tcs bash tcs2c/verify-digests.sh
 - **nursery (若い世代)**: 確保は bump pointer の chunk 列 (`TCS_GC_NURSERY_CHUNK`
   = 256 KiB)。フレーム中 (entry の呼び出し中) は一切 GC しない。足りなければ
   chunk を足すだけなので、C stack 上の pointer が無効になることは無い
-- **フレーム境界** (`tcs_lib_gc` = `tcs_gc_frame`): host が entry から戻った
-  後に呼ぶ (= C# のスタックが空)。static field / host の hold slot /
+- **フレーム境界** (`tcs_gc_frame`): 最外の entry から戻った点 (= C# の
+  スタックが空) で自動的に踏む (`tcs_lib_gc()` は明示の境界)。static field / host の hold slot /
   dirty な旧 object から到達する若い object だけを旧世代へ copy して
   slot を昇格先に書き換え (Cheney 式、forwarding は header の `next`)、
   残りの nursery は先頭 chunk を zero に戻すだけで一括解放する
@@ -114,11 +114,12 @@ TCS_ROOT=../tcs bash tcs2c/verify-digests.sh
 - **実行形 (`main`)**: Main 全体が 1 フレームで GC は走らない (全確保が
   nursery に残る)。GC が意味を持つのは lib 出荷形
 - **`--lib` の host 規約**: `tcs_lib_init()` の後、entry
-  (`tcs_entry_<Class>_<Method>`) を呼び、C# のスタックが空になった点で
-  `tcs_lib_gc()` を呼ぶ (典型は毎フレーム末)。host が tcs の object pointer
+  (`tcs_entry_<Class>_<Method>`) を呼ぶ。各 entry の最外呼び出しから戻る点が
+  フレーム境界 (典型は毎フレームの update)。host が tcs の object pointer
   を境界を跨いで持つなら、その slot を `tcs_lib_hold(void **)` で登録する
   (境界で昇格先に書き換わる)。`tcs_lib_release` で外す。登録しない pointer
-  は境界の後は無効
+  は境界の後は無効。`tcs_lib_collect()` は境界 + 旧世代 full GC、
+  `tcs_lib_heap_bytes()` / `tcs_lib_heap_objects()` は managed heap の統計
 - **検証**: `-DTCS_GC_STRESS=1` で毎境界に旧世代 full GC を回し、nursery
   chunk を 256 byte にする (若い object が chunk を跨いで散り、解放済み
   chunk の再利用で死んだ参照が速やかに壊れる)。root / バリア漏れは生きて
@@ -156,3 +157,63 @@ method overload、継承、List の int/float 以外は対象を含む明示 err
 生成 C は GNU statement expression で operand / argument の左→右評価を固定する。
 strict f32 build では `-ffp-contract=off`、`-fwrapv`、
 `-fexcess-precision=standard` を必須とする。
+
+## 配列 / 引数 / 数値 / generic (master 系列の取り込み)
+
+- **generic class の単相化**: top-level の generic class は IL export の前に
+  使用型ごとの閉じた class (`TcsClosed{n}_{Name}`) へ展開する
+  (`IlSpecialization`。tcs2c の CLI は常時 on)。instance ごとに field / static
+  を別に持ち、制約付き基底・配列・factory lambda は具体型のまま。abstract
+  method は dispatcher に参加する (本体は `tcs_fault("abstract-method")`)。
+  入れ子 / partial / open な generic は対象外、上限は 256 class / 128 回
+- **interface**: `IlClassInfo.IsInterface`。interface 型の receiver への呼び
+  出しは実装 class への dispatch (`tcs_dispatch_<Iface>_<m>`、基底 class の
+  実装も対象)。cast は `tcs_is_<Iface>` (実装 class の type tag 集合) で検査
+- **配列 literal** (`new T[] { ... }`、入れ子 / 空も) は固定長 `TcsArray`。
+  ctor / method / foreign 呼び出しは末尾の省略可能引数を IL の
+  `ParameterDefaults` で補う。float literal / const は `IlLit.Type` で F32 を
+  保つ (`2f` が整数に化けない)
+- **static field の初期化順**: 定数でない initializer を持つ class は C# と
+  同じく最初のアクセスで初期化する (`tcs_sinit_<Class>`、accessor
+  `tcs_sp_<Class>_<field>()` 経由。前方参照 / 循環は初期化中の値 = default
+  を読む)。定数だけの class は `tcs_init_statics` で一括
+- **object**: `CType.Object` = `void *`。参照型はそのまま、`int` / `float` /
+  `bool` は `TcsBox` に box。cast / unbox は GC header の `type_id` で検査
+  (class は `tcs_init_<Class>`、string は `tcs_string_new`、box は
+  `tcs_box_*`、配列 / List / Dict は生成時 `tcs_typed` で構造型 id) し、
+  不一致は `tcs_fault("invalid-cast")`。配列の要素型も区別する
+  (`(float[])` に `int[]` は fault)
+- 検証: `bash tcs2c/verify-game-core.sh` (配列 / 省略引数 / 数値 / 文字列 /
+  generic / static 初期化)、`bash tcs2c/verify-object-values.sh` (object の
+  root 保持 / interface dispatch / 不正 cast)。期待出力は Lua backend と同じ
+  (`4.2949673e+09` 等)
+
+## host 境界 (`--ref` / `--lib`)
+
+`--ref STUB.cs` は入力が使う static method / static field / enum 定数 /
+データ class を stub から取り込む (本体はコンパイルしない)。生成 C は
+`extern` の `tcs_host_<lua path を _ 連結>` を宣言し、host がそれを実装する
+(`tests/foreign-host.c` のように生成 C を include して内部 ABI を直接使って
+良い)。
+
+- static field は引数なしの getter (`T tcs_host_api_current(void)`)、enum
+  定数は整数 literal に畳む
+- `out` parameter は pointer 渡し (`TcsString **`、`int32_t *`)。戻り値のある
+  out 呼び出しと同名 overload は拒否。`out _` は呼び出し側の一時変数
+- nullable スカラ (`int?`) は `TcsOptI32` 等の **値渡し** (box しない)
+- 外部データ class (`IsExternal`) は `type_id` の直後に GC が見ない
+  `uint64_t host_value` を持つ (host 側 handle)。`new Options { X = ... }` は
+  `tcs_new_Options()` + field 代入
+- host が entry の外で tcs の pointer を持つなら `tcs_lib_hold(void **)`
+  した slot 経由 (境界で昇格先に書き換わる)。それ以外の借用 pointer は
+  entry から戻った時点で無効 (string は `tcs_string_new` で managed に写す)
+- `--lib` の entry (`tcs_entry_<Class>_<method>`) は `int` / `float` / `bool`
+  引数と `void` 戻りの static method。最外の entry から戻った点で自動的に
+  フレーム境界 (`tcs_gc_frame`) を踏む (入れ子の entry は深さで抑止)。
+  `tcs_lib_gc()` は明示の境界、`tcs_lib_collect()` は境界 + 旧世代 full GC、
+  `tcs_lib_heap_bytes()` / `tcs_lib_heap_objects()` は旧世代 + nursery の
+  managed heap 統計 (process のメモリではない)
+- 検証: `bash tcs2c/verify-host.sh` (typed options / enum / nullable 既定値 /
+  out string / scalar entry 引数 / 条件アクセス / runtime services)、
+  `bash tcs2c/verify-gc.sh` (host ループでの root 保持 / 循環 garbage の回収 /
+  heap の有界性)

@@ -13,7 +13,7 @@ internal sealed partial class CEmitter
     // 連鎖呼びする (base 側で sizeof(Base) を確保すると派生 field が溢れる)
     private void EmitAllocators()
     {
-        foreach (var cls in _program.Classes)
+        foreach (var cls in _program.Classes.Where(c => !c.IsInterface))
         {
             var cType = Names.Class(cls.Name);
             var ctor = cls.Ctor;
@@ -37,13 +37,11 @@ internal sealed partial class CEmitter
             if (cls.BaseName is { } baseName)
             {
                 var baseParams = CtorParamFacts(_classes[baseName]);
-                var baseArgs = ctor?.BaseArgs.IsDefault == false
-                    ? ctor.BaseArgs : [];
-                if (baseArgs.Length != baseParams.Count)
-                    throw new Tcs2cException(
-                        $"base constructor arity mismatch: {cls.Name}");
+                var baseArgs = CompleteArguments(baseParams,
+                    ctor?.BaseArgs.IsDefault == false ? ctor.BaseArgs : [],
+                    $"base constructor of {cls.Name}");
                 var rendered = new List<string> { $"({Names.Class(baseName)} *)object" };
-                for (var i = 0; i < baseArgs.Length; i++)
+                for (var i = 0; i < baseArgs.Count; i++)
                 {
                     CheckAssignable(baseParams[i].Type, baseArgs[i],
                         $"base ctor argument {i} of {cls.Name}");
@@ -55,6 +53,7 @@ internal sealed partial class CEmitter
                 Line($"{Names.Init(baseName)}({string.Join(", ", rendered)});");
             }
             Line($"object->type_id = {Names.TypeId(cls.Name)};");
+            Line($"TCS_GC_HEADER(object)->type_id = {Names.TypeId(cls.Name)};");
             AddVariable("self", new Variable("object", CType.Ref(cls.Name)));
             foreach (var field in cls.Fields.Where(f => !f.IsStatic))
             {
@@ -102,8 +101,24 @@ internal sealed partial class CEmitter
         if (cls.Ctor is not { } ctor) return [];
         if (ctor.Parameters.Length != ctor.ParameterTypes.Length)
             throw new Tcs2cException($"ctor metadata mismatch: {cls.Name}");
-        return ctor.Parameters.Select((name, i) => new ParameterFact(
-            name, _facts.MapType(ctor.ParameterTypes[i]))).ToList();
+        return [.. _facts.ParameterFacts(ctor.Parameters, ctor.ParameterTypes,
+            ctor.ParameterDefaults)];
+    }
+
+    // 末尾の省略引数を既定値 (IL の ParameterDefaults) で補う
+    private static IReadOnlyList<IlExpr> CompleteArguments(
+        IReadOnlyList<ParameterFact> parameters, IReadOnlyList<IlExpr> supplied,
+        string where)
+    {
+        if (supplied.Count == parameters.Count) return supplied;
+        if (supplied.Count > parameters.Count)
+            throw new Tcs2cException($"{where}: expected {parameters.Count} arguments, " +
+                $"got {supplied.Count}");
+        var result = supplied.ToList();
+        for (var i = supplied.Count; i < parameters.Count; i++)
+            result.Add(parameters[i].Default
+                ?? throw new Tcs2cException($"{where}: missing argument {parameters[i].Name}"));
+        return result;
     }
 
 
@@ -129,7 +144,7 @@ internal sealed partial class CEmitter
             _indent++;
             Line("switch (((TcsObjectHeader *)v_self)->type_id) {");
             foreach (var target in _program.Classes
-                .Where(c => IsAncestorOrSame(cls.Name, c.Name)))
+                .Where(c => !c.IsInterface && IsAncestorOrSame(cls.Name, c.Name)))
             {
                 var impl = FindDeclaringClass(target.Name, method.Name)!;
                 var call = $"{Names.Method(impl, method.Name)}(" +

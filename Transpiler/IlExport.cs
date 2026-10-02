@@ -22,7 +22,10 @@ public sealed record IlClassInfo(
     string LayoutHash,
     ImmutableArray<IlMethodInfo> Methods,
     IlCtorInfo? Ctor = null,
-    bool IsRecord = false);
+    bool IsRecord = false,
+    ImmutableArray<string> Interfaces = default,
+    bool IsInterface = false,
+    bool IsExternal = false);
 
 /// <summary>explicit constructor。構築順は base ctor → 自 class の field
 /// default/initializer → Body (Lua backend と同順)。BaseArgs は base(...)
@@ -31,7 +34,8 @@ public sealed record IlCtorInfo(
     ImmutableArray<string> Parameters,
     ImmutableArray<string> ParameterTypes,
     IlBlock? Body,
-    ImmutableArray<IlExpr> BaseArgs = default);
+    ImmutableArray<IlExpr> BaseArgs = default,
+    ImmutableArray<IlExpr?> ParameterDefaults = default);
 
 public sealed record IlFieldInfo(string Name, string Type, bool IsStatic,
     IlExpr? Init = null);
@@ -44,7 +48,9 @@ public sealed record IlMethodInfo(
     ImmutableArray<string> Parameters,
     IlBlock? Body,
     string ReturnType = "void",
-    ImmutableArray<string> ParameterTypes = default);
+    ImmutableArray<string> ParameterTypes = default,
+    ImmutableArray<IlExpr?> ParameterDefaults = default,
+    bool IsAbstract = false);
 
 /// <summary>struct / record struct の契約 (il-spec §10)。Fields は instance
 /// field (auto property / record struct の positional parameter 込み)。
@@ -80,16 +86,26 @@ public sealed record IlExportResult(
     IlBlock? TopLevel = null,
     ImmutableArray<IlStructInfo> Structs = default,
     ImmutableArray<string> Enums = default,
-    ImmutableArray<IlEnumInfo> EnumTypes = default);
+    ImmutableArray<IlEnumInfo> EnumTypes = default,
+    ImmutableArray<IlForeignMethod> ForeignMethods = default,
+    ImmutableArray<IlForeignValue> ForeignValues = default);
 
-public static class IlExport
+public static partial class IlExport
 {
-    public static IlExportResult Export(string[] csharpSources)
+    public static IlExportResult Export(string[] csharpSources, bool specializeGenerics = false,
+        string[]? referenceSources = null)
     {
+        var references = (referenceSources ?? []).Select(s => CSharpSyntaxTree.ParseText(s)).ToArray();
         var trees = csharpSources
             .Select(s => CSharpSyntaxTree.ParseText(s))
             .ToArray();
-        var compilation = CSharpCompilation.Create("IlExport", trees,
+        if (specializeGenerics)
+        {
+            var specialized = IlSpecialization.Expand(trees, references);
+            if (specialized.Error != null) return new IlExportResult([], [specialized.Error]);
+            trees = specialized.Trees;
+        }
+        var compilation = CSharpCompilation.Create("IlExport", trees.Concat(references),
             Transpiler.References,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                 allowUnsafe: false));
@@ -112,6 +128,7 @@ public static class IlExport
         // 推移的に展開するので先に全 struct 分を集める (auto property /
         // record struct の positional parameter も field)
         var emitter = new LuaEmitter();
+        emitter.ReferenceTrees.UnionWith(references);
         var structLayouts = new Dictionary<string, List<(string Name, string Type)>>();
         var structDecls = new List<(TypeDeclarationSyntax Decl, SemanticModel Model,
             string Key)>();
@@ -178,6 +195,8 @@ public static class IlExport
             {
                 classes.Add(ExportClass(emitter, model, cls, structLayouts));
             }
+            foreach (var iface in tree.GetRoot().DescendantNodes().OfType<InterfaceDeclarationSyntax>())
+                classes.Add(ExportInterface(emitter, model, iface));
             var globals = tree.GetCompilationUnitRoot().Members
                 .OfType<GlobalStatementSyntax>().ToList();
             if (globals.Count > 0)
@@ -188,8 +207,9 @@ public static class IlExport
         }
         var topLevelIl = topLevelModel != null
             ? emitter.ExportStatsIl(topLevelModel, topLevel) : null;
-        return new IlExportResult([.. classes], [.. diagnostics], topLevelIl,
-            [.. structs], [.. enums], [.. enumTypes]);
+        return ExportForeign(compilation, trees, references, emitter, structLayouts,
+            new IlExportResult([.. classes], [.. diagnostics], topLevelIl,
+                [.. structs], [.. enums], [.. enumTypes]));
     }
 
     private static IlClassInfo ExportClass(LuaEmitter emitter,
@@ -204,7 +224,9 @@ public static class IlExport
             [.. fields], LayoutHash(fields, structLayouts),
             [.. CollectMethods(emitter, model, cls)],
             BuildCtor(emitter, model, cls),
-            IsRecord: cls is RecordDeclarationSyntax);
+            IsRecord: cls is RecordDeclarationSyntax,
+            Interfaces: symbol == null ? []
+                : [.. symbol.AllInterfaces.Select(i => i.ToDisplayString())]);
     }
 
     // struct / record struct: field (positional 込み) + instance member +
@@ -310,7 +332,9 @@ public static class IlExport
                 [.. positional.Select(p =>
                     model.GetDeclaredSymbol(p)?.Type.ToDisplayString() ?? "?")],
                 new IlBlock([.. body]),
-                baseArgs == null ? [] : [.. baseArgs]);
+                baseArgs == null ? [] : [.. baseArgs],
+                [.. positional.Select(p => p.Default is { } d
+                    ? emitter.ExportExprIl(model, d.Value) : null)]);
         }
         // struct の parameterless ctor は Shared facts が診断する (C# 10 だが
         // `new S()` の zero 意味論と衝突する) ので、引数ありの instance ctor のみ
@@ -340,7 +364,9 @@ public static class IlExport
                 : [.. ctorSymbol.Parameters
                     .Select(p => p.Type.ToDisplayString())],
             emitter.ExportStatsIl(model, ctorDecl.Body?.Statements),
-            ctorBaseArgs);
+            ctorBaseArgs,
+            [.. ctorDecl.ParameterList.Parameters.Select(p => p.Default is { } d
+                ? emitter.ExportExprIl(model, d.Value) : null)]);
     }
 
     private static List<IlMethodInfo> CollectMethods(LuaEmitter emitter,
@@ -423,7 +449,10 @@ public static class IlExport
                 methodSymbol == null
                     ? []
                     : [.. methodSymbol.Parameters
-                        .Select(p => p.Type.ToDisplayString())]));
+                        .Select(p => p.Type.ToDisplayString())],
+                [.. method.ParameterList.Parameters.Select(p => p.Default is { } d
+                    ? emitter.ExportExprIl(model, d.Value) : null)],
+                methodSymbol?.IsAbstract ?? false));
         }
         return methods;
     }

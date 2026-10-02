@@ -56,9 +56,15 @@ internal sealed partial class CEmitter
             _Alignas(max_align_t) struct TcsGcHeader *next;
             const TcsLayout *layout;
             size_t size;              /* payload bytes */
-            uint32_t kind;
-            uint32_t flags;
+            uint16_t kind;
+            uint16_t flags;
+            uint32_t type_id;         /* 実行時型 tag (object からの cast 検査) */
         } TcsGcHeader;
+        /* 予約 type_id: class は 1..N (DFS 範囲)、構造型は 0x80000000+n */
+        #define TCS_TYPE_STRING UINT32_C(0xfffffff1)
+        #define TCS_TYPE_BOX_I32 UINT32_C(0xfffffff2)
+        #define TCS_TYPE_BOX_F32 UINT32_C(0xfffffff3)
+        #define TCS_TYPE_BOX_BOOL UINT32_C(0xfffffff4)
         #define TCS_GC_PAYLOAD(hdr) \
             ((void *)((unsigned char *)(hdr) + sizeof(TcsGcHeader)))
         #define TCS_GC_HEADER(ptr) \
@@ -132,15 +138,74 @@ internal sealed partial class CEmitter
             return type_id >= first && type_id <= last;
         }
 
-        typedef struct TcsObjectHeaderView { uint32_t type_id; } TcsObjectHeaderView;
-
-        /* 明示 downcast: null はそのまま、型が合わなければ fault */
+        /* 明示 downcast: null はそのまま、型が合わなければ fault。実行時型は
+           GC header の tag (box / 配列などの非 class でも読める) */
         static void *
         tcs_cast(void *object, uint32_t first, uint32_t last)
         {
             if (object != NULL
-                && !tcs_type_in_range(((TcsObjectHeaderView *)object)->type_id, first, last))
+                && !tcs_type_in_range(TCS_GC_HEADER(object)->type_id, first, last))
                 tcs_fault("invalid-cast");
+            return object;
+        }
+
+        /* object: 参照はそのまま (構造型は box 時に tag 付け)、スカラは box */
+        typedef struct TcsBox { union { int32_t i; float f; bool b; } value; } TcsBox;
+
+        static void *
+        tcs_typed(void *object, uint32_t type_id)
+        {
+            if (object != NULL && TCS_GC_HEADER(object)->type_id == 0)
+                TCS_GC_HEADER(object)->type_id = type_id;
+            return object;
+        }
+
+        static TcsBox *
+        tcs_box_new(uint32_t type_id)
+        {
+            TcsBox *box = tcs_alloc(sizeof(*box));
+            TCS_GC_HEADER(box)->type_id = type_id;
+            return box;
+        }
+
+        static void *
+        tcs_box_i32(int32_t value)
+        {
+            TcsBox *box = tcs_box_new(TCS_TYPE_BOX_I32);
+            box->value.i = value;
+            return box;
+        }
+
+        static void *
+        tcs_box_f32(float value)
+        {
+            TcsBox *box = tcs_box_new(TCS_TYPE_BOX_F32);
+            box->value.f = value;
+            return box;
+        }
+
+        static void *
+        tcs_box_bool(bool value)
+        {
+            TcsBox *box = tcs_box_new(TCS_TYPE_BOX_BOOL);
+            box->value.b = value;
+            return box;
+        }
+
+        /* unbox は C# と同じく型が一致する box だけ (int の box を float に
+           は戻せない) */
+        static TcsBox *
+        tcs_unbox(void *object, uint32_t type_id)
+        {
+            tcs_nonnull(object);
+            if (TCS_GC_HEADER(object)->type_id != type_id) tcs_fault("invalid-cast");
+            return object;
+        }
+
+        static void *
+        tcs_interface_cast(void *object, bool (*matches)(void *))
+        {
+            if (object != NULL && !matches(object)) tcs_fault("invalid-cast");
             return object;
         }
 
@@ -165,6 +230,7 @@ internal sealed partial class CEmitter
             if (length > SIZE_MAX - sizeof(*string))
                 tcs_fault("allocation-overflow");
             string = tcs_alloc(sizeof(*string) + length);
+            TCS_GC_HEADER(string)->type_id = TCS_TYPE_STRING;
             string->length = length;
             if (length != 0 && data != NULL) memcpy(string->data, data, length);
             return string;

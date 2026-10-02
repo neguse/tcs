@@ -11,7 +11,7 @@ internal sealed partial class CEmitter
         if (!_classes.ContainsKey(typeTest.TypeRef))
             throw new Tcs2cException($"IlIsType target is not a class: {typeTest.TypeRef}");
         var operand = TypeOf(typeTest.E);
-        if (operand.Kind is not (CTypeKind.Ref or CTypeKind.Null))
+        if (operand.Kind is not (CTypeKind.Ref or CTypeKind.Null or CTypeKind.Object))
             throw new Tcs2cException($"IlIsType operand is not a class reference: {operand}");
         return CType.Bool;
     }
@@ -23,7 +23,7 @@ internal sealed partial class CEmitter
         if (!_classes.ContainsKey(cast.TypeRef))
             throw new Tcs2cException($"IlCast target is not a class: {cast.TypeRef}");
         var source = TypeOf(cast.E);
-        if (source.Kind is not (CTypeKind.Ref or CTypeKind.Null))
+        if (source.Kind is not (CTypeKind.Ref or CTypeKind.Null or CTypeKind.Object))
             throw new Tcs2cException($"IlCast operand is not a class reference: {source}");
         return CType.Ref(cast.TypeRef);
     }
@@ -35,13 +35,86 @@ internal sealed partial class CEmitter
             $"{Names.TypeId(cast.TypeRef)}, {Names.TypeIdMax(cast.TypeRef)}))";
     }
 
+    // 数値 cast (int / float 目標)。float → int は IL が __tcs_trunc で
+    // 明示するので、ここに来るのは int ↔ float の拡大と恒等 (char / enum)、
+    // T? / object からの unbox
+    private CType TypeOfNumericConvert(IlNumericConvert convert)
+    {
+        var target = convert.TargetType == "int" ? CType.I32 : CType.F32;
+        var source = TypeOf(convert.Value);
+        if (source == CType.Object) return target;
+        if (source.Kind == CTypeKind.Nullable) source = source.Element!;
+        if (source.Kind is not (CTypeKind.I32 or CTypeKind.F32))
+            throw new Tcs2cException($"numeric cast of non-numeric operand: {source}");
+        return target;
+    }
+
+    private string RenderNumericConvert(IlNumericConvert convert)
+    {
+        var target = TypeOfNumericConvert(convert);
+        var source = TypeOf(convert.Value);
+        if (source == CType.Object) return RenderUnbox(convert.Value, target);
+        if (source.Kind == CTypeKind.Nullable)
+        {
+            // (int)x で x が T?: 値なしは fault (.Value と同じ)
+            var temp = Temp("opt");
+            return $"({{ {source.CName} {temp} = {RenderExpr(convert.Value)}; " +
+                $"if (!{temp}.has) tcs_fault(\"nullable-value\"); ({target.CName}){temp}.v; }})";
+        }
+        if (source == target) return RenderExpr(convert.Value);
+        if (target == CType.I32) return $"tcs_trunc_f32({RenderExpr(convert.Value)})";
+        return $"((float)({RenderExpr(convert.Value)}))";
+    }
+
+    // 参照型 / bool / T? / object への cast。user class の downcast は IL が
+    // IlCast で明示する。object からは実行時 tag で検査 (C# の
+    // InvalidCastException 相当は fault)
+    private CType TypeOfRefCast(IlRefCast cast)
+    {
+        var target = _facts.MapType(cast.TargetType);
+        var source = TypeOf(cast.Value);
+        if (source == target || target.CanAssignFrom(source)) return target;
+        if (source == CType.Object
+            && (target.IsNullable || target.Kind == CTypeKind.Nullable || target == CType.Bool))
+            return target;
+        if (source.Kind == CTypeKind.Ref && target.Kind == CTypeKind.Ref
+            && IsAncestorOrSame(source.Name!, target.Name!))
+            return target;
+        throw new Tcs2cException($"unsupported cast: {source} to {target}");
+    }
+
+    private string RenderRefCast(IlRefCast cast)
+    {
+        var target = TypeOfRefCast(cast);
+        var source = TypeOf(cast.Value);
+        if (target == CType.Object) return RenderBox(cast.Value);
+        if (source != CType.Object && (source == target || target.CanAssignFrom(source)))
+            return RenderCoerced(cast.Value, target);
+        var value = RenderExpr(cast.Value);
+        if (target.Kind == CTypeKind.Nullable)
+        {
+            var temp = Temp("obj");
+            var field = BoxField(target.Element!);
+            return $"({{ void *{temp} = {value}; {temp} == NULL ? ({target.CName}){{0}} " +
+                $": ({target.CName}){{ true, tcs_unbox({temp}, {RuntimeTypeId(target.Element!)})->value.{field} }}; }})";
+        }
+        if (target == CType.Bool) return RenderUnbox(cast.Value, target);
+        if (target.Kind == CTypeKind.Ref && IsInterface(target.Name!))
+            return $"(({target.CName})tcs_interface_cast({value}, {Names.InterfaceCheck(target.Name!)}))";
+        if (target.Kind == CTypeKind.Ref)
+            return $"(({target.CName})tcs_cast({value}, {Names.TypeId(target.Name!)}, " +
+                $"{Names.TypeIdMax(target.Name!)}))";
+        var id = RuntimeTypeId(target);
+        return $"(({target.CName})tcs_cast({value}, {id}, {id}))";
+    }
+
     private string RenderIsType(IlIsType typeTest)
     {
         _ = TypeOfIsType(typeTest);
         var value = RenderExpr(typeTest.E);
         if (!Effectful(typeTest.E))
             return $"({value} != NULL && tcs_type_in_range(" +
-                $"((TcsObjectHeader *){value})->type_id, " +
+                $"TCS_GC_HEADER({value})->type_id, " +
                 $"{Names.TypeId(typeTest.TypeRef)}, {Names.TypeIdMax(typeTest.TypeRef)}))";
         var temp = Temp("is_object");
         return $"({{ void *{temp} = {value}; {temp} != NULL && " +
@@ -55,7 +128,7 @@ internal sealed partial class CEmitter
         if (text is "true" or "false") return CType.Bool;
         if (text == "nil") return CType.Null;
         if (text.StartsWith('"')) return CType.String;
-        return IsFloatText(text) ? CType.F32 : CType.I32;
+        return literal.Type == "float" || IsFloatText(text) ? CType.F32 : CType.I32;
     }
 
     private string RenderLiteral(IlLit literal)
@@ -64,7 +137,7 @@ internal sealed partial class CEmitter
         if (text is "true" or "false") return text;
         if (text == "nil") return "NULL";
         if (text.StartsWith('"')) return RenderStringLiteral(text);
-        if (IsFloatText(text))
+        if (literal.Type == "float" || IsFloatText(text))
         {
             if (!float.TryParse(text, NumberStyles.Float,
                 CultureInfo.InvariantCulture, out var value))
@@ -145,6 +218,12 @@ internal sealed partial class CEmitter
     private static CType CommonType(CType left, CType right, string where)
     {
         if (left == right) return left;
+        if (left == CType.Null && right.Kind is CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool)
+            return CType.Nullable(right);
+        if (right == CType.Null && left.Kind is CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool)
+            return CType.Nullable(left);
+        if (left.Kind == CTypeKind.Nullable && left.CanAssignFrom(right)) return left;
+        if (right.Kind == CTypeKind.Nullable && right.CanAssignFrom(left)) return right;
         if (left.Kind is CTypeKind.I32 or CTypeKind.F32
             && right.Kind is CTypeKind.I32 or CTypeKind.F32)
             return NumericJoin(left, right, where);
@@ -158,8 +237,20 @@ internal sealed partial class CEmitter
         throw new Tcs2cException($"incompatible {where}: {left}, {right}");
     }
 
-    private static void RequireComparable(CType left, CType right, string where)
+    private void RequireComparable(CType left, CType right, string where)
     {
+        // object: 参照同一性 (box 同士も pointer 比較 = C# と同じ)
+        if (left == CType.Object && (right.IsNullable || right == CType.Null)
+            || right == CType.Object && (left.IsNullable || left == CType.Null)) return;
+        if (left.Kind == CTypeKind.Nullable || right.Kind == CTypeKind.Nullable)
+        {
+            if (left == CType.Null || right == CType.Null) return;
+            RequireComparable(left.Kind == CTypeKind.Nullable ? left.Element! : left,
+                right.Kind == CTypeKind.Nullable ? right.Element! : right, where);
+            return;
+        }
+        if (left.Kind == CTypeKind.Ref && right.Kind == CTypeKind.Ref
+            && (IsAncestorOrSame(left.Name!, right.Name!) || IsAncestorOrSame(right.Name!, left.Name!))) return;
         if (left.Kind is CTypeKind.I32 or CTypeKind.F32
             && right.Kind is CTypeKind.I32 or CTypeKind.F32) return;
         if (left == right && left.Kind is CTypeKind.Bool or CTypeKind.String
@@ -218,6 +309,7 @@ internal sealed partial class CEmitter
     // closure は型付き文脈でのみ生成できる (IlClosure は引数型を持たない)
     private string RenderCoerced(IlExpr expr, CType target)
     {
+        if (target == CType.Object) return RenderBox(expr);
         if (target.Kind == CTypeKind.Closure)
         {
             if (expr is IlClosure closure)
@@ -247,6 +339,8 @@ internal sealed partial class CEmitter
         IlLit literal => literal.LuaText.StartsWith('"'),
         IlVar => false,
         IlParen paren => Effectful(paren.E),
+        IlNumericConvert convert => Effectful(convert.Value),
+        IlRefCast cast => Effectful(cast.Value),
         IlUn unary => Effectful(unary.E),
         IlBin binary => Effectful(binary.L) || Effectful(binary.R),
         IlTernary ternary => Effectful(ternary.Cond)

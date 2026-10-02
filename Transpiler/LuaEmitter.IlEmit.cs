@@ -344,6 +344,8 @@ public partial class LuaEmitter
             IlLit { LuaText: not "nil" } lit => $"__tcs_arr({RenderIl(na.Length)}, {lit.LuaText})",
             _ => "{}",
         },
+        IlNumericConvert convert => RenderIl(convert.Value),
+        IlRefCast refCast => RenderIl(refCast.Value),
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
         IlStructCopy copy => $"{copy.TypeName}.__copy({RenderIl(copy.E)})",
         IlCast cast => RenderIl(cast.E),
