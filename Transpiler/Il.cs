@@ -74,7 +74,11 @@ public sealed record IlTable(ImmutableArray<IlTableEntry> Entries,
 
 /// <summary>固定長配列の生成: new T[n] (il-spec §11)。dev backend は
 /// 空 table (要素は使用時に埋まる)、release backend は連続バッファ確保。</summary>
-public sealed record IlNewArray(string ElementType, IlExpr Length) : IlExpr;
+/// <summary>固定長配列 `new T[n]`。要素は T の default 値 (Default: 値型は
+/// その IL、struct は IlNewObj の zero 値、参照型は null)。C は zero 初期化、
+/// Lua は値型のとき default を n 個詰める (参照型は空 table)。</summary>
+public sealed record IlNewArray(string ElementType, IlExpr Length,
+    IlExpr? Default = null) : IlExpr;
 
 public readonly record struct IlTableEntry(
     IlExpr? Key, IlExpr Value, string? NameKey = null);

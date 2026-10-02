@@ -320,7 +320,14 @@ public partial class LuaEmitter
         IlNewObj obj =>
             $"{obj.TypeName}.new({string.Join(", ", obj.Args.Select(RenderIl))})",
         IlTable table => RenderIlTable(table),
-        IlNewArray => "{}",  // 長さは Lua 表現に現れない (legacy 互換)
+        // 値型要素は default を n 個詰める (要素読み / Length が C# と一致)。
+        // 参照型 (null) は Lua table に穴を作れないので空 table
+        IlNewArray na => na.Default switch
+        {
+            IlNewObj zero => $"__tcs_arr({RenderIl(na.Length)}, {zero.TypeName}.new)",
+            IlLit { LuaText: not "nil" } lit => $"__tcs_arr({RenderIl(na.Length)}, {lit.LuaText})",
+            _ => "{}",
+        },
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
         IlStructCopy copy => $"{copy.TypeName}.__copy({RenderIl(copy.E)})",
         IlCast cast => RenderIl(cast.E),
@@ -462,7 +469,8 @@ public partial class LuaEmitter
         IlNullableHasValue h => IsCallFree(h.E),
         IlIsType it => IsCallFree(it.E),
         IlIsLuaType ilt => IsCallFree(ilt.E),
-        IlNewArray na => IsCallFree(na.Length),
+        IlNewArray na => IsCallFree(na.Length)
+            && (na.Default is null or IlLit or IlNewObj),
         IlTable tbl => tbl.Entries.All(
             en => (en.Key == null || IsCallFree(en.Key)) && IsCallFree(en.Value)),
         IlCall c => IsPureCallee(c.Callee) && c.Args.All(IsCallFree),

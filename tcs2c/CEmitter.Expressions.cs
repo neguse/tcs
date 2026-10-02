@@ -461,6 +461,8 @@ internal sealed partial class CEmitter
             return CType.Void;
         }
         if (IsIntrinsicCallee(call.Callee)) return TypeOfIntrinsic(call);
+        if (TryStructCallee(call.Callee, out var st, out var member))
+            return TypeOfStructCall(st, member, call.Args);
         var (cls, method) = ParseUserCallee(call.Callee);
         var fact = _facts.Method(cls, method);
         // base 呼び出し (IlCall "Base.M" with self 先頭) は非仮想の直呼び
@@ -557,6 +559,8 @@ internal sealed partial class CEmitter
 
     private string RenderUserCall(IlCall call)
     {
+        if (TryStructCallee(call.Callee, out var st, out var member))
+            return RenderStructCall(st, member, call.Args);
         var (cls, method) = ParseUserCallee(call.Callee);
         var fact = _facts.Method(cls, method);
         if (!fact.IsStatic && call.Args.Length == fact.Parameters.Count + 1)

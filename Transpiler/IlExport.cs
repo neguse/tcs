@@ -46,13 +46,23 @@ public sealed record IlMethodInfo(
     string ReturnType = "void",
     ImmutableArray<string> ParameterTypes = default);
 
-/// <summary>データ struct の migration metadata。field のみ
-/// (member は診断済み)。LayoutHash は class と同じ展開規則で、struct 値は
-/// reload 時に owner 経由で再直列化される (il-design §6)。</summary>
+/// <summary>struct / record struct の契約 (il-spec §10)。Fields は instance
+/// field (auto property / record struct の positional parameter 込み)。
+/// LayoutHash は class と同じ展開規則で、struct 値は reload 時に owner 経由で
+/// 再直列化される (il-design §6)。Methods は instance method と custom
+/// property accessor (static member は診断済み) で、呼び出し側 IL は
+/// IlCall("S.M", [receiver, args...]) の静的ディスパッチ (receiver は
+/// 変数なら place、rvalue なら copy)。Ctor は explicit ctor (record struct
+/// は positional 代入) で IlCall("S.ctor", args)。`new S()` は IlNewObj の
+/// zero 値で Init も走らない (C# の struct 意味論)。IsRecord の ==/!= は
+/// IlCall("S.op_Equality", [a, b]) の構造等価、with は IlWith。</summary>
 public sealed record IlStructInfo(
     string Name,
     ImmutableArray<IlFieldInfo> Fields,
-    string LayoutHash);
+    string LayoutHash,
+    ImmutableArray<IlMethodInfo> Methods = default,
+    IlCtorInfo? Ctor = null,
+    bool IsRecord = false);
 
 /// <summary>enum の定数表。member 名は Lua 出力の規則 (LuaNaming.Const) で
 /// 写した名前で、IL の IlField(IlVar(enum 名), member 名) と一致する。</summary>
@@ -98,45 +108,32 @@ public static class IlExport
                 compilation.GetSemanticModel(trees[i]), trees[i]);
         }
 
-        // struct layout の収集 (owner class の layout hash へ推移的に展開し、
-        // struct 自身も migration metadata として契約に載せる)
+        // struct / record struct の契約。layout は owner class の layout hash へ
+        // 推移的に展開するので先に全 struct 分を集める (auto property /
+        // record struct の positional parameter も field)
+        var emitter = new LuaEmitter();
         var structLayouts = new Dictionary<string, List<(string Name, string Type)>>();
-        var structDecls = new List<(string Name, string Key)>();
+        var structDecls = new List<(TypeDeclarationSyntax Decl, SemanticModel Model,
+            string Key)>();
         foreach (var tree in trees)
         {
             var model = compilation.GetSemanticModel(tree);
             foreach (var st in tree.GetCompilationUnitRoot().DescendantNodes()
-                .OfType<StructDeclarationSyntax>())
+                .OfType<TypeDeclarationSyntax>()
+                .Where(t => t is StructDeclarationSyntax
+                    || t.IsKind(SyntaxKind.RecordStructDeclaration)))
             {
-                var layout = new List<(string, string)>();
-                foreach (var field in st.Members.OfType<FieldDeclarationSyntax>())
-                {
-                    foreach (var v in field.Declaration.Variables)
-                    {
-                        if (model.GetDeclaredSymbol(v) is IFieldSymbol
-                            { IsStatic: false } fs)
-                        {
-                            layout.Add((LuaNaming.MemberName(fs),
-                                fs.Type.ToDisplayString()));
-                        }
-                    }
-                }
-                if (model.GetDeclaredSymbol(st) is { } stSymbol)
-                {
-                    var key = stSymbol.ToDisplayString();
-                    structLayouts[key] = layout;
-                    structDecls.Add((st.Identifier.ValueText, key));
-                }
+                if (model.GetDeclaredSymbol(st) is not { } stSymbol) continue;
+                var key = stSymbol.ToDisplayString();
+                structLayouts[key] = CollectFields(emitter, model, st, stSymbol)
+                    .Where(f => !f.IsStatic)
+                    .Select(f => (f.Name, f.Type)).ToList();
+                structDecls.Add((st, model, key));
             }
         }
-        var structs = structDecls.Select(s =>
-        {
-            var fields = structLayouts[s.Key]
-                .Select(f => new IlFieldInfo(f.Name, f.Type, false))
-                .ToList();
-            return new IlStructInfo(s.Name, [.. fields],
-                LayoutHash(fields, structLayouts));
-        }).ToList();
+        var structs = structDecls
+            .Select(s => ExportStruct(emitter, s.Model, s.Decl, structLayouts))
+            .ToList();
 
         // enum 名。hot reload の added field default (0) 判定に使う
         var enums = trees.SelectMany(t => t.GetCompilationUnitRoot()
@@ -168,7 +165,6 @@ public static class IlExport
         }
 
         var classes = new List<IlClassInfo>();
-        var emitter = new LuaEmitter();
         var topLevel = new List<StatementSyntax>();
         SemanticModel? topLevelModel = null;
         foreach (var tree in trees)
@@ -203,10 +199,37 @@ public static class IlExport
         var symbol = model.GetDeclaredSymbol(cls);
         var baseName = symbol?.BaseType is { SpecialType: SpecialType.None } b
             ? b.Name : null;
-        var record = cls as RecordDeclarationSyntax;
+        var fields = CollectFields(emitter, model, cls, symbol);
+        return new IlClassInfo(cls.Identifier.ValueText, baseName,
+            [.. fields], LayoutHash(fields, structLayouts),
+            [.. CollectMethods(emitter, model, cls)],
+            BuildCtor(emitter, model, cls),
+            IsRecord: cls is RecordDeclarationSyntax);
+    }
 
+    // struct / record struct: field (positional 込み) + instance member +
+    // explicit / positional ctor。static member / operator / override は
+    // 診断済みなので現れない
+    private static IlStructInfo ExportStruct(LuaEmitter emitter,
+        SemanticModel model, TypeDeclarationSyntax st,
+        Dictionary<string, List<(string Name, string Type)>> structLayouts)
+    {
+        var symbol = model.GetDeclaredSymbol(st);
+        var fields = CollectFields(emitter, model, st, symbol);
+        return new IlStructInfo(st.Identifier.ValueText, [.. fields],
+            LayoutHash(fields, structLayouts),
+            [.. CollectMethods(emitter, model, st)],
+            BuildCtor(emitter, model, st),
+            IsRecord: st is RecordDeclarationSyntax);
+    }
+
+    // instance / static field と auto property (backing field 相当)。
+    // positional record は parameter が先頭 (Lua の VisitRecord と同順)
+    private static List<IlFieldInfo> CollectFields(LuaEmitter emitter,
+        SemanticModel model, TypeDeclarationSyntax cls, INamedTypeSymbol? symbol)
+    {
+        var record = cls as RecordDeclarationSyntax;
         var fields = new List<IlFieldInfo>();
-        // positional record: parameter が field (Lua の VisitRecord と同順)
         var positional = record?.ParameterList?.Parameters.ToList() ?? [];
         foreach (var p in positional)
         {
@@ -239,7 +262,6 @@ public static class IlExport
                     init));
             }
         }
-        // auto property は backing field 相当として layout に数える
         foreach (var prop in cls.Members.OfType<PropertyDeclarationSyntax>()
             .Where(p => p.AccessorList != null && p.AccessorList.Accessors
                 .All(a => a.Body == null && a.ExpressionBody == null)))
@@ -255,8 +277,14 @@ public static class IlExport
                 propSymbol?.IsStatic ?? false,
                 propInit));
         }
+        return fields;
+    }
 
-        IlCtorInfo? ctor = null;
+    private static IlCtorInfo? BuildCtor(LuaEmitter emitter, SemanticModel model,
+        TypeDeclarationSyntax cls)
+    {
+        var record = cls as RecordDeclarationSyntax;
+        var positional = record?.ParameterList?.Parameters.ToList() ?? [];
         if (positional.Count > 0)
         {
             // positional ctor: 宣言順に field へ代入。base(...) は
@@ -277,41 +305,47 @@ public static class IlExport
                 new IlField(new IlVar("self"),
                     LuaNaming.Member(p.Identifier.ValueText)),
                 new IlVar(p.Identifier.ValueText)));
-            ctor = new IlCtorInfo(
+            return new IlCtorInfo(
                 [.. positional.Select(p => p.Identifier.ValueText)],
                 [.. positional.Select(p =>
                     model.GetDeclaredSymbol(p)?.Type.ToDisplayString() ?? "?")],
                 new IlBlock([.. body]),
                 baseArgs == null ? [] : [.. baseArgs]);
         }
-        else if (cls.Members.OfType<ConstructorDeclarationSyntax>()
-                .FirstOrDefault() is { } ctorDecl)
+        // struct の parameterless ctor は Shared facts が診断する (C# 10 だが
+        // `new S()` の zero 意味論と衝突する) ので、引数ありの instance ctor のみ
+        if (cls.Members.OfType<ConstructorDeclarationSyntax>()
+                .FirstOrDefault(c => !c.Modifiers.Any(SyntaxKind.StaticKeyword))
+            is not { } ctorDecl)
+            return null;
+        var ctorSymbol = model.GetDeclaredSymbol(ctorDecl);
+        var ctorBaseArgs = ImmutableArray<IlExpr>.Empty;
+        if (ctorDecl.Initializer is { } init
+            && init.IsKind(SyntaxKind.BaseConstructorInitializer))
         {
-            var ctorSymbol = model.GetDeclaredSymbol(ctorDecl);
-            var baseArgs = ImmutableArray<IlExpr>.Empty;
-            if (ctorDecl.Initializer is { } init
-                && init.IsKind(SyntaxKind.BaseConstructorInitializer))
+            var builtArgs = new List<IlExpr>();
+            foreach (var a in init.ArgumentList.Arguments)
             {
-                var builtArgs = new List<IlExpr>();
-                foreach (var a in init.ArgumentList.Arguments)
-                {
-                    var built = emitter.ExportExprIl(model, a.Expression);
-                    if (built == null) { builtArgs = null; break; }
-                    builtArgs.Add(built);
-                }
-                baseArgs = builtArgs == null ? [] : [.. builtArgs];
+                var built = emitter.ExportExprIl(model, a.Expression);
+                if (built == null) { builtArgs = null; break; }
+                builtArgs.Add(built);
             }
-            ctor = new IlCtorInfo(
-                [.. ctorDecl.ParameterList.Parameters
-                    .Select(p => p.Identifier.ValueText)],
-                ctorSymbol == null
-                    ? []
-                    : [.. ctorSymbol.Parameters
-                        .Select(p => p.Type.ToDisplayString())],
-                emitter.ExportStatsIl(model, ctorDecl.Body?.Statements),
-                baseArgs);
+            ctorBaseArgs = builtArgs == null ? [] : [.. builtArgs];
         }
+        return new IlCtorInfo(
+            [.. ctorDecl.ParameterList.Parameters
+                .Select(p => p.Identifier.ValueText)],
+            ctorSymbol == null
+                ? []
+                : [.. ctorSymbol.Parameters
+                    .Select(p => p.Type.ToDisplayString())],
+            emitter.ExportStatsIl(model, ctorDecl.Body?.Statements),
+            ctorBaseArgs);
+    }
 
+    private static List<IlMethodInfo> CollectMethods(LuaEmitter emitter,
+        SemanticModel model, TypeDeclarationSyntax cls)
+    {
         var methods = new List<IlMethodInfo>();
         // custom property accessor は get_/set_ method として契約に載せる
         foreach (var prop in cls.Members.OfType<PropertyDeclarationSyntax>()
@@ -337,6 +371,18 @@ public static class IlExport
                     isGet ? propType : "void",
                     isGet ? [] : [propType]));
             }
+        }
+        // expression-bodied property (`int X => ...`) は getter のみ
+        foreach (var prop in cls.Members.OfType<PropertyDeclarationSyntax>()
+            .Where(p => p.ExpressionBody != null))
+        {
+            var propSymbol = model.GetDeclaredSymbol(prop);
+            methods.Add(new IlMethodInfo(
+                $"get_{LuaNaming.Member(prop.Identifier.ValueText)}",
+                propSymbol?.IsStatic ?? false, [],
+                emitter.ExportAccessorExprIl(model,
+                    prop.ExpressionBody!.Expression, isGet: true),
+                propSymbol?.Type.ToDisplayString() ?? "?", []));
         }
         // user-defined operator は metamethod 名の static method として収載
         foreach (var op in cls.Members.OfType<OperatorDeclarationSyntax>())
@@ -379,10 +425,7 @@ public static class IlExport
                     : [.. methodSymbol.Parameters
                         .Select(p => p.Type.ToDisplayString())]));
         }
-
-        return new IlClassInfo(cls.Identifier.ValueText, baseName,
-            [.. fields], LayoutHash(fields, structLayouts), [.. methods], ctor,
-            IsRecord: record != null);
+        return methods;
     }
 
     // layout version hash (il-spec §14): instance field の (名前, 型) 列の

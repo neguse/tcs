@@ -41,7 +41,10 @@
       - T242–T245 完 (2026-10-02): delegate 型 field の直接呼び出し /
         `int.TryParse`、record class の IL 収載と C 構造等価、Nullable<T> の
         IL 明示ノード + lifted 演算子、Random の合意 PRNG (xoshiro256** 移植)
-      - 残: record struct の IlExport、`T?` の `?.` (IlIife の nil 比較のまま)
+      - T246 完 (2026-10-02): struct / record struct の IL 契約 (member /
+        ctor / 等価 / with) と C backend の値型 member、`new T[n]` の default
+        要素、List の struct 値等価
+      - 残: `T?` の `?.` (IlIife の nil 比較のまま)、Random インスタンス
 - T219b 完 (done.md 参照): struct / record struct の値セマンティクス
   対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
 - [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で
@@ -57,7 +60,7 @@
       - 残: 実導線 (ファイル監視 → EmitReloadChunk → 実行中 VM へ適用) は
         実利用トラックで接続。List/Dict 内 struct 値の再直列化と record class
         の migration は需要待ち。record struct の IlExport (layout hash /
-        migration) も未対応 — 需要待ち
+        migration) は T246 で対応
 
 ---
 

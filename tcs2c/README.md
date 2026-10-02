@@ -32,6 +32,12 @@ Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要�
 - class: 継承 (prefix layout)、virtual dispatch (type id switch)、`base.M`、
   ctor 連鎖、`is T` / is-pattern、static field / property、auto property
   initializer、upcast、明示 downcast (`IlCast`: 実行時型が合わなければ fault)
+- struct / record struct: 素の C 値型 (配列 / List / field に inline、代入 =
+  値 copy)。instance method / property accessor は `Tcs_S *self` で格納場所を
+  直接指す (変数 receiver はコピーゼロ、rvalue receiver は C# と同じく一時値)、
+  explicit / positional ctor は zero 値 → initializer → 本文、record struct の
+  `==` / with、List.Contains / IndexOf / Remove の memberwise 等価、
+  `new S[n]` / `default(S)` の zero 値
 - record class: positional ctor、`==` / `!=` の構造等価 (型ごとの比較関数、
   継承は実行時型へ dispatch、string は内容、record は再帰、struct は
   memberwise)、`with` (実行時型の layout で shallow copy)、分解代入、

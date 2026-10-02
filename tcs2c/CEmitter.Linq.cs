@@ -178,6 +178,9 @@ internal sealed partial class CEmitter
         CTypeKind.Ref or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
             or CTypeKind.Closure => $"({left} == {right})",
         CTypeKind.Nullable => NullableEqualExpr(type, left, right),
+        // struct 値は memberwise (C# の ValueType.Equals / record struct の ==)
+        CTypeKind.StructVal => $"({{ {type.CName} eq_l = {left}; {type.CName} eq_r = {right}; " +
+            $"{Names.StructEq(type.Name!)}(&eq_l, &eq_r); }})",
         _ => throw new Tcs2cException($"equality is not supported for {type}"),
     };
 
@@ -261,16 +264,18 @@ internal sealed partial class CEmitter
                 var value = args.Length == 3 ? InferClosureResult(args[2], [elem]) : elem;
                 return CType.Dict(key, value);
             }
+            // struct 要素では Lua 向けの op_Equality 参照が 3 番目に付く
+            // (C は要素型から memberwise 比較を生成するので読まない)
             case "Contains":
-                RequireArity(call.Callee, args.Length, 2);
+                RequireArity(call.Callee, args.Length, elem.Kind == CTypeKind.StructVal ? 3 : 2);
                 CheckAssignable(elem, args[1], call.Callee);
                 return CType.Bool;
             case "IndexOf":
-                RequireArity(call.Callee, args.Length, 2);
+                RequireArity(call.Callee, args.Length, elem.Kind == CTypeKind.StructVal ? 3 : 2);
                 CheckAssignable(elem, args[1], call.Callee);
                 return CType.I32;
             case "Remove":
-                RequireArity(call.Callee, args.Length, 2);
+                RequireArity(call.Callee, args.Length, elem.Kind == CTypeKind.StructVal ? 3 : 2);
                 if (seq.Kind != CTypeKind.List) throw new Tcs2cException("Remove: receiver is not a List");
                 CheckAssignable(elem, args[1], call.Callee);
                 return CType.Bool;

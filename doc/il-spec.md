@@ -116,8 +116,8 @@ goto は無い。例外機構は無い — try / throw はサブセット外（T
 - 仮想呼び出し: 単一継承、override は実行時型で解決
 - class の参照比較（operator 定義が無い `==`）は identity 比較
 
-## 10. place と値型（M5 v1 で「データ struct」= field のみを有効化。
-member 付き struct / record struct は引き続きサブセット外）
+## 10. place と値型（struct / record struct。field + instance member +
+ctor。static member / operator / override はサブセット外、T246 で契約完成）
 
 place = 格納場所。変数、フィールド path、配列/List 要素 path の 3 種。
 
@@ -130,7 +130,22 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
   4. 値文脈での place 読み出し（`var p = a[i]`、`var q = s.Inner`）
 - struct 配列の要素は互いに独立した place。連続メモリ配置は backend 表現の
   自由であり IL の意味論ではない
-- 値型の `==` は operator 定義がある場合のみ（既定の構造等価は v0 に無い）
+- struct の instance member は静的ディスパッチの自由関数
+  `IlCall("S.M", [receiver, args...])`。receiver が C# の「変数」(local /
+  parameter / field / 配列要素 / this) なら place をそのまま渡し、変異は
+  その場に残る。rvalue (property / List indexer / 呼び出し結果) は copy を
+  渡し、変異は捨てられる (C# と同じ)。backend は place のアドレス渡し
+  (C: `Tcs_S *self`) で copy を省いてよい
+- explicit ctor は `IlCall("S.ctor", args)`: zero 値 → field initializer →
+  本文の順。`new S()` は ctor を通らない zero 値 (IlNewObj、initializer も
+  走らない)。record struct の positional ctor は宣言順の代入
+- 値等価は memberwise (ネスト struct は推移的)。record struct の `==` / `!=`
+  は `IlCall("S.op_Equality", [a, b])`、plain struct も List.Contains /
+  IndexOf / Remove (C# の EqualityComparer<T>.Default) で同じ等価を使う
+  (IL は末尾引数に `S.op_Equality` 参照を付け、要素型から判る backend は
+  読まなくてよい)。record struct の `with` は IlWith (値 copy + 上書き)
+- `new S[n]` / `new int[n]` の要素は default 値 (IlNewArray.Default。struct
+  は zero 値)。C は zero 初期化、Lua は値型のとき n 個詰める
 
 ## 11. 配列・List・Dictionary・string
 

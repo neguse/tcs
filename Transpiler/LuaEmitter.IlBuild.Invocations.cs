@@ -54,13 +54,12 @@ public partial class LuaEmitter
                         ? args[0]
                         : new IlLit("nil");
                     result = new IlCall($"List.{methodName}",
-                        [recvExt, predicateExt,
-                         new IlLit(GetDefaultValueForType(
-                             methodSym.ReturnType))]);
+                        [recvExt, predicateExt, DefaultIl(methodSym.ReturnType)]);
                     return true;
                 }
                 result = new IlCall($"List.{methodName}",
-                    [recvExt, .. args]);
+                    [recvExt, .. WithStructEquality(
+                        model.GetTypeInfo(ma.Expression).Type, methodName, args)]);
                 return true;
             }
             return false;
@@ -74,7 +73,8 @@ public partial class LuaEmitter
                 result = new IlCall("table.insert", [recv, .. args]);
                 return true;
             case "Remove":
-                result = new IlCall("List.Remove", [recv, .. args]);
+                result = new IlCall("List.Remove", [recv, .. WithStructEquality(
+                    model.GetTypeInfo(ma.Expression).Type, methodName, args)]);
                 return true;
             case "RemoveAt":
                 result = new IlCall("table.remove",
@@ -97,17 +97,30 @@ public partial class LuaEmitter
             {
                 var predicate = args.Length > 0 ? args[0] : new IlLit("nil");
                 result = new IlCall($"List.{methodName}",
-                    [recv, predicate,
-                     new IlLit(GetDefaultValueForType(methodSym.ReturnType))]);
+                    [recv, predicate, DefaultIl(methodSym.ReturnType)]);
                 return true;
             }
         }
         if (ListRuntimeMethods.Contains(methodName))
         {
-            result = new IlCall($"List.{methodName}", [recv, .. args]);
+            result = new IlCall($"List.{methodName}", [recv, .. WithStructEquality(
+                model.GetTypeInfo(ma.Expression).Type, methodName, args)]);
             return true;
         }
         return false;
+    }
+
+    // struct 要素の Contains / IndexOf / Remove は値等価 (C# の
+    // EqualityComparer<T>.Default)。Lua の raw == は table identity なので
+    // 型別の op_Equality を末尾引数で渡す (C backend は要素型から判るので無視)
+    private static IlExpr[] WithStructEquality(ITypeSymbol? listType,
+        string methodName, IEnumerable<IlExpr> argList)
+    {
+        var args = argList.ToArray();
+        if (methodName is not ("Contains" or "IndexOf" or "Remove")) return args;
+        var elem = (listType as INamedTypeSymbol)?.TypeArguments.FirstOrDefault();
+        if (!IsUserStruct(elem)) return args;
+        return [.. args, new IlField(new IlVar(elem!.Name), "op_Equality")];
     }
 
     // legacy MapStringMethodCall の写像 (default の `obj:m(...)` 形は不一致
@@ -178,7 +191,7 @@ public partial class LuaEmitter
             _ => null,
         };
         if (target == null) return null;
-        var defaultValue = GetDefaultValueForType(
+        var defaultValue = DefaultIl(
             methodSym.Parameters.Length > 1
                 ? methodSym.Parameters[1].Type : null);
         // multi-return intrinsic (il-spec §13)。nil 比較の desugar を IL に
@@ -187,7 +200,7 @@ public partial class LuaEmitter
             new IlMultiAssign(
                 [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
                 [new IlCall("Dict.TryGet",
-                    [recv, key, new IlLit(defaultValue)])],
+                    [recv, key, defaultValue])],
                 Declare: true),
             new IlAssign(target, new IlVar("__tcs_v")),
             new IlReturn(new IlVar("__tcs_found"))]);

@@ -14,9 +14,10 @@ function List.Add(list, item)
   table.insert(list, item)
 end
 
-function List.Remove(list, item)
+-- eq は struct 要素の値等価 (型別 op_Equality)。省略時は raw ==
+function List.Remove(list, item, eq)
   for i = 1, #list do
-    if list[i] == item then
+    if (eq and eq(list[i], item)) or (not eq and list[i] == item) then
       table.remove(list, i)
       return true
     end
@@ -39,16 +40,16 @@ function List.Count(list, predicate)
   return #list
 end
 
-function List.Contains(list, item)
+function List.Contains(list, item, eq)
   for i = 1, #list do
-    if list[i] == item then return true end
+    if (eq and eq(list[i], item)) or (not eq and list[i] == item) then return true end
   end
   return false
 end
 
-function List.IndexOf(list, item)
+function List.IndexOf(list, item, eq)
   for i = 1, #list do
-    if list[i] == item then return i - 1 end -- return 0-indexed
+    if (eq and eq(list[i], item)) or (not eq and list[i] == item) then return i - 1 end -- return 0-indexed
   end
   return -1
 end
@@ -488,6 +489,18 @@ function Dict.TryGet(dict, key, default)
   local v = dict[key]
   if v ~= nil then return true, v end
   return false, default
+end
+
+-- `new T[n]` (値型 T): default を n 個詰めた sequence (生成コードは
+-- __tcs_arr global 経由)。init が関数なら要素ごとに呼ぶ (struct の zero 値)
+function TinySystem.arr(n, init)
+  local t = {}
+  if type(init) == "function" then
+    for i = 1, n do t[i] = init() end
+  else
+    for i = 1, n do t[i] = init end
+  end
+  return t
 end
 
 -- (int)f: 0 方向 truncation (生成コードは __tcs_trunc global 経由)

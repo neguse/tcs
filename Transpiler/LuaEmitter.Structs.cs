@@ -25,6 +25,7 @@ public partial class LuaEmitter
                 && c.ParameterList.Parameters.Count > 0);
         if (ctor != null)
             EmitStructCtor(model, name, structDecl, ctor);
+        EmitStructEquality(name, symbol);
 
         EmitStructMembers(model, name, structDecl.Members);
     }
@@ -62,9 +63,17 @@ public partial class LuaEmitter
         }
 
         EmitStructCopyFunction(name, symbol);
+        EmitStructEquality(name, symbol);
 
-        // 値等価。ネスト struct 値は推移的に field 展開する (struct は
-        // 循環できないので停止する)
+        EmitStructMembers(model, name, rec.Members);
+    }
+
+    // 値等価 (memberwise)。record struct の ==/!= と、struct 要素の
+    // List.Contains / IndexOf / Remove (C# の EqualityComparer<T>.Default)
+    // が使う。ネスト struct 値は推移的に field 展開する (struct は循環
+    // できないので停止する)
+    private void EmitStructEquality(string name, INamedTypeSymbol? symbol)
+    {
         _currentType?.DefinitionKeys.Add("op_Equality");
         AppendLine($"function {name}.op_Equality(a, b)");
         _indent++;
@@ -77,8 +86,6 @@ public partial class LuaEmitter
         _indent--;
         AppendLine("end");
         AppendLine();
-
-        EmitStructMembers(model, name, rec.Members);
     }
 
     // zero 初期化コンストラクタ。`new S()` / default(S) / field default が通る
@@ -258,6 +265,13 @@ public partial class LuaEmitter
         && type.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T
         && type.TypeKind != TypeKind.Enum
         && type.Locations.Any(l => l.IsInSource);
+
+    // default 値の IL: source 宣言の struct は zero 値の IlNewObj (backend が
+    // 型付けできる)、それ以外は変換済みリテラル
+    private static IlExpr DefaultIl(ITypeSymbol? type) =>
+        IsUserStruct(type)
+            ? new IlNewObj(type!.Name, [])
+            : new IlLit(GetDefaultValueForType(type));
 
     // 値型の copy 地点 (il-spec §10): 代入 / 引数 / return / 値文脈読み。
     // fresh な値 (object creation / initializer IIFE / with 式 / copy 済み) は

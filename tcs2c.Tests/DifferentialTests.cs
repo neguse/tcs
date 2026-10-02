@@ -554,4 +554,107 @@ public class DifferentialTests
             }
             """, "P");
     }
+
+    // struct / record struct の member (il-spec §10): 明示 ctor + field
+    // initializer (`new S()` は zero のまま)、変数 receiver (local / 配列要素
+    // / class field) の method 変異はその場に残り、List indexer (rvalue) は
+    // copy への変異、custom / auto / expression-bodied property、record
+    // struct の positional ctor / ==/!= / with / 入れ子、List.Contains /
+    // IndexOf の値等価、`new S[n]` の zero 要素、default(S)
+    [CFact]
+    public void Structs_MembersCtorPropertiesAndRecordStruct()
+    {
+        Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            public struct Vec
+            {
+                public float X;
+                public float Y;
+                public Vec(float x, float y) { X = x; Y = y; }
+                public void Scale(float k) { X = X * k; Y = Y * k; }
+                public float Len2() => X * X + Y * Y;
+                public Vec Plus(Vec o) { var r = new Vec(X + o.X, Y + o.Y); return r; }
+            }
+            public struct Counter
+            {
+                public int N;
+                public int Step = 2;
+                public string Tag { get; set; }
+                public int Doubled => N * 2;
+                public int Clamped
+                {
+                    get { return N > 10 ? 10 : N; }
+                    set { N = value < 0 ? 0 : value; }
+                }
+                public Counter(int n) { N = n; Tag = "c" + n.ToString(); }
+                public void Inc() { N = N + Step; }
+                public void Reset() { if (N == 0) return; N = 0; }
+            }
+            public struct Body
+            {
+                public Vec Pos;
+                public Vec Vel;
+                public void Step() { Pos = Pos.Plus(Vel); Vel.Scale(0.5f); }
+            }
+            public record struct Point(int X, int Y)
+            {
+                public int Manhattan() => (X < 0 ? -X : X) + (Y < 0 ? -Y : Y);
+            }
+            public readonly record struct Pair(Point A, string Name);
+            public class Holder { public Counter C; public Vec V = new Vec(1f, 2f); }
+            public class P
+            {
+                public static Counter Make(int n) { var c = new Counter(n); c.Inc(); return c; }
+                public static void Main()
+                {
+                    var v = new Vec(3f, 4f);
+                    v.Scale(2f);
+                    Console.WriteLine(v.X + ":" + v.Y + ":" + v.Len2());
+                    var arr = new Vec[2];
+                    arr[1] = v;
+                    arr[1].Scale(0.5f);
+                    Console.WriteLine(arr[1].X + ":" + arr[0].X + ":" + v.X);
+                    var list = new List<Vec>();
+                    list.Add(v);
+                    list[0].Scale(10f);
+                    Console.WriteLine(list[0].X);
+                    var c = new Counter(5);
+                    c.Inc();
+                    Console.WriteLine(c.N + ":" + c.Step + ":" + c.Tag + ":" + c.Doubled + ":" + c.Clamped);
+                    c.Clamped = -3;
+                    Console.WriteLine(c.N + ":" + c.Clamped);
+                    c.N = 50; Console.WriteLine(c.Clamped);
+                    var z = new Counter();
+                    Console.WriteLine(z.N + ":" + z.Step + ":" + (z.Tag == null));
+                    z.Reset(); z.Inc(); Console.WriteLine(z.N);
+                    var h = new Holder();
+                    h.C.Inc(); h.C.Inc();
+                    h.V.Scale(3f);
+                    Console.WriteLine(h.C.N + ":" + h.V.X + ":" + h.V.Y);
+                    var m = Make(1);
+                    Console.WriteLine(m.N + ":" + m.Tag);
+                    var b = new Body();
+                    b.Vel = new Vec(2f, 2f);
+                    b.Step(); b.Step();
+                    Console.WriteLine(b.Pos.X + ":" + b.Vel.X);
+                    var p = new Point(3, -4);
+                    var q = p with { Y = 4 };
+                    Console.WriteLine(p.Manhattan() + ":" + q.Manhattan() + ":" + (p == q) + ":" + (p == new Point(3, -4)) + ":" + (p != q));
+                    var pair = new Pair(p, "a");
+                    var pair2 = pair with { Name = "a" };
+                    Console.WriteLine((pair == pair2) + ":" + (pair == new Pair(q, "a")) + ":" + pair.A.X + ":" + pair2.Name);
+                    var d = new Dictionary<string, Point>();
+                    d["k"] = p;
+                    Console.WriteLine(d["k"].Manhattan() + ":" + d["k"].X);
+                    var init = new Counter(1) { N = 7, Tag = "t" };
+                    Console.WriteLine(init.N + ":" + init.Tag + ":" + init.Step);
+                    var pts = new List<Point> { new Point(1, 1), new Point(2, 2) };
+                    Console.WriteLine(pts.Contains(new Point(2, 2)) + ":" + pts.IndexOf(new Point(1, 1)));
+                    var dp = default(Point);
+                    Console.WriteLine(dp.X + ":" + (dp == new Point(0, 0)));
+                }
+            }
+            """, "P");
+    }
 }

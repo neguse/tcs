@@ -30,8 +30,7 @@ public partial class LuaEmitter
                 { RawKind: (int)SyntaxKind.DefaultLiteralExpression } defLit:
             {
                 var converted = model.GetTypeInfo(defLit).ConvertedType;
-                return converted == null
-                    ? null : new IlLit(GetDefaultValueForType(converted));
+                return converted == null ? null : DefaultIl(converted);
             }
             case LiteralExpressionSyntax lit:
                 return new IlLit(VisitLiteral(lit));
@@ -142,9 +141,7 @@ public partial class LuaEmitter
             }
             case DefaultExpressionSyntax def:
             {
-                var type = model.GetTypeInfo(def).Type;
-                return new IlLit(type != null
-                    ? GetDefaultValueForType(type) : "nil");
+                return DefaultIl(model.GetTypeInfo(def).Type);
             }
             case SwitchExpressionSyntax switchExpr:
                 return BuildSwitchExpression(model, switchExpr);
@@ -159,8 +156,9 @@ public partial class LuaEmitter
             {
                 if (arr.Initializer == null)
                 {
-                    var elemType = (model.GetTypeInfo(arr).Type
-                        as IArrayTypeSymbol)?.ElementType.ToDisplayString();
+                    var elemSymbol = (model.GetTypeInfo(arr).Type
+                        as IArrayTypeSymbol)?.ElementType;
+                    var elemType = elemSymbol?.ToDisplayString();
                     var sizeExpr = arr.Type.RankSpecifiers.Count == 1
                         && arr.Type.RankSpecifiers[0].Sizes.Count == 1
                         && arr.Type.RankSpecifiers[0].Sizes[0]
@@ -168,7 +166,7 @@ public partial class LuaEmitter
                         ? arr.Type.RankSpecifiers[0].Sizes[0] : null;
                     if (elemType != null && sizeExpr != null
                         && BuildExpr(model, sizeExpr) is { } len)
-                        return new IlNewArray(elemType, len);
+                        return new IlNewArray(elemType, len, DefaultIl(elemSymbol));
                     return new IlTable([], elemType);
                 }
                 return BuildArrayItems(model, arr.Initializer,
@@ -450,8 +448,7 @@ public partial class LuaEmitter
                 var underlying = ((INamedTypeSymbol)gvd.ContainingType)
                     .TypeArguments[0];
                 if (argArr.Length == 0)
-                    return new IlNullableGetOrDefault(obj,
-                        new IlLit(GetDefaultValueForType(underlying)));
+                    return new IlNullableGetOrDefault(obj, DefaultIl(underlying));
                 // method 引数なので常に 1 回評価 (?? と違い遅延しない)
                 return new IlIife([
                     new IlLocal("__tcs_val", obj),

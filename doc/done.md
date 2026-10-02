@@ -1691,3 +1691,13 @@
 - よかったこと: Lua の `math.random` を仕様として採用したので「Lua と C の列が一致する」が機械的に検証でき、il-spec §13 の Random 条項と付録 C の未決項目を決着できた
 - 判断: dotnet facade は System.Random のままなので乱数列は dotnet differential の対象外 (seed 固定テストは Lua / C 間のみ)。独自 PRNG を 3 backend に載せる案は、Lua backend の `math.random` を置き換える不利益の方が大きいので却下
 - 残課題: `Random` インスタンス (`new Random(seed)`) は facade 外のまま。必要になれば Seed 付き状態を持つ型として IL に載せる
+
+### T246: struct / record struct の IL 契約完成と C backend の値型 member ✓ (2026-10-02)
+- IlStructInfo に Methods / Ctor / IsRecord を追加し、record struct を struct 側の契約に収載 (positional parameter と auto property も field、layout hash と hot reload の migration に乗る)。IlExport の class / struct の member 収集を共通化 (CollectFields / BuildCtor / CollectMethods)。expression-bodied property の getter も契約に現れるようにした
+- C backend: struct の instance method / accessor は `Tcs_S *self` で格納場所を直接指す自由関数 (変数 receiver はアドレス渡しでコピーゼロ、rvalue receiver は一時値)、`S.ctor` は zero 値 → field initializer → 本文を値で返す関数、record struct の `==` は memberwise 比較関数、`with` は値 copy + 上書き。struct は素の C 値型のまま (配列 / List / field に inline、heap 確保なし)
+- 両 backend の揃え: `default(S)` / `new S[n]` の要素を IlNewObj の zero 値に (IL の `S.new()` リテラルを排除、IlNewArray に Default を追加して Lua も値型配列を n 個詰める)、List.Contains / IndexOf / Remove の struct 要素を memberwise 等価に (Lua は型別 op_Equality を末尾引数で受ける、plain struct にも op_Equality を合成)、legacy 経路の `new S(args)` を S.ctor に、C の f32 文字列化を Lua と同じ %.6g → %.8g → %.9g の刻みに (100.0f が "1e+02" / "100" に割れていた)
+- 検証: tcs2c.Tests に struct member / ctor / property / record struct / 入れ子 / List 等価 / 配列 zero 値を 1 program にまとめた 2 backend differential (C 通常 + GC stress + Lua 一致)、IlExportTests に契約テスト、HotReloadTests に record struct の migration、StructSemanticsTests に `new S[n]` と List 値等価 (dotnet differential)。Transpiler.Tests 868/869 (root 環境固有の permission テストのみ)、tcs2c.Tests / Analyzers / verify-digests green
+- よかったこと: `self` を Boxed 変数 (`(*v_self)`) として登録するだけで既存の place 連鎖 (RenderStructPlace / EmitAssign) がそのまま struct method 本文に使えた。LuaEmitter.cs の prelude を Prelude.cs に分離して 800 行ゲートを守った
+- 判断: struct の parameterless ctor は従来どおり対象外 (`new S()` の zero 意味論を保つ)。List 等価の Lua 側は metatable を struct に付けず (plain table 設計と migration を保つ)、IL が等価関数を渡す形にした。`new string[n]` の要素 nil / Length 0 は TCS1003 と同じ nil 制約として残す
+- 残課題: struct を Dictionary の key にする用途 (C は i32 / string key のみ)
+

@@ -57,22 +57,32 @@ internal sealed class ContractFacts
                     throw new Tcs2cException($"duplicate field: {cls.Name}.{field.Name}");
             }
 
-            foreach (var method in cls.Methods)
-            {
-                if (method.ParameterTypes.IsDefault)
-                    throw new Tcs2cException($"method is missing parameter types: " +
-                        $"{cls.Name}.{method.Name}");
-                if (method.Parameters.Length != method.ParameterTypes.Length)
-                    throw new Tcs2cException($"method parameter metadata mismatch: " +
-                        $"{cls.Name}.{method.Name}");
-                var parameters = method.Parameters.Select((name, i) =>
-                    new ParameterFact(name, MapType(method.ParameterTypes[i]))).ToArray();
-                var fact = new MethodFact(cls.Name, method.Name, method.IsStatic,
-                    MapType(method.ReturnType), parameters, method);
-                if (!_methods.TryAdd((cls.Name, method.Name), fact))
-                    throw new Tcs2cException($"method overloads are not supported: " +
-                        $"{cls.Name}.{method.Name}");
-            }
+            RegisterMethods(cls.Name, cls.Methods);
+        }
+        // struct の instance member も同じ表に載せる (型名で引く)
+        foreach (var st in _structs.Values)
+            if (!st.Methods.IsDefault)
+                RegisterMethods(st.Name, st.Methods);
+    }
+
+    private void RegisterMethods(string owner,
+        System.Collections.Immutable.ImmutableArray<IlMethodInfo> methods)
+    {
+        foreach (var method in methods)
+        {
+            if (method.ParameterTypes.IsDefault)
+                throw new Tcs2cException($"method is missing parameter types: " +
+                    $"{owner}.{method.Name}");
+            if (method.Parameters.Length != method.ParameterTypes.Length)
+                throw new Tcs2cException($"method parameter metadata mismatch: " +
+                    $"{owner}.{method.Name}");
+            var parameters = method.Parameters.Select((name, i) =>
+                new ParameterFact(name, MapType(method.ParameterTypes[i]))).ToArray();
+            var fact = new MethodFact(owner, method.Name, method.IsStatic,
+                MapType(method.ReturnType), parameters, method);
+            if (!_methods.TryAdd((owner, method.Name), fact))
+                throw new Tcs2cException($"method overloads are not supported: " +
+                    $"{owner}.{method.Name}");
         }
     }
 

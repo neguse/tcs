@@ -218,9 +218,14 @@ internal sealed partial class CEmitter
         static size_t
         tcs_format_f32(float value, char buffer[64])
         {
-            int precision;
+            /* Lua backend の __tcs_fstr と同じ %.6g → %.8g → %.9g の順で
+               round-trip する最短を選ぶ (il-spec §13。桁数の刻みまで揃えないと
+               100.0f が "1e+02" / "100" に割れる) */
+            static const int ladder[3] = { 6, 8, 9 };
+            int step;
             int written = -1;
-            for (precision = 1; precision <= 9; precision++) {
+            for (step = 0; step < 3; step++) {
+                int precision = ladder[step];
                 char *end;
                 float parsed;
                 written = snprintf(buffer, 64, "%.*g", precision, (double)value);

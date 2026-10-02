@@ -26,9 +26,13 @@ var result = TinyCs.IlExport.Export(csharpSources);
 //     並び (base へ渡すだけの parameter は C# 同様に合成しない)、Ctor は
 //     それらへの代入 + base 引数。==/!= は構造等価 (backend が field 比較を
 //     生成、型が違えば false)、with は IlWith (実行時型の shallow copy)
-// result.Structs: IlStructInfo[] — データ struct (M5 v1) の migration
-//   metadata (Name / Fields / LayoutHash)。struct 値は reload 時に owner
-//   経由で再直列化される (il-design §6、HotReload.cs)
+// result.Structs: IlStructInfo[] — struct / record struct (il-spec §10)。
+//   Fields (auto property / record struct の positional parameter 込み、
+//   Init は explicit ctor 経由でのみ適用) / LayoutHash (migration metadata、
+//   struct 値は reload 時に owner 経由で再直列化 — il-design §6、HotReload.cs)
+//   / Methods (instance method + custom property accessor、呼び出しは
+//   IlCall("S.M", [receiver, args])) / Ctor (explicit または positional、
+//   IlCall("S.ctor", args)) / IsRecord (==/!= は IlCall("S.op_Equality"))
 // result.Enums: enum 名 (hot reload の added field default 判定)
 // result.EnumTypes: IlEnumInfo[] — enum の定数表 (Name / Members: (Lua 名,
 //   int 値))。IL 上の enum 参照は IlField(IlVar(enum 名), member 名) で、
@@ -61,13 +65,13 @@ assembly 参照で直接消費する。
 | IlInvoke(recv, m, args) | インスタンスメソッド (仮想解決は実行時型 §9) | recv:m(args) |
 | IlNewObj(type, args) | class 生成 (§9: default 初期化→ctor) | Type.new(args) |
 | IlTable(entries, elemType?) | List/Dict/option table リテラル。entry = 配列項 / [k]=v / name=v。elemType は配列/List の要素型 metadata | {…} |
-| IlNewArray(elemType, length) | 固定長配列生成 (§11)。release は連続バッファ確保 | {} |
+| IlNewArray(elemType, length, default) | 固定長配列生成 (§11)。default は要素の default 値 (値型は IL、struct は IlNewObj の zero 値、参照型は null)。C は zero 初期化、Lua は値型のとき `__tcs_arr(n, default)` で n 個詰める | __tcs_arr(n, d) / {} |
 | IlStructCopy(e, typeName) | 値型の copy 地点 (§10)。型別 copy 関数で struct-in-struct を再帰 copy。C backend は素の値代入で良い | typeName..".\_\_copy(e)" |
 | IlIsType(e, typeRef) | class 型 test (T またはその派生、null 偽 §9) | \_\_tcs_is(e, T) |
 | IlIsLuaType(e, luaType) | プリミティブ型 test | type(e) == "…" |
 | IlIife(stats) | 式位置の逐次実行 (switch 式・?. 等の lowering 産物) | (function() … end)() |
 | IlClosure(params, body/exprBody, patternLocals) | closure。capture は変数単位 (§7) | function(…) … end |
-| IlWith(src, overrides) | record with (shallow copy + 上書き)。C backend は実行時型の layout で copy | IIFE |
+| IlWith(src, overrides) | record with (shallow copy + 上書き)。C backend は record class なら実行時型の layout で copy、record struct なら値 copy | IIFE |
 | IlNullableWrap(e, type) | T → T? (type = T の display 名)。builder が Roslyn の ConvertedType から挿入する | e (透過) |
 | IlNullableHasValue(e) | HasValue / `!= null` / `is not null` | e ~= nil |
 | IlNullableValue(e) | .Value (値なしは fault) | __tcs_nval(e) |

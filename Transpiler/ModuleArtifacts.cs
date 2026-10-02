@@ -128,6 +128,7 @@ public static class ModuleLinker
         sb.Append("  _G.__tcs_is = TinySystem.instanceof\n");
         sb.Append("  _G.__tcs_fstr = TinySystem.fstr\n");
         sb.Append("  _G.__tcs_trunc = TinySystem.trunc\n");
+        sb.Append("  _G.__tcs_arr = TinySystem.arr\n");
         foreach (var n in new[] { "nval", "nget", "nlift", "nlift1", "ncmp", "nand", "nor", "nnot", "nstr" })
             sb.Append($"  _G.__tcs_{n} = TinySystem.{n}\n");
         foreach (var op in new[] { "add", "sub", "mul", "div", "idiv", "irem", "fmod", "band",

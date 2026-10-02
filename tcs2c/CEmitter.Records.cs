@@ -96,6 +96,7 @@ internal sealed partial class CEmitter
     private CType TypeOfWith(IlWith with)
     {
         var source = TypeOf(with.Src);
+        if (source.Kind == CTypeKind.StructVal) return TypeOfStructWith(with, source);
         if (source.Kind != CTypeKind.Ref)
             throw new Tcs2cException($"with source is not a class reference: {source}");
         foreach (var (name, value) in with.Overrides)
@@ -107,6 +108,7 @@ internal sealed partial class CEmitter
     private string RenderWith(IlWith with)
     {
         var type = TypeOfWith(with);
+        if (type.Kind == CTypeKind.StructVal) return RenderStructWith(with, type);
         var src = Temp("with_src");
         var copy = Temp("with_copy");
         var header = Temp("with_header");

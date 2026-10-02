@@ -464,7 +464,8 @@ public partial class LuaEmitter
                 case "Add":
                     return new IlCall("table.insert", [obj, .. argArr]);
                 case "Remove":
-                    return new IlCall("List.Remove", [obj, .. argArr]);
+                    return new IlCall("List.Remove", [obj, .. WithStructEquality(
+                        receiverType, methodName, argArr)]);
                 case "RemoveAt":
                     return new IlCall("table.remove",
                         [obj, new IlBin(IlBinOp.AddNum, argArr[0],
@@ -475,7 +476,8 @@ public partial class LuaEmitter
                     return null; // IIFE / default 埋め込み経路 — fallback
             }
             if (ListRuntimeMethods.Contains(methodName))
-                return new IlCall($"List.{methodName}", [obj, .. argArr]);
+                return new IlCall($"List.{methodName}", [obj, .. WithStructEquality(
+                    receiverType, methodName, argArr)]);
         }
 
         if (IsDictType(typeDef))

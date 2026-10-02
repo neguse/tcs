@@ -27,7 +27,8 @@ internal sealed partial class CEmitter
         var dot = callee.IndexOf('.');
         if (dot <= 0) return false;
         // 同名の user class があればそちらが優先 (user call 経路)
-        if (_classes.ContainsKey(callee[..dot])) return false;
+        if (_classes.ContainsKey(callee[..dot])
+            || _facts.Structs.ContainsKey(callee[..dot])) return false;
         return IntrinsicPrefixes.Contains(callee[..(dot + 1)]);
     }
 

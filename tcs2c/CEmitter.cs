@@ -152,6 +152,7 @@ internal sealed partial class CEmitter
         foreach (var cls in _program.Classes)
         foreach (var method in cls.Methods)
             EmitMethod(cls, method);
+        EmitStructMembers();
         EmitDispatchers();
         EmitRecordEquality();
         EmitStaticInitializer();
@@ -168,6 +169,7 @@ internal sealed partial class CEmitter
     {
         if (_program.Diagnostics.Length > 0)
             throw new Tcs2cException("cannot emit a program with TinyC# diagnostics");
+        ValidateStructs();
         foreach (var cls in _program.Classes)
         {
             Names.Id(cls.Name);
@@ -331,15 +333,18 @@ internal sealed partial class CEmitter
             Line($"static {fact.ReturnType.CName} " +
                 $"{Names.Dispatch(cls.Name, method.Name)}({parameters});");
         }
+        EmitStructMemberPrototypes();
         EmitRecordEqualityPrototypes();
         Line(ClosureDeclMarker);
     }
 
-    private static string ParameterList(MethodFact method)
+    private string ParameterList(MethodFact method)
     {
         var parameters = new List<string>();
         if (!method.IsStatic)
-            parameters.Add($"{CType.Ref(method.ClassName).CName} v_self");
+            parameters.Add(_facts.Structs.ContainsKey(method.ClassName)
+                ? $"{CType.Struct(method.ClassName).CName} *v_self"
+                : $"{CType.Ref(method.ClassName).CName} v_self");
         parameters.AddRange(method.Parameters.Select((p, i) =>
             $"{p.Type.CName} v_{Names.Id(p.Name)}_{i}"));
         return parameters.Count == 0 ? "void" : string.Join(", ", parameters);
@@ -348,14 +353,22 @@ internal sealed partial class CEmitter
     private void EmitMethod(IlClassInfo cls, IlMethodInfo method)
     {
         _currentClass = cls;
+        var fact = _facts.Method(cls.Name, method.Name);
+        EmitMethodCore(method, fact,
+            fact.IsStatic ? null : new Variable("v_self", CType.Ref(cls.Name)));
+    }
+
+    // class / struct 共通の method 本体。self は class なら参照、struct なら
+    // 格納場所へのポインタ (Boxed = `(*v_self)` で place として現れる)
+    private void EmitMethodCore(IlMethodInfo method, MethodFact fact, Variable? self)
+    {
         _currentMethod = method;
-        _currentMethodFact = _facts.Method(cls.Name, method.Name);
+        _currentMethodFact = fact;
         _scopes.Clear();
         _continueTargets.Clear();
         CollectCapturedNames(method.Body!);
         PushScope();
-        if (!_currentMethodFact.IsStatic)
-            AddVariable("self", new Variable("v_self", CType.Ref(cls.Name)));
+        if (self is not null) AddVariable("self", self);
         for (var i = 0; i < _currentMethodFact.Parameters.Count; i++)
         {
             var parameter = _currentMethodFact.Parameters[i];
@@ -364,7 +377,7 @@ internal sealed partial class CEmitter
         }
 
         Line($"static {_currentMethodFact.ReturnType.CName}");
-        Line($"{Names.Method(cls.Name, method.Name)}({ParameterList(_currentMethodFact)})");
+        Line($"{Names.Method(fact.ClassName, method.Name)}({ParameterList(_currentMethodFact)})");
         Line("{");
         _indent++;
         BoxCapturedParameters();
@@ -413,7 +426,7 @@ internal sealed partial class CEmitter
             // 型は契約 (IlLocal.Type) から。C の zero 初期化 = default 値
             if (local.Type is null)
                 throw new Tcs2cException($"local has no initializer/type: " +
-                    $"{_currentClass.Name}.{_currentMethod.Name}.{local.Name}");
+                    $"{_currentMethodFact.ClassName}.{_currentMethod.Name}.{local.Name}");
             var declared = _facts.MapType(local.Type);
             var zero = ZeroInit(declared);
             if (_capturedNames.Contains(local.Name))
@@ -554,6 +567,11 @@ internal sealed partial class CEmitter
         }
         if (ret.Value is null)
         {
+            if (_ctorReturnValue is { } ctorValue)
+            {
+                Line($"return {ctorValue};");
+                return;
+            }
             RequireType(CType.Void, _currentMethodFact.ReturnType, "return");
             Line("return;");
             return;
