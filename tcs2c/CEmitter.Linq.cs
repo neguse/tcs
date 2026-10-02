@@ -99,6 +99,9 @@ internal sealed partial class CEmitter
                 case IlDo block:
                     if (Scoped(block.Body.Stats) is { } d) return d;
                     break;
+                case IlBreakScope scope:
+                    if (Scoped(scope.Body.Stats) is { } bs) return bs;
+                    break;
                 case IlNumericFor loop:
                 {
                     PushScope();

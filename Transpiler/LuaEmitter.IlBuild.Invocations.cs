@@ -81,13 +81,7 @@ public partial class LuaEmitter
                     [recv, new IlBin(IlBinOp.AddNum, args[0], new IlLit("1"))]);
                 return true;
             case "Clear":
-                result = new IlIife([
-                    new IlLocal("__tcs_obj", recv),
-                    new IlForPairs("k", null, new IlVar("__tcs_obj"),
-                        new IlBlock([new IlAssign(
-                            new IlIndex(new IlVar("__tcs_obj"),
-                                new IlVar("k"), false),
-                            new IlLit("nil"))]))]);
+                result = BuildListClear(recv);
                 return true;
             case "Sort":
                 result = new IlCall("List.Sort", [recv, .. args]);
@@ -109,6 +103,15 @@ public partial class LuaEmitter
         }
         return false;
     }
+
+    // List.Clear: 全 key を nil に (IIFE。C backend は runtime 呼びに認識する)
+    private static IlExpr BuildListClear(IlExpr recv) =>
+        new IlIife([
+            new IlLocal("__tcs_obj", recv),
+            new IlForPairs("k", null, new IlVar("__tcs_obj"),
+                new IlBlock([new IlAssign(
+                    new IlIndex(new IlVar("__tcs_obj"), new IlVar("k"), false),
+                    new IlLit("nil"))]))]);
 
     // struct 要素の Contains / IndexOf / Remove は値等価 (C# の
     // EqualityComparer<T>.Default)。Lua の raw == は table identity なので

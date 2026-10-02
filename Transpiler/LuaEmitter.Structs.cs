@@ -144,11 +144,11 @@ public partial class LuaEmitter
                     foreach (var v in field.Declaration.Variables)
                         if (v.Initializer != null)
                             AppendLine($"self.{N(v.Identifier.ValueText)} = " +
-                                $"{VisitExpression(model, v.Initializer.Value)}");
+                                $"{RenderExprViaIl(model, v.Initializer.Value)}");
                     break;
                 case PropertyDeclarationSyntax { Initializer: not null } prop:
                     AppendLine($"self.{N(prop.Identifier.ValueText)} = " +
-                        $"{VisitExpression(model, prop.Initializer.Value)}");
+                        $"{RenderExprViaIl(model, prop.Initializer.Value)}");
                     break;
             }
         }
@@ -170,12 +170,7 @@ public partial class LuaEmitter
         AppendLine($"local self = {name}.new()");
         EmitMemberInitializers(model, structDecl.Members);
         if (ctor.Body != null && !TryEmitStatsViaIl(model, ctor.Body.Statements))
-        {
-            LegacyBodies++;
-            WarnIfStructInLegacyBody(model, ctor.Body);
-            foreach (var stmt in ctor.Body.Statements)
-                VisitStatement(model, stmt);
-        }
+            EmitUnsupportedBody(model, ctor.Body.Statements);
         AppendLine("return self");
         _indent--;
         AppendLine("end");
@@ -236,28 +231,6 @@ public partial class LuaEmitter
                 yield return $"{a}.{name} == {b}.{name}";
             }
         }
-    }
-
-    // struct 値が legacy fallback 経路に流れると copy 意味論が消えるため、
-    // silent wrong-code にせず診断する (値型対応の安全網)
-    private void WarnIfStructInLegacyBody(SemanticModel model, SyntaxNode body)
-    {
-        var offender = body.DescendantNodesAndSelf()
-            .FirstOrDefault(n =>
-                (n is ObjectCreationExpressionSyntax or VariableDeclarationSyntax
-                    or ParameterSyntax)
-                && n switch
-                {
-                    ObjectCreationExpressionSyntax oc =>
-                        IsUserStruct(model.GetTypeInfo(oc).Type),
-                    VariableDeclarationSyntax vd =>
-                        IsUserStruct(model.GetTypeInfo(vd.Type).Type),
-                    ParameterSyntax { Type: { } pt } =>
-                        IsUserStruct(model.GetTypeInfo(pt).Type),
-                    _ => false,
-                });
-        if (offender != null)
-            _ = WarnUnsupported(offender, "struct value in legacy-emitted body");
     }
 
     internal static bool IsUserStruct(ITypeSymbol? type) =>

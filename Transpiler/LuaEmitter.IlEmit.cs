@@ -133,6 +133,18 @@ public partial class LuaEmitter
                 _indent--;
                 AppendLine("end");
                 break;
+            case IlBreakScope scope:
+                // switch 束縛 break の脱出先。continue の goto は外側ループの
+                // label へそのまま飛べる (外側 block の label は可視)
+                AppendLine("repeat");
+                _indent++;
+                EmitIlBlock(scope.Body);
+                _indent--;
+                AppendLine("until true");
+                break;
+            case IlComment comment:
+                AppendLine(comment.Text);
+                break;
             case IlMultiAssign multi:
                 AppendLine(RenderIlMultiAssign(multi));
                 break;

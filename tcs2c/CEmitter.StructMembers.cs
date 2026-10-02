@@ -126,6 +126,7 @@ internal sealed partial class CEmitter
         _currentMethod = _currentMethodFact.Metadata;
         _scopes.Clear();
         _continueTargets.Clear();
+        _breakTargets.Clear();
         CollectCapturedNames(ctor.Body!);
         PushScope();
         for (var i = 0; i < parameters.Count; i++)

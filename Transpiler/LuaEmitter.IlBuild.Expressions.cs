@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace TinyCs;
 
@@ -60,6 +61,17 @@ public partial class LuaEmitter
                     implicitCreation.Initializer);
             case ThisExpressionSyntax:
                 return new IlVar("self");
+            case AssignmentExpressionSyntax assignExpr:
+            {
+                // 式位置の代入 (`(i = y) >= 0`、`arr[x = 1]`): 文として代入し
+                // 代入後の左辺を値にする IIFE
+                var assignStats = new List<IlStat>();
+                if (!BuildExprStatInto(model, assignExpr, null, assignStats))
+                    return null;
+                var assigned = BuildExpr(model, assignExpr.Left);
+                return assigned == null
+                    ? null : new IlIife([.. assignStats, new IlReturn(assigned)]);
+            }
             case CastExpressionSyntax cast:
             {
                 // (int)'a' 等の定数 cast は畳む
@@ -365,6 +377,10 @@ public partial class LuaEmitter
     private IlExpr? BuildInvocation(SemanticModel model,
         InvocationExpressionSyntax invocation)
     {
+        // nameof(x) は C# のコンパイル時定数 (識別子名の文字列)
+        if (model.GetOperation(invocation) is INameOfOperation
+            && model.GetConstantValue(invocation) is { HasValue: true, Value: string nameText })
+            return new IlLit(EscapeLuaString(nameText));
         // out 引数を取る経路 (user method multi-return / Dict.TryGetValue) は
         // 通常の引数構築より先に分岐する
         if (invocation.Expression is MemberAccessExpressionSyntax maEarly
@@ -502,7 +518,17 @@ public partial class LuaEmitter
                     ? null : WrapFloatToString(model, ma.Expression, recvAny);
             }
 
-            if (symbol is IMethodSymbol { IsExtensionMethod: true }) return null;
+            if (symbol is IMethodSymbol { IsExtensionMethod: true } ext)
+            {
+                // user 定義の拡張メソッド: 静的呼び出し (receiver が第 1 引数、
+                // 値型 receiver は by-value copy)。BCL の拡張は API facts が診断
+                var reduced = ext.ReducedFrom ?? ext;
+                if (!reduced.Locations.Any(l => l.IsInSource)) return null;
+                var extRecv = BuildExpr(model, ma.Expression);
+                if (extRecv == null) return null;
+                return new IlCall($"{TypeRef(reduced.ContainingType)}.{N(reduced)}",
+                    [WrapStructCopy(model, ma.Expression, extRecv), .. argArr]);
+            }
 
             if (symbol is IMethodSymbol { IsStatic: false } instMethod)
             {

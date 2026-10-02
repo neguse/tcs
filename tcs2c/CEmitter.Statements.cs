@@ -49,8 +49,10 @@ internal sealed partial class CEmitter
         PushScope();
         AddVariable(loop.Var, variable);
         _continueTargets.Push(null);
+        _breakTargets.Push(null);
         EmitStats(loop.Body.Stats);
         _continueTargets.Pop();
+        _breakTargets.Pop();
         PopScope();
         _indent--;
         Line("}");
@@ -84,10 +86,12 @@ internal sealed partial class CEmitter
         PushScope();
         AddVariable(loop.Var, variable);
         _continueTargets.Push(null);
+        _breakTargets.Push(null);
         Line($"{sequenceType.ElementCName} {variable.CName} = " +
             $"*({sequenceType.ElementCName} *){atFunction}({sequence}, {index});");
         EmitStats(loop.Body.Stats);
         _continueTargets.Pop();
+        _breakTargets.Pop();
         PopScope();
         _indent--;
         Line("}");
@@ -111,9 +115,11 @@ internal sealed partial class CEmitter
         PushScope();
         AddVariable(loop.Var, variable);
         _continueTargets.Push(null);
+        _breakTargets.Push(null);
         Line($"int32_t {variable.CName} = tcs_utf8_next({text}, &{position});");
         EmitStats(loop.Body.Stats);
         _continueTargets.Pop();
+        _breakTargets.Pop();
         PopScope();
         _indent--;
         Line("}");
@@ -149,6 +155,7 @@ internal sealed partial class CEmitter
         Line($"while ({RenderExpr(loop.Cond)}) {{");
         _indent++;
         _continueTargets.Push(label);
+        _breakTargets.Push(null);
         PushScope();
         if (label is not null) Line("{");
         if (label is not null) _indent++;
@@ -165,6 +172,7 @@ internal sealed partial class CEmitter
             Line(";");
         }
         _continueTargets.Pop();
+        _breakTargets.Pop();
         _indent--;
         Line("}");
     }
@@ -175,10 +183,12 @@ internal sealed partial class CEmitter
         Line("do {");
         _indent++;
         _continueTargets.Push(null);
+        _breakTargets.Push(null);
         PushScope();
         EmitStats(repeat.Body.Stats);
         PopScope();
         _continueTargets.Pop();
+        _breakTargets.Pop();
         _indent--;
         Line($"}} while ({RenderExpr(repeat.Cond)});");
     }
@@ -214,8 +224,10 @@ internal sealed partial class CEmitter
         AddVariable(loop.Var, new Variable(nodeTemp,
             CType.Kvp(dictType.Key!, valueType)));
         _continueTargets.Push(null);
+        _breakTargets.Push(null);
         EmitStats(loop.Body.Stats);
         _continueTargets.Pop();
+        _breakTargets.Pop();
         PopScope();
         _indent--;
         Line("}");
@@ -224,4 +236,20 @@ internal sealed partial class CEmitter
         Line("}");
     }
 
+    // IlBreakScope: block の直後に label を置き、スコープ束縛の break は goto で
+    // 抜ける (do { } while (0) だと continue が外側ループへ届かない)
+    private void EmitBreakScope(IlBreakScope scope)
+    {
+        var label = $"tcs_brk_{_serial++}";
+        _breakTargets.Push(label);
+        Line("{");
+        _indent++;
+        PushScope();
+        EmitStats(scope.Body.Stats);
+        PopScope();
+        _indent--;
+        Line("}");
+        Line($"{label}: ;");
+        _breakTargets.Pop();
+    }
 }

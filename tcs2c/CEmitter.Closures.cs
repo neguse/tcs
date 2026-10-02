@@ -141,6 +141,9 @@ internal sealed partial class CEmitter
             case IlDo d:
                 foreach (var b in d.Body.Stats) stat(b);
                 break;
+            case IlBreakScope bs:
+                foreach (var b in bs.Body.Stats) stat(b);
+                break;
         }
     }
 

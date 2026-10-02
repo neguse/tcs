@@ -204,11 +204,9 @@ public partial class LuaEmitter
     private bool BuildSwitchStatInto(SemanticModel model,
         SwitchStatementSyntax switchStmt, List<IlStat> acc)
     {
-        // 早期 break は repeat スコープが要る。IL には continue label を
-        // 積まない repeat 相当ノードがない (IlRepeat は do-while 用で
-        // continue を乗っ取る) ため legacy visitor へ fallback する
-        if (SwitchNeedsBreakScope(switchStmt))
-            return false;
+        // 早期 break (terminal でない switch 束縛 break) は IlBreakScope で
+        // 抜ける。continue は外側ループ束縛のまま
+        var needsBreakScope = SwitchNeedsBreakScope(switchStmt);
         var governing = BuildExpr(model, switchStmt.Expression);
         if (governing == null) return false;
         var sw = new IlVar("__tcs_sw");
@@ -274,7 +272,10 @@ public partial class LuaEmitter
             products.Add(new IlIf([.. arms], defaultBody) { Origin = switchStmt });
         else if (defaultBody != null)
             products.Add(new IlDo(defaultBody) { Origin = switchStmt });
-        acc.AddRange(products);
+        if (needsBreakScope)
+            acc.Add(new IlBreakScope(new IlBlock([.. products])) { Origin = switchStmt });
+        else
+            acc.AddRange(products);
         return true;
     }
 
@@ -294,8 +295,7 @@ public partial class LuaEmitter
         IReadOnlyList<StatementSyntax> statements)
     {
         // 暗黙 break は末尾 block 連鎖の末尾にも現れる (case X: { ...; break; })。
-        // 早期 break は BuildSwitchStatInto 入口で legacy へ逃がしているので、
-        // ここに来る switch 束縛 break は terminal のみ
+        // 早期 break は IlBreak のまま残し、IlBreakScope が受ける
         var terminal = new HashSet<StatementSyntax>();
         CollectTerminalBreaks(statements, terminal);
         var acc = new List<IlStat>();
@@ -412,7 +412,7 @@ public partial class LuaEmitter
                 return BuildConditionalMemberBinding(mb, obj, receiverType);
             case InvocationExpressionSyntax inv
                 when inv.Expression is MemberBindingExpressionSyntax mb2:
-                return BuildConditionalInvocation(model, mb2, inv.ArgumentList,
+                return BuildConditionalInvocation(model, mb2, inv,
                     obj, receiverType);
             case ElementBindingExpressionSyntax eb:
             {
@@ -466,12 +466,12 @@ public partial class LuaEmitter
     }
 
     private IlExpr? BuildConditionalInvocation(SemanticModel model,
-        MemberBindingExpressionSyntax mb, ArgumentListSyntax argList,
+        MemberBindingExpressionSyntax mb, InvocationExpressionSyntax inv,
         IlExpr obj, ITypeSymbol? receiverType)
     {
         var methodName = mb.Name.Identifier.ValueText;
         var args = new List<IlExpr>();
-        foreach (var a in argList.Arguments)
+        foreach (var a in inv.ArgumentList.Arguments)
         {
             if (!a.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
             var built = BuildExpr(model, a.Expression);
@@ -499,9 +499,16 @@ public partial class LuaEmitter
                         [obj, new IlBin(IlBinOp.AddNum, argArr[0],
                             new IlLit("1"))]);
                 case "Clear":
+                    return BuildListClear(obj);
                 case "FirstOrDefault":
                 case "LastOrDefault":
-                    return null; // IIFE / default 埋め込み経路 — fallback
+                {
+                    var invoked = model.GetSymbolInfo(inv).Symbol as IMethodSymbol;
+                    if (invoked == null) return null;
+                    var predicate = argArr.Length > 0 ? argArr[0] : new IlLit("nil");
+                    return new IlCall($"List.{methodName}",
+                        [obj, predicate, DefaultIl(invoked.ReturnType)]);
+                }
             }
             if (ListRuntimeMethods.Contains(methodName))
                 return new IlCall($"List.{methodName}", [obj, .. WithStructEquality(

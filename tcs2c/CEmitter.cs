@@ -13,6 +13,8 @@ internal sealed partial class CEmitter
     private readonly StringBuilder _output = new();
     private readonly Stack<Dictionary<string, Variable>> _scopes = new();
     private readonly Stack<string?> _continueTargets = new();
+    // break の飛び先: ループは null (`break;`)、IlBreakScope は label (`goto`)
+    private readonly Stack<string?> _breakTargets = new();
     private IlClassInfo _currentClass = null!;
     private IlMethodInfo _currentMethod = null!;
     private MethodFact _currentMethodFact = null!;
@@ -366,6 +368,7 @@ internal sealed partial class CEmitter
         _currentMethodFact = fact;
         _scopes.Clear();
         _continueTargets.Clear();
+        _breakTargets.Clear();
         CollectCapturedNames(method.Body!);
         PushScope();
         if (self is not null) AddVariable("self", self);
@@ -409,7 +412,12 @@ internal sealed partial class CEmitter
             case IlForeachList loop: EmitForeachList(loop); break;
             case IlForeachDict loop: EmitForeachDict(loop); break;
             case IlForeachRunes loop: EmitForeachRunes(loop); break;
-            case IlBreak: Line("break;"); break;
+            case IlBreak:
+                Line(_breakTargets.Count > 0 && _breakTargets.Peek() is { } breakLabel
+                    ? $"goto {breakLabel};" : "break;");
+                break;
+            case IlBreakScope scope: EmitBreakScope(scope); break;
+            case IlComment: break;
             case IlContinue: EmitContinue(); break;
             case IlMultiAssign multi: EmitMultiAssign(multi); break;
             case IlReturn ret: EmitReturn(ret); break;

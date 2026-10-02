@@ -115,8 +115,7 @@ public partial class LuaEmitter
         GlobalStatementSyntax global)
     {
         if (TryEmitStatsViaIl(model, [global.Statement])) return;
-        LegacyBodies++;
-        VisitStatement(model, global.Statement);
+        EmitUnsupportedBody(model, [global.Statement]);
     }
 
     private void VisitClass(SemanticModel model, ClassDeclarationSyntax cls)
@@ -258,7 +257,7 @@ public partial class LuaEmitter
         {
             var initStart = _sb.Length;
             if (init != null)
-                AppendLine($"{name}.{fieldName} = {VisitExpression(model, init)}");
+                AppendLine($"{name}.{fieldName} = {RenderExprViaIl(model, init)}");
             else
                 AppendLine($"{name}.{fieldName} = {GetDefaultValueForType(type!)}");
             // 定数/default だけを副作用なし (pure) とし、hot apply での新規
@@ -294,7 +293,7 @@ public partial class LuaEmitter
             && ctor.Initializer.IsKind(SyntaxKind.BaseConstructorInitializer))
         {
             var baseArgs = ctor.Initializer.ArgumentList.Arguments
-                .Select(a => VisitExpression(model, a.Expression));
+                .Select(a => RenderExprViaIl(model, a.Expression));
             var baseType = model.GetDeclaredSymbol(ctor)?.ContainingType?.BaseType;
             if (baseType != null && baseType.SpecialType != SpecialType.System_Object)
             {
@@ -325,7 +324,7 @@ public partial class LuaEmitter
         foreach (var (fieldName, init, type) in fieldInits)
         {
             if (init != null)
-                AppendLine($"self.{fieldName} = {VisitExpression(model, init)}");
+                AppendLine($"self.{fieldName} = {RenderExprViaIl(model, init)}");
             else
                 AppendLine($"self.{fieldName} = {GetDefaultValueForType(type!)}");
         }
@@ -333,19 +332,12 @@ public partial class LuaEmitter
         if (ctor?.Body != null)
         {
             if (!TryEmitStatsViaIl(model, ctor.Body.Statements))
-            {
-                LegacyBodies++;
-                foreach (var stmt in ctor.Body.Statements)
-                    VisitStatement(model, stmt);
-            }
+                EmitUnsupportedBody(model, ctor.Body.Statements);
         }
         else if (ctor?.ExpressionBody != null)
         {
             if (!TryEmitExprStatViaIl(model, ctor.ExpressionBody.Expression))
-            {
-                LegacyBodies++;
-                AppendLine(VisitExpression(model, ctor.ExpressionBody.Expression));
-            }
+                EmitUnsupportedBody(model, [ctor.ExpressionBody.Expression]);
         }
 
         AppendLine("return self");
@@ -374,11 +366,7 @@ public partial class LuaEmitter
             if (accessor.Body != null)
             {
                 if (!TryEmitStatsViaIl(model, accessor.Body.Statements))
-                {
-                    LegacyBodies++;
-                    foreach (var s in accessor.Body.Statements)
-                        VisitStatement(model, s);
-                }
+                    EmitUnsupportedBody(model, accessor.Body.Statements);
             }
             else if (accessor.ExpressionBody != null)
             {
@@ -386,12 +374,7 @@ public partial class LuaEmitter
                     ? TryEmitReturnViaIl(model, accessor.ExpressionBody.Expression)
                     : TryEmitExprStatViaIl(model, accessor.ExpressionBody.Expression);
                 if (!viaIl)
-                {
-                    LegacyBodies++;
-                    var expr = VisitExpression(model, accessor.ExpressionBody.Expression);
-                    AppendLine(accessor.IsKind(SyntaxKind.GetAccessorDeclaration)
-                        ? $"return {expr}" : expr);
-                }
+                    EmitUnsupportedBody(model, [accessor.ExpressionBody.Expression]);
             }
             _indent--;
             AppendLine("end");
@@ -411,7 +394,8 @@ public partial class LuaEmitter
         _currentType?.DefinitionKeys.Add($"get_{propName}");
         AppendLine($"function {className}{separator}get_{propName}({selfParam})");
         _indent++;
-        AppendLine($"return {VisitExpression(model, prop.ExpressionBody!.Expression)}");
+        if (!TryEmitReturnViaIl(model, prop.ExpressionBody!.Expression))
+            EmitUnsupportedBody(model, [prop.ExpressionBody.Expression]);
         _indent--;
         AppendLine("end");
         AppendLine();
@@ -521,12 +505,8 @@ public partial class LuaEmitter
     // fast path 内では安定する。
     public List<(string Key, int Start, int Length)> MethodRanges { get; } = [];
 
-    // IL 移行の計測: method body の IL 経由 / legacy fallback 数。
-    // TCS_IL=off で IL 経路を無効化できる (退行診断用)。
+    // IL 経由で emit した本文の数 (計測用)
     public int IlBodies { get; private set; }
-    public int LegacyBodies { get; private set; }
-    private static readonly bool IlDisabled =
-        Environment.GetEnvironmentVariable("TCS_IL") == "off";
 
     public static string MethodKey(string className, MethodDeclarationSyntax method) =>
         $"{className}.{method.Identifier.ValueText}(" +
@@ -577,26 +557,20 @@ public partial class LuaEmitter
 
         if (method.Body != null)
         {
-            if (!IlDisabled && TryBuildIlBody(model, method) is { } ilBody)
+            if (TryBuildIlBody(model, method) is { } ilBody)
             {
                 IlBodies++;
                 EmitIlBlock(ilBody);
             }
             else
             {
-                LegacyBodies++;
-                WarnIfStructInLegacyBody(model, method.Body);
-                foreach (var stmt in method.Body.Statements)
-                    VisitStatement(model, stmt);
+                EmitUnsupportedBody(model, method.Body.Statements);
             }
         }
         else if (method.ExpressionBody != null)
         {
             if (!TryEmitReturnViaIl(model, method.ExpressionBody.Expression))
-            {
-                LegacyBodies++;
-                AppendLine($"return {VisitExpression(model, method.ExpressionBody.Expression)}");
-            }
+                EmitUnsupportedBody(model, [method.ExpressionBody.Expression]);
         }
 
         _indent--;
@@ -615,7 +589,7 @@ public partial class LuaEmitter
         foreach (var parameter in parameterList.Parameters)
         {
             if (parameter.Default is null) continue;
-            var value = VisitExpression(model, parameter.Default.Value);
+            var value = RenderExprViaIl(model, parameter.Default.Value);
             if (value == "nil") continue;
             var paramName = parameter.Identifier.ValueText;
             AppendLine($"if {paramName} == nil then {paramName} = {value} end");

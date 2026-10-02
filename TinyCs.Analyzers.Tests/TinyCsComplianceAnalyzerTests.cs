@@ -277,8 +277,9 @@ public partial class TinyCsComplianceAnalyzerTests
             d => d.GetMessage().Contains("StructDeclaration')")); // 二重報告なし
     }
 
+    // nameof は定数式として対応 (T250): 診断なし
     [Fact]
-    public async Task NameOfExpressions_ReportUnsupportedSyntax()
+    public async Task NameOfExpressions_AreSupported()
     {
         const string source = """
             public class NameDemo
@@ -290,22 +291,8 @@ public partial class TinyCsComplianceAnalyzerTests
             """;
         var diagnostics = await AnalyzeAsync(source);
 
-        var syntaxDiagnostics = diagnostics
-            .Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax)
-            .ToArray();
-
-        Assert.Equal(3, syntaxDiagnostics.Length);
-        Assert.Equal(3, diagnostics.Count);
-        Assert.All(syntaxDiagnostics,
-            d => Assert.Contains("NameOfExpression", d.GetMessage()));
-        Assert.Equal([
-            "nameof(value)",
-            "nameof(System.Math.E)",
-            "nameof(System.DateTime)",
-        ], syntaxDiagnostics.Select(d => source.Substring(
-            d.Location.SourceSpan.Start, d.Location.SourceSpan.Length)));
+        Assert.Empty(diagnostics);
     }
-
     [Fact]
     public async Task UserMethodNamedNameof_IsNotNameOfExpression()
     {

@@ -1724,3 +1724,12 @@
 - 判断: 数値基準は lua32 (LUA_32BITS) なので、64bit Lua での上位 32bit の差は基準外として matrix の注記を書き換えた
 - 残課題: for の増分式 (`i += a ^ b`) の StepValue 経路は compound と別経路のまま (括りは不要な形のみ受ける)
 
+### T250: legacy visitor の廃止 — IL 経路を唯一の Lua 生成経路に ✓ (2026-10-02)
+- IL builder が null を返す本文は legacy visitor へ fallback していた (T224 で「診断出力と挙動不変の保険として恒久保持」)。これを廃止し、IL 化できない本文は `LuaEmitter.IlBuild.Unsupported` が原因ノード (子がすべて build できるのに自分はできない最小ノード。Shared facts が診断する構文ではそこで止めて二重警告を避ける) を特定して TCS1001 を出し、本文は実行時 `error("TinyC#: unsupported ...")` の stub にする。field initializer / parameter default / base 引数も IL render に統一
+- legacy だけが扱っていた構文を IL 化: switch 文の早期 break (IlBreakScope = Lua `repeat ... until true` / C は block + goto label、continue は外側ループ束縛のまま)、user 定義の拡張メソッド (静的呼び出し、値型 receiver は copy)、ネストした object / collection initializer (C# と同じく既存 member への代入 / Add)、discard `_ = expr`、式位置の代入 (`(i = y) >= 0` / `arr[x = 1]` は IIFE)、`lock` (body 実行 + marker、診断は Shared facts)、`else if` の is-pattern 前宣言 (else への入れ子)、`?.` の Clear / FirstOrDefault / LastOrDefault。`nameof` は定数文字列として正式対応 (TCS1001 を外した。analyzer も)
+- 旧 Expressions / Statements / Objects / Patterns / Invocations / HostBcl (約 2,600 行) を削除し、IL builder が参照する判定 helper だけを `LuaEmitter.Helpers.cs` に移した。`TCS_IL=off` と `LegacyBodies` 計測も撤去
+- 検証: Transpiler.Tests 全体 (root 環境固有 1 件を除き green。IlPipelineTests は stub + 診断の形に、spec conformance は CollectionInitializers2 が Diag → InCompile に改善で baseline 更新、他は不変)、IlOnlyPathTests (旧 legacy 構文 6 本、dotnet differential)、tcs2c.Tests / Analyzers green、run-tests.sh の sample check / analyzer-demo / nupkg も通過
+- よかったこと: 2 経路の写し漏れ (T246 で見つけた `new S(args)` の引数捨て等) が構造的に消えた。原因ノード探索は builder を再実行するだけで済み、builder に診断ロジックを足さずに済んだ
+- 判断: T224 の「恒久保持」判断を覆した (ユーザー合意)。IL 化できない構文は「動かない Lua」ではなく stub + 診断 (`tcs check` が exit 1) にする。lock は単一 thread では body と等価なので実行し、警告だけ残す
+- 残課題: IL builder が null を返す経路の網羅的な洗い出し (fuzz / spec sweep / samples で未検出のものは stub になる)。`var a, b` 混在の分解は診断のまま
+

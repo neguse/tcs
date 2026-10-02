@@ -198,6 +198,14 @@ public sealed record IlReturn(IlExpr? Value) : IlStat;
 /// <summary>do ... end スコープ (temp local の隔離)。</summary>
 public sealed record IlDo(IlBlock Body) : IlStat;
 
+/// <summary>break スコープ: 本文内の (ループに束縛されない) IlBreak はここを
+/// 抜ける (switch 文の早期 break)。本文内の IlContinue は外側ループに束縛された
+/// まま。Lua は repeat ... until true、C は block + goto label。</summary>
+public sealed record IlBreakScope(IlBlock Body) : IlStat;
+
+/// <summary>出力に残す注記 (診断 marker 等)。意味論なし。</summary>
+public sealed record IlComment(string Text) : IlStat;
+
 /// <summary>多重代入: [local ]t1, t2 = v1, v2 (分解・out 引数 multi-return)。</summary>
 public sealed record IlMultiAssign(
     ImmutableArray<IlExpr> Targets, ImmutableArray<IlExpr> Values, bool Declare)

@@ -24,8 +24,9 @@
 
 - [x] T224 完 (2026-07-18): IlExport 契約完備、fallback 構文の整理
       (static method group IL 化 / instance method group・定数式 alignment
-      診断化 / lock・using 等は既存診断)。legacy visitor は診断出力と
-      挙動不変の保険として恒久保持
+      診断化 / lock・using 等は既存診断)。legacy visitor は T250
+      (2026-10-02) で廃止 — IL 経路が唯一の Lua 生成経路で、IL 化できない
+      本文は TCS1001 + 実行時 error の stub
 
 
 ### Phase 3 — 価値の刈り取り
@@ -48,6 +49,9 @@
       - T248 完 (2026-10-02): Random を System.Random 形 (instance / Shared) に
       - T249 完 (2026-10-02): シフトの C# 意味論 (Lua)、compound 右辺の括り、
         int.MinValue literal
+      - T250 完 (2026-10-02): legacy visitor 廃止 (IL が唯一の Lua 生成経路、
+        未対応本文は TCS1001 + stub)。nameof / 拡張メソッド / 入れ子
+        initializer / discard / 式位置の代入 / switch 早期 break を IL 化
 - T219b 完 (done.md 参照): struct / record struct の値セマンティクス
   対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
 - [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で

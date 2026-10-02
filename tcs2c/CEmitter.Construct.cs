@@ -20,6 +20,7 @@ internal sealed partial class CEmitter
             _currentClass = cls;
             _scopes.Clear();
             _continueTargets.Clear();
+            _breakTargets.Clear();
             PushScope();
             var paramFacts = CtorParamFacts(cls);
             for (var i = 0; i < paramFacts.Count; i++)

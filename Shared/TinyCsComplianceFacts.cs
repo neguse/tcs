@@ -421,10 +421,11 @@ public static partial class TinyCsComplianceFacts
     public static bool TryGetUnsupportedSyntax(IOperation? operation,
         out string syntaxName)
     {
-        syntaxName = operation is INameOfOperation
-            ? "NameOfExpression"
-            : "";
-        return syntaxName.Length > 0;
+        // nameof は C# の定数式 (識別子名) で、両 backend が定数文字列に畳む
+        // (T250)。operation 単位の未対応構文は現状なし
+        _ = operation;
+        syntaxName = "";
+        return false;
     }
 
     public static bool TryGetUnsupportedSyntax(SyntaxNode node,

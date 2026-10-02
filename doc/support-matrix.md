@@ -224,7 +224,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `ref` ローカル (C# 7) | **N/A** | | |
 | ローカル定数 `const` | **-** | | |
 | 分解宣言 `var (a, b) = ...` (C# 7) | **P** | `__tcs_dec` へ一回評価して展開 | record positional property 限定。既存変数への分解代入 `(a, b) = rhs` も対応 |
-| 破棄 `_ = expr` (C# 7) | **-** | | |
+| 破棄 `_ = expr` (C# 7) | **Y** | `local _ = expr` | 評価して捨てる |
 | トップレベル文 (C# 9) | **Y** | Lua chunk | 型定義を先に出力してから実行 |
 | using 宣言 `using var` (C# 8) | **-** | | unsupported 診断あり |
 | `scoped` ローカル (C# 11) | **-** | | |
@@ -251,7 +251,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `throw` | **-** | | unsupported 診断あり |
 | `try` / `catch` / `finally` | **-** | | unsupported 診断あり |
 | `using` 文 (リソース破棄) | **-** | | unsupported 診断あり |
-| `lock` | **N/A** | `do ... end` fallback | TCS1001。同期はせずbody/scopeだけ保持 |
+| `lock` | **N/A** | `do ... end` (IlDo) | TCS1001 警告は出すが body は実行する (単一 thread では lock = body)。C backend も同じ |
 | `yield return` / `yield break` (C# 2) | **-** | | |
 | `goto` / ラベル | **-** | | |
 | `checked` / `unchecked` | **N/A** | | |
@@ -309,7 +309,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `?.Prop = v` (null条件代入, C# 14) | **-** | | |
 | `as` (安全キャスト) | **-** | | |
 | `typeof(T)` | **-** | | |
-| `nameof(x)` (C# 6) | **-** | 定数文字列 + unsupported marker fallback | TCS1001。semantic判定し、同名ユーザーmethodは通常call |
+| `nameof(x)` (C# 6) | **Y** | 定数文字列 | C# の定数式として両 backend で畳む (T250)。同名ユーザー method は通常 call |
 | `default` / `default(T)` (C# 7.1) | **Y** | 型別 default | |
 | `sizeof(T)` | **N/A** | | |
 | `~` (ビット反転) | **Y** | `~x` | 整数のみ (64bit 幅、下記注記) |
@@ -317,7 +317,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `&` `\|` `^` (ビット演算) | **Y** | `&` `\|` `~` (二項) | 整数と enum のみ。C# `^` は Lua 二項 `~`。bool operand は TCS1001 未対応 (Lua native が boolean を拒否し、and/or は非短絡の C# `&` `\|` と意味論が変わるため) |
 | `..` (Range, C# 8) | **-** | | |
 | `^x` (Index from end, C# 8) | **-** | | |
-| `new T { ... }` (初期化子) | **Y** | List/Dict、class (IIFE + field 代入)、`--ref` 型 (plain table)。ネストした初期化子は TCS1001 | |
+| `new T { ... }` (初期化子) | **Y** | List/Dict、class (IIFE + field 代入)、`--ref` 型 (plain table)。ネストした初期化子 (`Child = { A = 1 }` / `Items = { a, b }`) は C# と同じく既存 member への代入 / Add | |
 | `new(args)` (ターゲット型, C# 9) | **Y** | 初期化子含む | |
 | `x!` (null 許容抑制, C# 8) | **Y** | 型チェック専用、Lua へは透過 | |
 | `stackalloc` | **N/A** | | |
@@ -425,7 +425,7 @@ C# `int` と一致する。シフトは `__tcs_shl` / `__tcs_shr` (count を 31 
 | `in` (C# 7.2) | **-** | |
 | `ref readonly` (C# 12) | **-** | |
 | `params` | **-** | |
-| `this` (拡張メソッド) | **-** | |
+| `this` (拡張メソッド) | **Y** | user 定義の拡張メソッドは静的呼び出し (receiver が第 1 引数) |
 | `scoped` (C# 11) | **-** | |
 
 ### 6.4 変換修飾子
