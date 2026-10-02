@@ -88,6 +88,11 @@ internal sealed partial class CEmitter
 
     private void EmitMultiAssign(IlMultiAssign multi)
     {
+        if (multi.Values.Length == multi.Targets.Length && multi.Values.Length > 0)
+        {
+            EmitPairwiseMultiAssign(multi);
+            return;
+        }
         if (multi.Values is not [IlCall { Callee: "Dict.TryGet" or "Math.TryParseInt"
                 or "Math.TryParseFloat" } tryGet]
             || multi.Targets.Length != 2
@@ -146,5 +151,34 @@ internal sealed partial class CEmitter
         Line($"{parsedType.CName} {fallback} = {RenderCoerced(call.Args[1], parsedType)};");
         Line($"{(found.Boxed ? "(*" + found.CName + ")" : found.CName)} = " +
             $"{helper}({text}, &{(value.Boxed ? "(*" + value.CName + ")" : value.CName)}, {fallback});");
+    }
+
+    // 分解代入 `(a, b) = (x, y)` / `var (a, b) = r`: 右辺を全部評価してから
+    // 左から代入 (Lua の多重代入と同じ)
+    private void EmitPairwiseMultiAssign(IlMultiAssign multi)
+    {
+        var temps = new List<(string Name, CType Type)>();
+        foreach (var value in multi.Values)
+        {
+            var type = TypeOf(value);
+            var temp = Temp("multi");
+            Line($"{type.CName} {temp} = {RenderExpr(value)};");
+            AddVariable(temp, new Variable(temp, type));
+            temps.Add((temp, type));
+        }
+        for (var i = 0; i < multi.Targets.Length; i++)
+        {
+            var (temp, type) = temps[i];
+            if (multi.Targets[i] is IlVar { Name: "_" }) continue;
+            if (multi.Declare)
+            {
+                if (multi.Targets[i] is not IlVar declared)
+                    throw new Tcs2cException("multi-assign declaration target is not a variable");
+                var variable = DeclareLocal(declared.Name, type);
+                Line($"{variable.CName} = {temp};");
+                continue;
+            }
+            EmitAssign(new IlAssign(multi.Targets[i], new IlVar(temp)));
+        }
     }
 }

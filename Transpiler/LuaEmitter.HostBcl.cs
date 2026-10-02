@@ -55,6 +55,17 @@ public partial class LuaEmitter
         };
     }
 
+    private static bool IsUserDeclaredType(INamedTypeSymbol type) =>
+        type.DeclaringSyntaxReferences.Length > 0;
+
+    /// <summary>source が target と同じかその派生なら true (upcast / 同型)。</summary>
+    private static bool IsDerivedFrom(INamedTypeSymbol source, INamedTypeSymbol target)
+    {
+        for (INamedTypeSymbol? cur = source; cur != null; cur = cur.BaseType)
+            if (SymbolEqualityComparer.Default.Equals(cur, target)) return true;
+        return false;
+    }
+
     private static bool IsRuneValue(ISymbol? symbol) =>
         symbol is IPropertySymbol { Name: "Value" } p
         && IsTypeNamed(p.ContainingType, "System.Text.Rune");

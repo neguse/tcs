@@ -75,6 +75,7 @@ internal sealed partial class CEmitter
                 break;
             case IlIsType it: expr(it.E); break;
             case IlStructCopy sc: expr(sc.E); break;
+            case IlCast cast: expr(cast.E); break;
             case IlWith w:
                 expr(w.Src);
                 foreach (var o in w.Overrides) expr(o.Value);

@@ -31,7 +31,11 @@ Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要�
   hash) / `Action` `Func` (closure = lifted 関数 + 捕捉 cell)
 - class: 継承 (prefix layout)、virtual dispatch (type id switch)、`base.M`、
   ctor 連鎖、`is T` / is-pattern、static field / property、auto property
-  initializer、upcast / downcast (cast は型消去で透過)
+  initializer、upcast、明示 downcast (`IlCast`: 実行時型が合わなければ fault)
+- record class: positional ctor、`==` / `!=` の構造等価 (型ごとの比較関数、
+  継承は実行時型へ dispatch、string は内容、record は再帰、struct は
+  memberwise)、`with` (実行時型の layout で shallow copy)、分解代入、
+  List.Contains / IndexOf / Remove も構造等価
 - 式・文: 数値演算 (i32 wrap、f32 strict、`/` は Lua と同じ float 除算、
   `(int)f` は 0 方向 truncation)、文字列連結・補間 (`string.format`:
   `%d %s %f %e %g %x %c`、幅・精度・`-`/`0` flag)、三項・`??`・switch 式、
@@ -54,9 +58,8 @@ Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要�
 - fault: null / bounds / 0 除算 / key-not-found / 空列 First 等は
   `tcs_fault(kind)` で stderr へ出して exit 1 (il-spec §12)
 
-明示エラー (未対応): record (contract 外)、`Nullable<T>`、`object` 型の
-local、`Random`、`StringBuilder`、char の算術 / `CompareTo`、Lua 固有の
-`IlIsLuaType`。Lua backend 側の既知差異 (`new T[n]` の `.Length`、負数の
+明示エラー (未対応): `Nullable<T>`、`object` 型の local、`Random`、
+`StringBuilder`、char の算術 / `CompareTo`、Lua 固有の `IlIsLuaType`。Lua backend 側の既知差異 (`new T[n]` の `.Length`、負数の
 `>>`) は support-matrix 参照。
 
 通常の `print` は stdout へ値を出す。digest kernel 回帰用だけは

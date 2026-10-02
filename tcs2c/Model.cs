@@ -105,6 +105,8 @@ internal static partial class Names
     public static string Dispatch(string cls, string method) =>
         $"tcs_dispatch_{Id(cls)}_{Id(method)}";
     public static string Init(string cls) => $"tcs_init_{Id(cls)}";
+    public static string RecordEq(string cls) => $"tcs_eq_{Id(cls)}";
+    public static string StructEq(string st) => $"tcs_eq_S_{Id(st)}";
     public static string ClassLayout(string cls) => $"tcs_layout_C_{Id(cls)}";
     public static string StructLayout(string st) => $"tcs_layout_S_{Id(st)}";
 }

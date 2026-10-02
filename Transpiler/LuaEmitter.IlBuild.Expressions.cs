@@ -80,6 +80,19 @@ public partial class LuaEmitter
                     var f = BuildExpr(model, cast.Expression);
                     return f == null ? null : new IlCall("__tcs_trunc", [f]);
                 }
+                // user class / record への downcast は IlCast で明示する (C
+                // backend の実行時 check 点。upcast・同型は透過)
+                if (model.GetTypeInfo(cast.Type).Type is INamedTypeSymbol
+                        { TypeKind: TypeKind.Class } castTarget
+                    && IsUserDeclaredType(castTarget)
+                    && model.GetTypeInfo(cast.Expression).Type is INamedTypeSymbol castSource
+                    && !SymbolEqualityComparer.Default.Equals(castTarget, castSource)
+                    && !IsDerivedFrom(castSource, castTarget))
+                {
+                    var inner = BuildExpr(model, cast.Expression);
+                    return inner == null
+                        ? null : new IlCast(inner, castTarget.Name);
+                }
                 return BuildExpr(model, cast.Expression);
             }
             case ConditionalExpressionSyntax ternary:

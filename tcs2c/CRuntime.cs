@@ -130,6 +130,18 @@ internal sealed partial class CEmitter
             return type_id >= first && type_id <= last;
         }
 
+        typedef struct TcsObjectHeaderView { uint32_t type_id; } TcsObjectHeaderView;
+
+        /* 明示 downcast: null はそのまま、型が合わなければ fault */
+        static void *
+        tcs_cast(void *object, uint32_t first, uint32_t last)
+        {
+            if (object != NULL
+                && !tcs_type_in_range(((TcsObjectHeaderView *)object)->type_id, first, last))
+                tcs_fault("invalid-cast");
+            return object;
+        }
+
         static _Noreturn void
         tcs_fault(const char *kind)
         {

@@ -16,6 +16,25 @@ internal sealed partial class CEmitter
         return CType.Bool;
     }
 
+    // 明示 downcast: null は素通し、実行時型が範囲外なら fault (C# の
+    // InvalidCastException 相当)
+    private CType TypeOfCast(IlCast cast)
+    {
+        if (!_classes.ContainsKey(cast.TypeRef))
+            throw new Tcs2cException($"IlCast target is not a class: {cast.TypeRef}");
+        var source = TypeOf(cast.E);
+        if (source.Kind is not (CTypeKind.Ref or CTypeKind.Null))
+            throw new Tcs2cException($"IlCast operand is not a class reference: {source}");
+        return CType.Ref(cast.TypeRef);
+    }
+
+    private string RenderCast(IlCast cast)
+    {
+        var type = TypeOfCast(cast);
+        return $"(({type.CName})tcs_cast({RenderExpr(cast.E)}, " +
+            $"{Names.TypeId(cast.TypeRef)}, {Names.TypeIdMax(cast.TypeRef)}))";
+    }
+
     private string RenderIsType(IlIsType typeTest)
     {
         _ = TypeOfIsType(typeTest);
@@ -220,6 +239,7 @@ internal sealed partial class CEmitter
         IlTernary ternary => Effectful(ternary.Cond)
             || Effectful(ternary.T) || Effectful(ternary.F),
         IlIsType typeTest => Effectful(typeTest.E),
+        IlCast cast => Effectful(cast.E),
         IlField or IlIndex or IlLen or IlCall or IlDynCall or IlInvoke
             or IlNewObj or IlTable or IlNewArray or IlIife or IlClosure or IlWith => true,
         _ => true,

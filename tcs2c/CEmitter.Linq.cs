@@ -173,6 +173,8 @@ internal sealed partial class CEmitter
     {
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool => $"({left} == {right})",
         CTypeKind.String => $"tcs_string_equal({left}, {right})",
+        CTypeKind.Ref when IsRecordClass(type.Name!) =>
+            $"{Names.RecordEq(type.Name!)}({left}, {right})",
         CTypeKind.Ref or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
             or CTypeKind.Closure => $"({left} == {right})",
         _ => throw new Tcs2cException($"equality is not supported for {type}"),

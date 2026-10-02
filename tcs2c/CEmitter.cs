@@ -153,6 +153,7 @@ internal sealed partial class CEmitter
         foreach (var method in cls.Methods)
             EmitMethod(cls, method);
         EmitDispatchers();
+        EmitRecordEquality();
         EmitStaticInitializer();
         if (lib)
             EmitLibEntryPoints();
@@ -329,6 +330,7 @@ internal sealed partial class CEmitter
             Line($"static {fact.ReturnType.CName} " +
                 $"{Names.Dispatch(cls.Name, method.Name)}({parameters});");
         }
+        EmitRecordEqualityPrototypes();
         Line(ClosureDeclMarker);
     }
 

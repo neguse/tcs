@@ -397,4 +397,50 @@ public class DifferentialTests
             }
             """, "P");
     }
+
+    [CFact]
+    public void Records_EqualityWithInheritanceAndDeconstruction()
+    {
+        Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using System.Linq;
+            public record Pt(int X, int Y)
+            {
+                public int Manhattan() => (X < 0 ? -X : X) + (Y < 0 ? -Y : Y);
+            }
+            public record Named(string Name, Pt Pos);
+            public record Shape(string Kind);
+            public record Circle(string Kind, float R) : Shape(Kind);
+            public class P
+            {
+                public static void Main()
+                {
+                    var a = new Pt(1, 2);
+                    var b = new Pt(1, 2);
+                    var c = new Pt(2, 1);
+                    Pt none = null;
+                    Console.WriteLine((a == b) + ":" + (a != b) + ":" + (a == c) + ":" + (a == none) + ":" + (none == null));
+                    var d = a with { X = 5 };
+                    Console.WriteLine(d.X + "," + d.Y + ":" + a.X + ":" + (d == a) + ":" + d.Manhattan());
+                    var n1 = new Named("p", new Pt(3, 4));
+                    var n2 = new Named("p", new Pt(3, 4));
+                    var n3 = n2 with { Pos = new Pt(0, 0) };
+                    Console.WriteLine((n1 == n2) + ":" + (n1 == n3) + ":" + n3.Pos.X + ":" + n1.Pos.Manhattan());
+                    Shape s1 = new Circle("c", 1.5f);
+                    Shape s2 = new Circle("c", 1.5f);
+                    Shape s3 = new Shape("c");
+                    var s4 = s1 with { Kind = "k" };
+                    Console.WriteLine((s1 == s2) + ":" + (s1 == s3) + ":" + (s4 is Circle) + ":" + s4.Kind + ":" + ((Circle)s4).R);
+                    var (px, py) = c;
+                    Console.WriteLine(px + ":" + py);
+                    var pts = new List<Pt> { a, b, c, d };
+                    Console.WriteLine(pts.Count(p => p == a) + ":" + pts.Contains(new Pt(2, 1)) + ":" + pts.IndexOf(new Pt(5, 2)));
+                    var byName = new Dictionary<string, Pt> { ["a"] = a };
+                    Console.WriteLine(byName["a"] == b);
+                    Console.WriteLine(pts.Sum(p => p.X));
+                }
+            }
+            """, "P");
+    }
 }

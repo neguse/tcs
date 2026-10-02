@@ -26,7 +26,9 @@ internal sealed partial class CEmitter
         IlIsType typeTest => RenderIsType(typeTest),
         // C の struct 値代入がそのまま copy (il-spec §10 は Lua 側の都合)
         IlStructCopy copy => RenderExpr(copy.E),
+        IlCast cast => RenderCast(cast),
         IlIife iife => RenderIife(iife),
+        IlWith with => RenderWith(with),
         _ => throw Unsupported(expr),
     };
 
@@ -54,7 +56,9 @@ internal sealed partial class CEmitter
         IlNewArray array => TypeOfNewArray(array),
         IlIsType typeTest => TypeOfIsType(typeTest),
         IlStructCopy copy => TypeOf(copy.E),
+        IlCast cast => TypeOfCast(cast),
         IlIife iife => TypeOfIife(iife),
+        IlWith with => TypeOfWith(with),
         _ => throw Unsupported(expr),
     };
 
@@ -212,6 +216,18 @@ internal sealed partial class CEmitter
         }
         var left = RenderExpr(binary.L);
         var right = RenderExpr(binary.R);
+
+        // record の ==/!= は構造等価 (Lua の __eq と同じ)
+        if (binary.Op is IlBinOp.Eq or IlBinOp.Ne
+            && RecordEqualityType(leftType, rightType) is { } recordType)
+        {
+            var recordC = CType.Ref(recordType).CName;
+            var eqLeft = Temp("eq_lhs");
+            var eqRight = Temp("eq_rhs");
+            var negate = binary.Op == IlBinOp.Ne ? "!" : "";
+            return $"({{ {leftType.CName} {eqLeft} = {left}; {rightType.CName} {eqRight} = {right}; " +
+                $"{negate}{Names.RecordEq(recordType)}(({recordC}){eqLeft}, ({recordC}){eqRight}); }})";
+        }
 
         if (binary.Op is IlBinOp.And
             || binary.Op == IlBinOp.Or && leftType == CType.Bool)

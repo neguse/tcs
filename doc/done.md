@@ -1669,3 +1669,11 @@
 - 判断: TryParse の runtime 関数は新 global を増やさず既存の `Math` table に置いた (ReservedRuntimeGlobals / module alias を触らない)
 - 残課題: 需要待ち (record / Nullable / Random は方針合意待ち)
 
+### T243: record class を IL 契約に収載し C backend で構造等価 / with ✓ (2026-10-02)
+- IlExport が record class を IsRecord 付き IlClassInfo として export: positional parameter を Fields の先頭に (base の primary ctor へ渡すだけの parameter は C# 同様に合成しない)、Ctor は宣言順の代入 + `: Base(args)` の引数、本体の method / field / property は class と同じ。hot reload は Classes を見るので record もそのまま migration 対象になる
+- C backend: record 型ごとに `tcs_eq_<R>` を生成 (null / 同一参照 / type_id 不一致 → 派生 record へ dispatch → chain 全 field の比較。string は内容、record は再帰、データ struct は memberwise の `tcs_eq_S_<S>`)。`==` / `!=` と List.Contains / IndexOf / Remove がこれを使う。IlWith は `TCS_GC_HEADER(src)->layout` (実行時型) で確保 + memcpy + 上書き。分解代入は右辺全評価 → 左から代入の一般 multi-assign
+- IL に IlCast (user class / record への明示 downcast) を追加: Lua は透過のまま、C は `tcs_cast` で実行時型 check (fault "invalid-cast")。型消去で downcast 後の field access が C で型付けできなかったため
+- 検証: IlExportTests +1 (positional field / ctor / base args / 合成しない parameter)、tcs2c.Tests Records differential (等価・with・継承・分解・List 内探索・Dict 値、C 通常 + GC stress + Lua 一致)、tcs2c.Tests 23/23
+- 判断: Lua の `__eq` は派生 record で自分の positional field しか比べないが、C は chain 全 field + 実行時型一致を比べる (C# の規則)。差が出るのは派生 record 同士の比較で base field だけ違う場合で、Lua 側の既知差異として support-matrix に残さず C# 側に揃えた (Lua 修正は別件)。struct field の等価は Lua が table identity (常に false)、C は memberwise (C#) — これも C# 側に揃えた
+- 残課題: record struct の IlExport (需要待ちのまま)、record の ToString / Equals 呼び
+

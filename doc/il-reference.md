@@ -22,6 +22,10 @@ var result = TinyCs.IlExport.Export(csharpSources);
 //     custom property accessor は get_X/set_X 名でここに現れる (T224)
 //   .Ctor: explicit constructor (Parameters/ParameterTypes/Body)。null なら
 //     default 初期化のみ。Body は field default + initializer 適用後に実行
+//   .IsRecord: record class (T243)。positional parameter が Fields の先頭に
+//     並び (base へ渡すだけの parameter は C# 同様に合成しない)、Ctor は
+//     それらへの代入 + base 引数。==/!= は構造等価 (backend が field 比較を
+//     生成、型が違えば false)、with は IlWith (実行時型の shallow copy)
 // result.Structs: IlStructInfo[] — データ struct (M5 v1) の migration
 //   metadata (Name / Fields / LayoutHash)。struct 値は reload 時に owner
 //   経由で再直列化される (il-design §6、HotReload.cs)
@@ -63,7 +67,8 @@ assembly 参照で直接消費する。
 | IlIsLuaType(e, luaType) | プリミティブ型 test | type(e) == "…" |
 | IlIife(stats) | 式位置の逐次実行 (switch 式・?. 等の lowering 産物) | (function() … end)() |
 | IlClosure(params, body/exprBody, patternLocals) | closure。capture は変数単位 (§7) | function(…) … end |
-| IlWith(src, overrides) | record with (shallow copy + 上書き) | IIFE |
+| IlWith(src, overrides) | record with (shallow copy + 上書き)。C backend は実行時型の layout で copy | IIFE |
+| IlCast(e, typeRef) | user class / record への明示 downcast。upcast と同型は IL に現れない (透過)。C backend は実行時型が typeRef 系でなければ fault | e (透過) |
 
 ### 文 (IlStat) — すべて Origin (SyntaxNode?) を持つ (source map 用・非意味論)
 

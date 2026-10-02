@@ -217,4 +217,35 @@ public class IlExportTests
         Assert.NotNull(add.Body);
         Assert.Equal(2, add.ParameterTypes.Length);
     }
+
+    [Fact]
+    public void Export_RecordClass_PositionalFieldsCtorAndBaseArgs()
+    {
+        var result = IlExport.Export(["""
+            public record Pt(int X, int Y)
+            {
+                public int Sum() => X + Y;
+            }
+            public record Shape(string Kind);
+            public record Circle(string Kind, float R) : Shape(Kind);
+            """]);
+        Assert.Empty(result.Diagnostics);
+        var pt = Assert.Single(result.Classes, c => c.Name == "Pt");
+        Assert.True(pt.IsRecord);
+        Assert.Equal(["x", "y"], pt.Fields.Select(f => f.Name));
+        Assert.Equal(["int", "int"], pt.Fields.Select(f => f.Type));
+        Assert.NotNull(pt.Ctor);
+        Assert.Equal(["X", "Y"], pt.Ctor!.Parameters.ToArray());
+        Assert.Collection(pt.Ctor.Body!.Stats,
+            s => Assert.Equal("x", Assert.IsType<IlField>(Assert.IsType<IlAssign>(s).Target).Name),
+            s => Assert.Equal("y", Assert.IsType<IlField>(Assert.IsType<IlAssign>(s).Target).Name));
+        Assert.Contains(pt.Methods, m => m.Name == "sum" && m.Body != null);
+
+        var circle = Assert.Single(result.Classes, c => c.Name == "Circle");
+        Assert.Equal("Shape", circle.BaseName);
+        // Kind は base へ渡すだけ (C# も property を合成しない) → field は R のみ
+        Assert.Equal(["r"], circle.Fields.Select(f => f.Name));
+        var baseArg = Assert.Single(circle.Ctor!.BaseArgs);
+        Assert.Equal("Kind", Assert.IsType<IlVar>(baseArg).Name);
+    }
 }

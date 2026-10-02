@@ -323,6 +323,7 @@ public partial class LuaEmitter
         IlNewArray => "{}",  // 長さは Lua 表現に現れない (legacy 互換)
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
         IlStructCopy copy => $"{copy.TypeName}.__copy({RenderIl(copy.E)})",
+        IlCast cast => RenderIl(cast.E),
         IlIsLuaType isLua => $"type({RenderIl(isLua.E)}) == \"{isLua.LuaType}\"",
         IlIife iife => $"(function() {RenderIlStatsInline(iife.Stats)} end)()",
         IlClosure closure => RenderIlClosure(closure),
@@ -410,6 +411,7 @@ public partial class LuaEmitter
         IlParen p => IsCallFree(p.E),
         IlTernary t => IsCallFree(t.Cond) && IsCallFree(t.T) && IsCallFree(t.F),
         IlStructCopy sc => IsCallFree(sc.E),
+        IlCast cast => IsCallFree(cast.E),
         IlIsType it => IsCallFree(it.E),
         IlIsLuaType ilt => IsCallFree(ilt.E),
         IlNewArray na => IsCallFree(na.Length),

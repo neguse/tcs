@@ -9,17 +9,20 @@ namespace TinyCs;
 // IL (doc/il-spec.md) と migration metadata (il-spec §14) を、Lua 出力を
 // 経由せずに公開する。契約の正本は doc/il-reference.md。
 
-/// <summary>class の migration metadata (il-spec §14) と骨格 IL。
-/// Ctor は explicit constructor (無ければ null — default 初期化のみ)。
-/// custom property の accessor は get_/set_ 名の IlMethodInfo として
-/// Methods に現れる。</summary>
+/// <summary>class / record class の migration metadata (il-spec §14) と
+/// 骨格 IL。Ctor は explicit constructor (無ければ null — default 初期化
+/// のみ)。custom property の accessor は get_/set_ 名の IlMethodInfo として
+/// Methods に現れる。IsRecord の class は positional parameter が Fields の
+/// 先頭に並び、Ctor がそれらへの代入 (positional ctor) になる。== / != は
+/// 構造等価 (backend が field 比較を生成)、with は shallow copy。</summary>
 public sealed record IlClassInfo(
     string Name,
     string? BaseName,
     ImmutableArray<IlFieldInfo> Fields,
     string LayoutHash,
     ImmutableArray<IlMethodInfo> Methods,
-    IlCtorInfo? Ctor = null);
+    IlCtorInfo? Ctor = null,
+    bool IsRecord = false);
 
 /// <summary>explicit constructor。構築順は base ctor → 自 class の field
 /// default/initializer → Body (Lua backend と同順)。BaseArgs は base(...)
@@ -171,8 +174,11 @@ public static class IlExport
         foreach (var tree in trees)
         {
             var model = compilation.GetSemanticModel(tree);
+            // class と record class (record struct は struct 側)
             foreach (var cls in tree.GetCompilationUnitRoot().DescendantNodes()
-                .OfType<ClassDeclarationSyntax>())
+                .OfType<TypeDeclarationSyntax>()
+                .Where(t => t is ClassDeclarationSyntax
+                    || t.IsKind(SyntaxKind.RecordDeclaration)))
             {
                 classes.Add(ExportClass(emitter, model, cls, structLayouts));
             }
@@ -191,14 +197,32 @@ public static class IlExport
     }
 
     private static IlClassInfo ExportClass(LuaEmitter emitter,
-        SemanticModel model, ClassDeclarationSyntax cls,
+        SemanticModel model, TypeDeclarationSyntax cls,
         Dictionary<string, List<(string Name, string Type)>> structLayouts)
     {
         var symbol = model.GetDeclaredSymbol(cls);
         var baseName = symbol?.BaseType is { SpecialType: SpecialType.None } b
             ? b.Name : null;
+        var record = cls as RecordDeclarationSyntax;
 
         var fields = new List<IlFieldInfo>();
+        // positional record: parameter が field (Lua の VisitRecord と同順)
+        var positional = record?.ParameterList?.Parameters.ToList() ?? [];
+        foreach (var p in positional)
+        {
+            // base の primary ctor へ渡すだけの parameter (同名 member を
+            // 継承している) は C# も property を合成しないので field にしない
+            var name = p.Identifier.ValueText;
+            var synthesized = symbol?.GetMembers(name)
+                .Any(m => SymbolEqualityComparer.Default.Equals(
+                    m.ContainingType, symbol)) ?? true;
+            if (!synthesized) continue;
+            var paramSymbol = model.GetDeclaredSymbol(p);
+            fields.Add(new IlFieldInfo(
+                LuaNaming.Member(name),
+                paramSymbol?.Type.ToDisplayString() ?? "?",
+                false));
+        }
         foreach (var field in cls.Members.OfType<FieldDeclarationSyntax>())
         {
             foreach (var v in field.Declaration.Variables)
@@ -233,7 +257,34 @@ public static class IlExport
         }
 
         IlCtorInfo? ctor = null;
-        if (cls.Members.OfType<ConstructorDeclarationSyntax>()
+        if (positional.Count > 0)
+        {
+            // positional ctor: 宣言順に field へ代入。base(...) は
+            // primary constructor base type の引数
+            var baseArgs = new List<IlExpr>();
+            if (record!.BaseList?.Types
+                    .OfType<PrimaryConstructorBaseTypeSyntax>()
+                    .FirstOrDefault() is { } primaryBase)
+            {
+                foreach (var a in primaryBase.ArgumentList.Arguments)
+                {
+                    var built = emitter.ExportExprIl(model, a.Expression);
+                    if (built == null) { baseArgs = null; break; }
+                    baseArgs.Add(built);
+                }
+            }
+            var body = positional.Select(p => (IlStat)new IlAssign(
+                new IlField(new IlVar("self"),
+                    LuaNaming.Member(p.Identifier.ValueText)),
+                new IlVar(p.Identifier.ValueText)));
+            ctor = new IlCtorInfo(
+                [.. positional.Select(p => p.Identifier.ValueText)],
+                [.. positional.Select(p =>
+                    model.GetDeclaredSymbol(p)?.Type.ToDisplayString() ?? "?")],
+                new IlBlock([.. body]),
+                baseArgs == null ? [] : [.. baseArgs]);
+        }
+        else if (cls.Members.OfType<ConstructorDeclarationSyntax>()
                 .FirstOrDefault() is { } ctorDecl)
         {
             var ctorSymbol = model.GetDeclaredSymbol(ctorDecl);
@@ -330,7 +381,8 @@ public static class IlExport
         }
 
         return new IlClassInfo(cls.Identifier.ValueText, baseName,
-            [.. fields], LayoutHash(fields, structLayouts), [.. methods], ctor);
+            [.. fields], LayoutHash(fields, structLayouts), [.. methods], ctor,
+            IsRecord: record != null);
     }
 
     // layout version hash (il-spec §14): instance field の (名前, 型) 列の

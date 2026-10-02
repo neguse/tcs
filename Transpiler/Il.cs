@@ -100,6 +100,11 @@ public sealed record IlClosure(
 /// 素の値代入として扱う。</summary>
 public sealed record IlStructCopy(IlExpr E, string TypeName) : IlExpr;
 
+/// <summary>class 参照の明示 downcast `(T)e` (il-spec §9)。Lua backend は透過
+/// (型消去)、C backend は実行時型が T 系でなければ fault。upcast は IL に
+/// 現れない (暗黙変換)。</summary>
+public sealed record IlCast(IlExpr E, string TypeRef) : IlExpr;
+
 /// <summary>record with 式 (shallow copy + 上書き)。</summary>
 public sealed record IlWith(
     IlExpr Src, ImmutableArray<(string Name, IlExpr Value)> Overrides) : IlExpr;
