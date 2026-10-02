@@ -135,7 +135,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 型 | 状態 | 備考 |
 |----|:----:|------|
 | `void` | **Y** | 戻り値型として |
-| Nullable 値型 (`int?`) | **Y** | `null`/値/HasValue/Value/GetValueOrDefault/`??`/null 比較/lifted 演算子 (算術・bit・比較・`bool?` の三値 `&` `\|`)。IL は明示ノード (il-spec §3)、C backend は `{ has, v }`。`.Value` の値なしは fault、文字列化は空文字列 |
+| Nullable 値型 (`int?`) | **Y** | `null`/値/HasValue/Value/GetValueOrDefault/`??`/`??=`/`?.` (receiver が `S?` の member / method、結果の `T?` wrap)/null 比較/lifted 演算子 (算術・bit・比較・`bool?` の三値 `&` `\|`)。IL は明示ノード (il-spec §3)、C backend は `{ has, v }`。`.Value` の値なしは fault、文字列化は空文字列 |
 | Nullable 参照型 (`string?`) | **N/A** | Lua は常に nil 可能 |
 | タプル `(int, string)` | **-** | |
 | 配列 `int[]` | **P** | 初期化子、index、Length。`new T[n]` の要素は値型なら default (struct は zero 値)、参照型は nil (Length も 0 — TCS1003 と同じ nil 制約)。List\<T\> を推奨 |

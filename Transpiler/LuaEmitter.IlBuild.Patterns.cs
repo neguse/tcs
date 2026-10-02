@@ -354,21 +354,53 @@ public partial class LuaEmitter
         return new IlClosure(paramList, new IlBlock([.. acc]), null, []);
     }
 
-    // legacy VisitConditionalAccess 系の写像
+    // when-not-null 側の MemberBinding (`.X`) が指す receiver local 名。
+    // 参照型 receiver は `__tcs_ca` そのもの、`T?` receiver は値を取り出した
+    // `__tcs_cav`
+    private string _condAccessVar = "__tcs_ca";
+
+    // `?.` (il-spec §3): receiver を local へ 1 回評価し、null でなければ
+    // when-not-null を返す IIFE。`T?` receiver は IlNullableHasValue /
+    // IlNullableValue の明示ノード (nil 比較を IL に残さない)。結果が
+    // 非 nullable 値型なら C# どおり T? に wrap する (null 側は値なし)
     private IlExpr? BuildConditionalAccess(SemanticModel model,
         ConditionalAccessExpressionSyntax condAccess)
     {
         var receiver = BuildExpr(model, condAccess.Expression);
         if (receiver == null) return null;
-        var receiverType = model.GetTypeInfo(condAccess.Expression).Type;
-        var whenNotNull = BuildConditionalWhenNotNull(model,
-            condAccess.WhenNotNull, new IlVar("__tcs_ca"), receiverType);
+        return BuildConditionalCore(model, receiver,
+            model.GetTypeInfo(condAccess.Expression).Type, condAccess.WhenNotNull);
+    }
+
+    private IlExpr? BuildConditionalCore(SemanticModel model, IlExpr receiver,
+        ITypeSymbol? receiverType, ExpressionSyntax whenNotNullSyntax)
+    {
+        var nullableValue = IsNullableValueType(receiverType);
+        var underlying = nullableValue
+            ? ((INamedTypeSymbol)receiverType!).TypeArguments[0] : receiverType;
+        var objName = nullableValue ? "__tcs_cav" : "__tcs_ca";
+        var saved = _condAccessVar;
+        _condAccessVar = objName;
+        var whenNotNull = BuildConditionalWhenNotNull(model, whenNotNullSyntax,
+            new IlVar(objName), underlying);
+        _condAccessVar = saved;
         if (whenNotNull == null) return null;
+        var resultType = model.GetTypeInfo(whenNotNullSyntax).Type;
+        if (resultType is { IsValueType: true, SpecialType: not SpecialType.System_Void }
+            && !IsNullableValueType(resultType)
+            && whenNotNull is not IlNullableWrap)
+            whenNotNull = new IlNullableWrap(whenNotNull, resultType.ToDisplayString());
+        var ca = new IlVar("__tcs_ca");
+        IlExpr cond = nullableValue
+            ? new IlNullableHasValue(ca)
+            : new IlBin(IlBinOp.Ne, ca, new IlLit("nil"));
+        var then = nullableValue
+            ? new IlBlock([new IlLocal(objName, new IlNullableValue(ca)),
+                new IlReturn(whenNotNull)])
+            : new IlBlock([new IlReturn(whenNotNull)]);
         return new IlIife([
             new IlLocal("__tcs_ca", receiver),
-            new IlIf([(new IlBin(IlBinOp.Ne, new IlVar("__tcs_ca"),
-                    new IlLit("nil")),
-                new IlBlock([new IlReturn(whenNotNull)]))], null)]);
+            new IlIf([(cond, then)], null)]);
     }
 
     private IlExpr? BuildConditionalWhenNotNull(SemanticModel model,
@@ -397,15 +429,8 @@ public partial class LuaEmitter
                 var inner = BuildConditionalWhenNotNull(model,
                     nested.Expression, obj, receiverType);
                 if (inner == null) return null;
-                var nestedType = model.GetTypeInfo(nested.Expression).Type;
-                var whenNotNull = BuildConditionalWhenNotNull(model,
-                    nested.WhenNotNull, new IlVar("__tcs_ca"), nestedType);
-                if (whenNotNull == null) return null;
-                return new IlIife([
-                    new IlLocal("__tcs_ca", inner),
-                    new IlIf([(new IlBin(IlBinOp.Ne, new IlVar("__tcs_ca"),
-                            new IlLit("nil")),
-                        new IlBlock([new IlReturn(whenNotNull)]))], null)]);
+                return BuildConditionalCore(model, inner,
+                    model.GetTypeInfo(nested.Expression).Type, nested.WhenNotNull);
             }
             default:
                 return BuildExpr(model, expr);
@@ -432,7 +457,10 @@ public partial class LuaEmitter
             return new IlLen(obj);
         if (FindInstanceProperty(receiverType, member) is { } condProp
             && IsCustomProperty(condProp))
-            return new IlInvoke(obj, $"get_{N(condProp)}", []);
+            return IsUserStruct(receiverType)
+                ? new IlCall($"{TypeRef(condProp.ContainingType)}.get_{N(condProp)}",
+                    [ConditionalStructReceiver(obj, receiverType!)])
+                : new IlInvoke(obj, $"get_{N(condProp)}", []);
         var memberSym = receiverType?.GetMembers(member).FirstOrDefault();
         return new IlField(obj, memberSym != null ? N(memberSym) : N(member));
     }
@@ -494,7 +522,16 @@ public partial class LuaEmitter
 
         var methodSym = receiverType?.GetMembers(methodName)
             .OfType<IMethodSymbol>().FirstOrDefault();
+        // struct (`S?` receiver の .Value) は静的ディスパッチ。receiver は
+        // rvalue (C# の .Value は copy) なので変異は捨てられる
+        if (IsUserStruct(receiverType) && methodSym != null)
+            return new IlCall($"{TypeRef(methodSym.ContainingType)}.{N(methodSym)}",
+                [ConditionalStructReceiver(obj, receiverType!), .. argArr]);
         return new IlInvoke(obj, methodSym != null ? N(methodSym) : N(methodName),
             argArr);
     }
+
+    private static IlExpr ConditionalStructReceiver(IlExpr obj, ITypeSymbol type) =>
+        type is INamedTypeSymbol { IsReadOnly: true }
+            ? obj : new IlStructCopy(obj, type.Name);
 }

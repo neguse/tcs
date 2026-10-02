@@ -180,7 +180,7 @@ public partial class LuaEmitter
             case WithExpressionSyntax withExpr:
                 return BuildWithExpr(model, withExpr);
             case MemberBindingExpressionSyntax mb:
-                return new IlField(new IlVar("__tcs_ca"),
+                return new IlField(new IlVar(_condAccessVar),
                     model.GetSymbolInfo(mb).Symbol is { } mbSym
                         ? N(mbSym) : N(mb.Name.Identifier.ValueText));
             case DeclarationExpressionSyntax declaration:
@@ -346,16 +346,9 @@ public partial class LuaEmitter
         if (IsFloatingType(type))
             return new IlCall("__tcs_fstr", [rendered]);
         if (UnwrapNullable(type)?.SpecialType == SpecialType.System_Boolean)
-        {
-            var str = new IlCall("tostring", [rendered]);
-            return type is INamedTypeSymbol { OriginalDefinition.SpecialType:
-                    SpecialType.System_Nullable_T }
-                ? new IlParen(new IlBin(IlBinOp.Or,
-                    new IlBin(IlBinOp.And,
-                        new IlBin(IlBinOp.Ne, rendered, new IlLit("nil")), str),
-                    new IlLit("\"\"")))
-                : str;
-        }
+            return IsNullableValueType(type)
+                ? new IlCall("__tcs_nstr", [rendered])
+                : new IlCall("tostring", [rendered]);
         if (type?.SpecialType != SpecialType.System_String)
             return rendered;
         var unwrapped = expr;

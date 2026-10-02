@@ -44,6 +44,11 @@ f32 / bool / enum / V）/ `T[]` / `List<T>` / `Dictionary<K,V>` /
   (`??` / GetValueOrDefault。既定値は値なしのときだけ評価)、
   `IlLiftedBin` / `IlLiftedUn` (lifted 演算子: 片方でも値なしなら値なし、
   比較は false、Eq / Ne は両方値なしで等しい、`bool?` の `&` `|` は三値論理)。
+  `x?.M` は receiver を local に 1 回評価する IIFE で、`T?` receiver は
+  `IlNullableHasValue` で分岐し `IlNullableValue` (copy) に対して member を
+  参照する。結果が非 nullable 値型なら `IlNullableWrap` で `T?` に揃える
+  (値なし側は IIFE の fall-through = 値なし)。`??=` も `T?` では
+  `not IlNullableHasValue` で判定する (T247)。
   意味論の規範は C# §12.4.8 で、dotnet differential がそれを検証する。
   文字列化 (`__tcs_nstr`) は値なしを空文字列にする (C# の
   `string.Concat(null)` / 補間と同じ)。backend 表現は dev = nil または値、

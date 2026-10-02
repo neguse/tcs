@@ -466,6 +466,9 @@ public static partial class TinyCsComplianceFacts
             && node.Parent is not InvocationExpressionSyntax
             && (node.Parent is not MemberAccessExpressionSyntax parentAccess
                 || parentAccess.Name != node)
+            // `x?.M()` の `.M` (MemberBinding の name) は呼び出し位置
+            && (node.Parent is not MemberBindingExpressionSyntax binding
+                || binding.Name != node)
             && model.GetSymbolInfo(node).Symbol is IMethodSymbol
             {
                 IsStatic: false, MethodKind: MethodKind.Ordinary

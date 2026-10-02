@@ -657,4 +657,57 @@ public class DifferentialTests
             }
             """, "P");
     }
+
+    // `?.` (il-spec §3): `S?` receiver は HasValue / Value の明示ノード
+    // (method は .Value の copy に対して呼ぶ)、参照型 receiver の値型 member は
+    // T? に wrap、nested `?.`、`??=`、bool? の文字列化
+    [CFact]
+    public void Nullable_ConditionalAccessAndCoalesceAssign()
+    {
+        Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            public struct Vec { public int X; public int Y; public int Sum() => X + Y; public void Bump() { X = X + 100; } public int Twice => X * 2; }
+            public readonly record struct Ro(int A) { public int Dbl() => A * 2; }
+            public class Node { public int Hp; public int? Mana; public Node Next; public string Name = "n"; public Vec Pos; public int Len() => Name.Length; public Node Self() => this; }
+            public class P
+            {
+                public static string Show(int? v) => v.HasValue ? "v=" + v.Value.ToString() : "none";
+                public static void Main()
+                {
+                    Vec? v = new Vec { X = 1, Y = 2 };
+                    Vec? nv = null;
+                    int? a = v?.X;
+                    int? b = nv?.X;
+                    int? c = v?.Sum();
+                    int? d = nv?.Sum();
+                    int? t = v?.Twice;
+                    v?.Bump();
+                    Console.WriteLine(Show(a) + "|" + Show(b) + "|" + Show(c) + "|" + Show(d) + "|" + Show(t) + "|" + Show(v?.X));
+                    Node n = new Node { Hp = 3 };
+                    n.Pos.X = 9;
+                    Node nn = null;
+                    int? e = n?.Hp;
+                    int? f = nn?.Hp;
+                    int? g = n?.Len();
+                    string h = nn?.Name;
+                    string h2 = n?.Name;
+                    int? m = n?.Mana;
+                    int? k = n?.Next?.Hp;
+                    int? k2 = n?.Self()?.Hp;
+                    int? px = n?.Pos.X;
+                    Vec? pv = nn?.Pos;
+                    Console.WriteLine(Show(e) + "|" + Show(f) + "|" + Show(g) + "|" + (h == null) + "|" + h2 + "|" + Show(m) + "|" + Show(k) + "|" + Show(k2) + "|" + Show(px) + "|" + pv.HasValue);
+                    int? q = null; q ??= 4;
+                    int? r = 9; r ??= 1;
+                    bool? bq = null;
+                    bool? bt = true;
+                    Ro? ro = new Ro(5);
+                    Console.WriteLine(Show(q) + "|" + Show(r) + "|" + bq + "|" + bt + "|" + Show(ro?.Dbl()) + "|" + (nv?.Sum() == null) + "|" + (v?.Sum() > 2));
+                    var list = new List<int?> { 1, 2 };
+                    Console.WriteLine(Show(list?.Count));
+                }
+            }
+            """, "P");
+    }
 }

@@ -1701,3 +1701,10 @@
 - 判断: struct の parameterless ctor は従来どおり対象外 (`new S()` の zero 意味論を保つ)。List 等価の Lua 側は metatable を struct に付けず (plain table 設計と migration を保つ)、IL が等価関数を渡す形にした。`new string[n]` の要素 nil / Length 0 は TCS1003 と同じ nil 制約として残す
 - 残課題: struct を Dictionary の key にする用途 (C は i32 / string key のみ)
 
+### T247: `T?` の `?.` と `??=` を明示 nullable ノードへ ✓ (2026-10-02)
+- BuildConditionalAccess を共通化 (BuildConditionalCore): `S?` receiver は IlNullableHasValue で分岐し、then 側で IlNullableValue を `__tcs_cav` に束ねて member / method を参照する (method は struct の静的ディスパッチ + copy = C# の .Value 意味論)。結果が非 nullable 値型なら IlNullableWrap で `T?` に揃えた (参照型 receiver の `o?.Hp` も C# どおり `int?`)。nested `?.` も同じ経路。`??=` の 3 経路と bool? の文字列化から nil 比較を消した (`__tcs_nstr`)
+- Shared facts の InstanceMethodGroup 規則が `x?.M()` の `.M` (MemberBinding の name) を method group と誤診していたのを修正 (analyzer / check / transpiler 共通)
+- 検証: NullableValueTypeTests に `S?` / 参照型 / nested / `??=` / bool? を 1 本にまとめた dotnet differential、tcs2c.Tests に同 program の 2 backend differential、SubsetDiagnosticTests に `?.M()` 無診断。既存 Nullable / ConditionalAccess / Coalesce 系 43 件 green
+- 判断: `__tcs_ca` (receiver) と `__tcs_cav` (値) を分けた。IlNullableValue を直接 member の receiver にすると MemberBinding 経路 (`n?.Pos.X` の `.Pos`) が名前で receiver を引く既存設計と噛み合わないため、builder の `_condAccessVar` で切り替える
+- 残課題: legacy visitor (IL 化できない本文の fallback) の `?.` は旧 nil 流儀のまま (Lua では同値)
+
