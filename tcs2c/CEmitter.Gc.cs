@@ -104,9 +104,49 @@ internal sealed partial class CEmitter
         Line();
     }
 
-    // static field の root 走査 (runtime が GC の冒頭で呼ぶ)
+    // 参照を含み得る格納型 (store にライトバリアが要る)
+    private static bool NeedsBarrier(CType type) =>
+        IsPointerType(type) || type.Kind == CTypeKind.StructVal
+        || type is { Kind: CTypeKind.Nullable, Element.Kind: CTypeKind.StructVal };
+
+    // struct 連鎖 / field / 要素 place を所有する heap object の式 (stack 上の
+    // 値なら null)。struct method の self は呼び出し側から渡る v_owner
+    private string? RenderStructOwner(IlExpr place) => place switch
+    {
+        IlVar v when v.Name == "self" && _structSelfOwner => "v_owner",
+        IlVar v => Resolve(v.Name) is { Boxed: true } cell ? cell.CName : null,
+        IlField f when TryStaticField(f, out _, out _) => null,
+        IlField f => TypeOf(f.Recv).Kind == CTypeKind.StructVal
+            ? RenderStructOwner(f.Recv)
+            : $"tcs_nonnull({RenderExpr(f.Recv)})",
+        IlIndex index => RenderExpr(index.Recv),
+        _ => null,
+    };
+
+    // struct method の本文中か (self の所有者は v_owner 引数)
+    private bool _structSelfOwner;
+
+    // static field の root 走査 (旧世代 mark-sweep) と境界の昇格
     private void EmitStaticRoots()
     {
+        Line("static void");
+        Line("tcs_gc_forward_statics(void)");
+        Line("{");
+        _indent++;
+        foreach (var cls in _program.Classes)
+        foreach (var field in cls.Fields.Where(f => f.IsStatic))
+        {
+            var fact = _facts.Field(cls.Name, field.Name);
+            var name = Names.StaticField(cls.Name, field.Name);
+            if (IsPointerType(fact.Type))
+                Line($"{name} = tcs_gc_promote({name});");
+            else if (fact.Type.Kind == CTypeKind.StructVal
+                || fact.Type is { Kind: CTypeKind.Nullable, Element.Kind: CTypeKind.StructVal })
+                Line($"tcs_gc_forward_value(&{name}, {LayoutRef(fact.Type)});");
+        }
+        _indent--;
+        Line("}");
+        Line();
         Line("static void");
         Line("tcs_gc_mark_statics(void)");
         Line("{");

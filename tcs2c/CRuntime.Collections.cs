@@ -59,6 +59,7 @@ internal sealed partial class CEmitter
                 memcpy(grown, list->data, list->length * list->element_size);
             list->data = grown;
             list->capacity = capacity;
+            tcs_wb(list);
         }
 
         static void
@@ -77,6 +78,7 @@ internal sealed partial class CEmitter
             memcpy((unsigned char *)list->data
                 + list->length * list->element_size, value, list->element_size);
             list->length++;
+            if (layout != NULL) tcs_wb(list);
         }
 
         static void *
@@ -201,6 +203,7 @@ internal sealed partial class CEmitter
             }
             dict->buckets = buckets;
             dict->bucket_count = count;
+            tcs_wb(dict);
         }
 
         static void *
@@ -208,7 +211,8 @@ internal sealed partial class CEmitter
         {
             TcsDictNode *node = tcs_dict_find(dict, key_i, key_s);
             size_t bucket;
-            if (node != NULL) return node->value;
+            /* 返した value slot へ呼び出し側が書く: 既存 node は owner として登録 */
+            if (node != NULL) { tcs_wb(node); return node->value; }
             if ((size_t)dict->count + 1 > dict->bucket_count * 2) tcs_dict_grow(dict);
             node = tcs_gc_alloc(TCS_KIND_DICT_NODE, TCS_GC_HEADER(dict)->layout,
                 sizeof(*node) + dict->value_size);
@@ -218,6 +222,7 @@ internal sealed partial class CEmitter
             node->next = dict->buckets[bucket];
             dict->buckets[bucket] = node;
             dict->count++;
+            tcs_wb(dict);
             return node->value;
         }
 

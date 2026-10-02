@@ -6,10 +6,12 @@ namespace TinyCs.Tcs2c.Tests;
 
 /// <summary>
 /// 2 backend の実行ハーネス。同じ TinyC# source を tcs2c→C→gcc と
-/// tcs→Lua→lua32 で実行し、stdout を突き合わせる。C 側は GC stress
-/// (-DTCS_GC_STRESS=1: 確保ごとに full GC) でも同じ出力であることを
-/// 要求する — 保守的 stack 走査 / 精密 heap trace の root 漏れは、
-/// 生きている object が回収されて出力が変わる形で現れる。
+/// tcs→Lua→lua32 で実行し、stdout を突き合わせる。GC はフレーム境界
+/// (lib 出荷形の tcs_lib_gc) でだけ走るので、GC の意味論は lib 形で
+/// Setup / Frame×N / Report を回す AssertParityLib で検証する。C 側は
+/// GC stress (-DTCS_GC_STRESS=1: 毎境界で旧世代 full GC + 256 byte の
+/// nursery chunk) でも同じ出力であることを要求する — root / ライトバリア
+/// の漏れは、生きている object が回収 / 上書きされて出力が変わる形で現れる。
 /// </summary>
 internal static class Backends
 {
@@ -70,7 +72,8 @@ internal static class Backends
         return new CEmitter(exported, digestF32).Emit(entryClass, lib);
     }
 
-    /// <summary>tcs2c → C compiler → 実行。stress は GC を確保ごとに回す。</summary>
+    /// <summary>tcs2c → C compiler → 実行 (main 形: Main 全体が 1 フレームで
+    /// GC は走らない)。</summary>
     public static string RunC(string[] sources, string? entryClass,
         bool stress = false, IEnumerable<string>? extraFlags = null)
     {
@@ -105,9 +108,7 @@ internal static class Backends
             if (compile.ExitCode != 0)
                 throw new InvalidOperationException(
                     $"C compile failed:\n{compile.Stderr}\n--- C ---\n{Number(cSource)}");
-            var psi = Start(exe, []);
-            psi.Environment["ASAN_OPTIONS"] = "detect_stack_use_after_return=0";
-            var run = Run(psi, RunTimeout);
+            var run = Run(Start(exe, []), RunTimeout);
             if (run.ExitCode != 0)
                 throw new InvalidOperationException(
                     $"C program exited with {run.ExitCode}:\n{run.Stderr}\n" +
@@ -121,7 +122,48 @@ internal static class Backends
     }
 
     /// <summary>tcs → Lua → lua32 (LUA_32BITS)。entryClass.Main() を呼ぶ。</summary>
-    public static string RunLua(string[] sources, string entryClass)
+    public static string RunLua(string[] sources, string entryClass) =>
+        RunLuaScript(sources, $"{entryClass}.{LuaNaming.Member("Main")}()\n");
+
+    private static string LibCalls(string cls, int frames) =>
+        $"{cls}.{LuaNaming.Member("Setup")}()\n" +
+        $"for _ = 1, {frames} do {cls}.{LuaNaming.Member("Frame")}() end\n" +
+        $"{cls}.{LuaNaming.Member("Report")}()\n";
+
+    /// <summary>lib 形の host と同じ順で Setup / Frame×N / Report を呼ぶ。</summary>
+    public static string RunLuaLib(string[] sources, string cls, int frames) =>
+        RunLuaScript(sources, LibCalls(cls, frames));
+
+    /// <summary>--lib の C を host (別 translation unit) から呼ぶ:
+    /// tcs_lib_init → Setup → (Frame → tcs_lib_gc)×N → Report。</summary>
+    public static string RunCLib(string[] sources, string cls, int frames,
+        bool stress = false)
+    {
+        var c = EmitC(sources, null, lib: true);
+        var host = $$"""
+            void tcs_lib_init(void);
+            void tcs_lib_gc(void);
+            void tcs_entry_{{cls}}_setup(void);
+            void tcs_entry_{{cls}}_frame(void);
+            void tcs_entry_{{cls}}_report(void);
+            int main(void)
+            {
+                int i;
+                tcs_lib_init();
+                tcs_entry_{{cls}}_setup();
+                tcs_lib_gc();
+                for (i = 0; i < {{frames}}; i++) {
+                    tcs_entry_{{cls}}_frame();
+                    tcs_lib_gc();
+                }
+                tcs_entry_{{cls}}_report();
+                return 0;
+            }
+            """;
+        return CompileAndRunC(c, stress, extraCSource: host);
+    }
+
+    private static string RunLuaScript(string[] sources, string calls)
     {
         var lua = Transpiler.Transpile(sources);
         // TranspileAndRunWithRuntime と同じ runtime 束縛 (List / Dict / ... は
@@ -131,7 +173,7 @@ internal static class Backends
         var script = $"local TinySystem = dofile(\"{runtimePath}\")\n" +
             "List = TinySystem.List\nDict = TinySystem.Dict\nMath = TinySystem.Math\n" +
             "String = TinySystem.String\nRandom = TinySystem.Random\nChar = TinySystem.Char\n" +
-            $"{lua}\n{entryClass}.{LuaNaming.Member("Main")}()\n";
+            $"{lua}\n{calls}";
         var dir = Directory.CreateTempSubdirectory("tcs2c-lua-");
         try
         {
@@ -162,6 +204,16 @@ internal static class Backends
 
     public static string AssertParity(string source, string entryClass) =>
         AssertParity([source], entryClass);
+
+    /// <summary>lib 形 (フレーム境界 GC あり) で C (通常 + stress) と Lua の
+    /// stdout 一致を要求する。</summary>
+    public static string AssertParityLib(string source, string cls, int frames)
+    {
+        var lua = RunLuaLib([source], cls, frames);
+        Assert.Equal(lua, RunCLib([source], cls, frames));
+        Assert.Equal(lua, RunCLib([source], cls, frames, stress: true));
+        return lua;
+    }
 
     private static string Number(string text) => string.Join("\n",
         text.Split('\n').Select((l, i) => $"{i + 1,5}: {l}"));

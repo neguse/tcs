@@ -1,40 +1,73 @@
 namespace TinyCs.Tcs2c;
 
-// C runtime の GC 節: mark-sweep (非移動)。heap は精密 (全 heap object が
-// kind + TcsLayout を持ち、生成側が class / struct の pointer map を出す)、
-// root は static field (生成側の tcs_gc_mark_statics) と C stack の保守的
-// 走査 (setjmp で callee-saved register も stack 上に落とす)。stack 由来の
-// 候補 word は interior pointer を許す (生成コードは tcs_array_at 等の
-// 要素 pointer を temp に持つため)。
+// C runtime の GC 節: フレーム同期の世代別 GC (T252)。
+//
+// - nursery: bump 確保の chunk 列。フレーム中 (entry の呼び出し中) は一切
+//   GC しない。足りなければ chunk を足すだけ。
+// - フレーム境界 (tcs_gc_frame。host が entry から戻った後に呼ぶ = C# の
+//   スタックが空): static field / dirty な旧 object / host の hold slot から
+//   到達する若い object だけを旧世代へ copy (Cheney、forwarding は header の
+//   next)、残りの nursery は pointer のリセットで一括解放する。root は
+//   全部精密で、C stack の走査は無い。
+// - 旧世代: malloc 個別 + 連結 list。昇格 bytes が閾値を超えたら同じ境界で
+//   mark-sweep (root は static + hold。この時点で若い object は無い)。
+// - ライトバリア: 旧 object の参照型 slot への store で owner を dirty 登録
+//   (tcs_wb)。生成側は field / 要素 / cell / struct 連鎖の store に挿し、
+//   runtime は List / Dict の内部 store に挿す。static は毎境界で全走査
+//   するのでバリア不要。
+// 実行形 (main) は Main 全体が 1 フレームで GC は走らない (lib 出荷形が GC
+// の対象)。
 internal sealed partial class CEmitter
 {
     private const string RuntimeGc = """
-        /* ---- GC ---- */
+        /* ---- GC: フレーム同期の世代別 ---- */
         #ifndef TCS_GC_MIN_THRESHOLD
         #define TCS_GC_MIN_THRESHOLD ((size_t)1 << 20)
         #endif
+        #ifndef TCS_GC_NURSERY_CHUNK
+        #ifdef TCS_GC_STRESS
+        #define TCS_GC_NURSERY_CHUNK ((size_t)256)
+        #else
+        #define TCS_GC_NURSERY_CHUNK ((size_t)1 << 18)
+        #endif
+        #endif
+        #define TCS_GC_ALIGN (alignof(max_align_t))
 
         static const uint32_t tcs_layout_ptr_offsets[1] = { 0 };
         static const TcsLayout tcs_layout_ptr =
             { sizeof(void *), 1, tcs_layout_ptr_offsets };
 
-        static TcsGcHeader *tcs_gc_objects;     /* 全 heap object の連結 list */
-        static size_t tcs_gc_object_count;
-        static size_t tcs_gc_live_bytes;        /* 直近 GC 後の生存 bytes */
-        static size_t tcs_gc_allocated_since;   /* 直近 GC 以降の確保 bytes */
-        static size_t tcs_gc_threshold = TCS_GC_MIN_THRESHOLD;
-        static size_t tcs_gc_collections;
-        static void *tcs_gc_stack_base;         /* entry で記録 (NULL = GC 不可) */
-        static int tcs_gc_collecting;
-        #ifdef TCS_GC_STRESS
-        static size_t tcs_gc_stress_counter;
-        #endif
+        typedef struct TcsChunk {
+            struct TcsChunk *next;
+            size_t capacity;
+            size_t used;
+            _Alignas(max_align_t) unsigned char data[];
+        } TcsChunk;
 
-        static TcsGcHeader **tcs_gc_mark_stack;
+        static TcsChunk *tcs_gc_nursery;        /* 先頭 chunk (常に 1 個は残す) */
+        static TcsChunk *tcs_gc_nursery_cur;    /* 確保中の chunk */
+        static size_t tcs_gc_nursery_bytes;     /* 今フレームの確保 bytes */
+        static size_t tcs_gc_nursery_chunks;
+
+        static TcsGcHeader *tcs_gc_objects;     /* 旧世代の連結 list */
+        static size_t tcs_gc_object_count;
+        static size_t tcs_gc_live_bytes;        /* 直近 mark-sweep 後の生存 bytes */
+        static size_t tcs_gc_allocated_since;   /* 直近 mark-sweep 以降の昇格 bytes */
+        static size_t tcs_gc_threshold = TCS_GC_MIN_THRESHOLD;
+        static size_t tcs_gc_collections;       /* 旧世代 mark-sweep 回数 */
+        static size_t tcs_gc_frames;            /* 境界回数 */
+        static size_t tcs_gc_promoted_bytes;    /* 累計昇格 bytes */
+        static int tcs_gc_collecting;
+
+        static TcsGcHeader **tcs_gc_mark_stack; /* mark / 昇格 scan の両方で使う */
         static size_t tcs_gc_mark_count;
         static size_t tcs_gc_mark_capacity;
-        static TcsGcHeader **tcs_gc_sorted;     /* 保守的走査用の address 順 index */
-        static size_t tcs_gc_sorted_count;
+        static TcsGcHeader **tcs_gc_dirty;      /* remembered set (旧 object) */
+        static size_t tcs_gc_dirty_count;
+        static size_t tcs_gc_dirty_capacity;
+        static void ***tcs_gc_holds;            /* host が frame を跨いで持つ slot */
+        static size_t tcs_gc_hold_count;
+        static size_t tcs_gc_hold_capacity;
 
         static void
         tcs_gc_push(TcsGcHeader *hdr)
@@ -53,7 +86,27 @@ internal sealed partial class CEmitter
             tcs_gc_mark_stack[tcs_gc_mark_count++] = hdr;
         }
 
-        /* 精密 pointer (object 先頭を指す) の mark */
+        /* ---- ライトバリア: 旧 object への store で owner を dirty 登録 ---- */
+        static void
+        tcs_wb(const void *owner)
+        {
+            TcsGcHeader *hdr;
+            if (owner == NULL) return;
+            hdr = TCS_GC_HEADER(owner);
+            if ((hdr->flags & (TCS_GC_OLD | TCS_GC_DIRTY)) != TCS_GC_OLD) return;
+            hdr->flags |= TCS_GC_DIRTY;
+            if (tcs_gc_dirty_count == tcs_gc_dirty_capacity) {
+                size_t capacity = tcs_gc_dirty_capacity == 0
+                    ? 256 : tcs_gc_dirty_capacity * 2;
+                TcsGcHeader **grown = realloc(tcs_gc_dirty, capacity * sizeof(*grown));
+                if (grown == NULL) tcs_fault("allocation");
+                tcs_gc_dirty = grown;
+                tcs_gc_dirty_capacity = capacity;
+            }
+            tcs_gc_dirty[tcs_gc_dirty_count++] = hdr;
+        }
+
+        /* ---- 旧世代の mark (精密 pointer のみ) ---- */
         static void
         tcs_gc_mark_ptr(const void *pointer)
         {
@@ -124,83 +177,22 @@ internal sealed partial class CEmitter
             }
         }
 
-        static int
-        tcs_gc_compare(const void *left, const void *right)
-        {
-            uintptr_t a = (uintptr_t)*(TcsGcHeader *const *)left;
-            uintptr_t b = (uintptr_t)*(TcsGcHeader *const *)right;
-            return a < b ? -1 : a > b ? 1 : 0;
-        }
-
-        /* 保守的候補: payload 内 (末尾 1 過ぎを含む) を指す word なら mark */
-        static void
-        tcs_gc_mark_conservative(uintptr_t word)
-        {
-            size_t lo = 0;
-            size_t hi = tcs_gc_sorted_count;
-            TcsGcHeader *hdr;
-            uintptr_t start;
-            while (lo < hi) {
-                size_t mid = lo + (hi - lo) / 2;
-                if ((uintptr_t)TCS_GC_PAYLOAD(tcs_gc_sorted[mid]) <= word)
-                    lo = mid + 1;
-                else
-                    hi = mid;
-            }
-            if (lo == 0) return;
-            hdr = tcs_gc_sorted[lo - 1];
-            start = (uintptr_t)TCS_GC_PAYLOAD(hdr);
-            if (word >= start && word <= start + hdr->size) tcs_gc_push(hdr);
-        }
-
-        static void TCS_NO_ASAN
-        tcs_gc_scan_range(const void *from, const void *to)
-        {
-            uintptr_t lo = (uintptr_t)from;
-            uintptr_t hi = (uintptr_t)to;
-            uintptr_t p;
-            if (lo > hi) { uintptr_t t = lo; lo = hi; hi = t; }
-            lo &= ~(uintptr_t)(sizeof(void *) - 1);
-            for (p = lo; p + sizeof(void *) <= hi; p += sizeof(void *)) {
-                uintptr_t word;
-                memcpy(&word, (const void *)p, sizeof(word));
-                if (word != 0) tcs_gc_mark_conservative(word);
-            }
-        }
-
-        static void __attribute__((noinline)) TCS_NO_ASAN
-        tcs_gc_scan_stack(void)
-        {
-            jmp_buf registers;
-            setjmp(registers);
-            tcs_gc_scan_range(&registers, (unsigned char *)&registers
-                + sizeof(registers));
-            /* この frame から entry の frame まで (sanitizer の fake stack に
-               依らず実 stack を取るため __builtin_frame_address) */
-            tcs_gc_scan_range(__builtin_frame_address(0), tcs_gc_stack_base);
-        }
-
+        /* 旧世代の mark-sweep。root は static と host hold (境界なので若い
+           object は存在せず、C stack 上の参照も無い) */
         static void __attribute__((noinline))
         tcs_gc_collect(void)
         {
             TcsGcHeader *hdr;
             TcsGcHeader **link;
-            size_t i = 0;
+            size_t i;
             size_t live = 0;
             size_t survivors = 0;
-            if (tcs_gc_collecting || tcs_gc_stack_base == NULL) return;
+            if (tcs_gc_collecting) return;
             tcs_gc_collecting = 1;
-
-            tcs_gc_sorted = malloc((tcs_gc_object_count + 1) * sizeof(*tcs_gc_sorted));
-            if (tcs_gc_sorted == NULL) tcs_fault("allocation");
-            for (hdr = tcs_gc_objects; hdr != NULL; hdr = hdr->next)
-                tcs_gc_sorted[i++] = hdr;
-            tcs_gc_sorted_count = i;
-            qsort(tcs_gc_sorted, i, sizeof(*tcs_gc_sorted), tcs_gc_compare);
-
             tcs_gc_mark_count = 0;
             tcs_gc_mark_statics();
-            tcs_gc_scan_stack();
+            for (i = 0; i < tcs_gc_hold_count; i++)
+                tcs_gc_mark_ptr(*tcs_gc_holds[i]);
             while (tcs_gc_mark_count > 0)
                 tcs_gc_trace(tcs_gc_mark_stack[--tcs_gc_mark_count]);
 
@@ -217,9 +209,6 @@ internal sealed partial class CEmitter
                     free(hdr);
                 }
             }
-            free(tcs_gc_sorted);
-            tcs_gc_sorted = NULL;
-            tcs_gc_sorted_count = 0;
             tcs_gc_object_count = survivors;
             tcs_gc_live_bytes = live;
             tcs_gc_allocated_since = 0;
@@ -229,30 +218,219 @@ internal sealed partial class CEmitter
             tcs_gc_collecting = 0;
         }
 
+        /* ---- nursery (bump 確保) ---- */
+        static TcsChunk *
+        tcs_gc_chunk_new(size_t capacity)
+        {
+            TcsChunk *chunk;
+            if (capacity < TCS_GC_NURSERY_CHUNK) capacity = TCS_GC_NURSERY_CHUNK;
+            chunk = calloc(1, sizeof(*chunk) + capacity);
+            if (chunk == NULL) tcs_fault("allocation");
+            chunk->capacity = capacity;
+            tcs_gc_nursery_chunks++;
+            return chunk;
+        }
+
         static void *
         tcs_gc_alloc(uint32_t kind, const TcsLayout *layout, size_t size)
         {
             TcsGcHeader *hdr;
-        #ifdef TCS_GC_STRESS
-            if (tcs_gc_stress_counter++ % (TCS_GC_STRESS) == 0) tcs_gc_collect();
-        #else
-            if (tcs_gc_allocated_since >= tcs_gc_threshold) tcs_gc_collect();
-        #endif
-            if (size > SIZE_MAX - sizeof(*hdr)) tcs_fault("allocation-overflow");
-            hdr = calloc(1, sizeof(*hdr) + size);
-            if (hdr == NULL) {
-                tcs_gc_collect();
-                hdr = calloc(1, sizeof(*hdr) + size);
-                if (hdr == NULL) tcs_fault("allocation");
+            size_t need;
+            if (size > SIZE_MAX - sizeof(*hdr) - TCS_GC_ALIGN)
+                tcs_fault("allocation-overflow");
+            need = (sizeof(*hdr) + size + (TCS_GC_ALIGN - 1)) & ~(TCS_GC_ALIGN - 1);
+            if (tcs_gc_nursery_cur == NULL) {
+                tcs_gc_nursery = tcs_gc_nursery_cur = tcs_gc_chunk_new(need);
+            } else if (tcs_gc_nursery_cur->used + need > tcs_gc_nursery_cur->capacity) {
+                TcsChunk *chunk = tcs_gc_chunk_new(need);
+                tcs_gc_nursery_cur->next = chunk;
+                tcs_gc_nursery_cur = chunk;
             }
-            hdr->next = tcs_gc_objects;
+            hdr = (TcsGcHeader *)(tcs_gc_nursery_cur->data + tcs_gc_nursery_cur->used);
+            tcs_gc_nursery_cur->used += need;
+            tcs_gc_nursery_bytes += need;
+            hdr->next = NULL;
             hdr->layout = layout;
             hdr->size = size;
             hdr->kind = kind;
-            tcs_gc_objects = hdr;
-            tcs_gc_object_count++;
-            tcs_gc_allocated_since += sizeof(*hdr) + size;
+            hdr->flags = 0;
             return TCS_GC_PAYLOAD(hdr);
+        }
+
+        /* 境界で nursery を空にする: 先頭 chunk だけ残して zero に戻す */
+        static void
+        tcs_gc_nursery_reset(void)
+        {
+            TcsChunk *chunk;
+            if (tcs_gc_nursery == NULL) return;
+            chunk = tcs_gc_nursery->next;
+            while (chunk != NULL) {
+                TcsChunk *next = chunk->next;
+                free(chunk);
+                chunk = next;
+            }
+            tcs_gc_nursery->next = NULL;
+            memset(tcs_gc_nursery->data, 0, tcs_gc_nursery->used);
+            tcs_gc_nursery->used = 0;
+            tcs_gc_nursery_cur = tcs_gc_nursery;
+            tcs_gc_nursery_chunks = 1;
+            tcs_gc_nursery_bytes = 0;
+        }
+
+        /* ---- 昇格 (若い object を旧世代へ copy、Cheney) ---- */
+        static void *
+        tcs_gc_promote(void *pointer)
+        {
+            TcsGcHeader *hdr;
+            TcsGcHeader *copy;
+            if (pointer == NULL) return NULL;
+            hdr = TCS_GC_HEADER(pointer);
+            if (hdr->flags & (TCS_GC_OLD | TCS_GC_STATIC)) return pointer;
+            if (hdr->flags & TCS_GC_FORWARD) return TCS_GC_PAYLOAD(hdr->next);
+            copy = malloc(sizeof(*copy) + hdr->size);
+            if (copy == NULL) tcs_fault("allocation");
+            memcpy(copy, hdr, sizeof(*copy) + hdr->size);
+            copy->flags = TCS_GC_OLD;
+            copy->next = tcs_gc_objects;
+            tcs_gc_objects = copy;
+            tcs_gc_object_count++;
+            tcs_gc_allocated_since += sizeof(*copy) + hdr->size;
+            tcs_gc_promoted_bytes += sizeof(*copy) + hdr->size;
+            hdr->next = copy;
+            hdr->flags |= TCS_GC_FORWARD;
+            /* 中身の slot は後で tcs_gc_forward_object (scan queue) */
+            if (tcs_gc_mark_count == tcs_gc_mark_capacity) {
+                size_t capacity = tcs_gc_mark_capacity == 0
+                    ? 1024 : tcs_gc_mark_capacity * 2;
+                TcsGcHeader **grown = realloc(tcs_gc_mark_stack,
+                    capacity * sizeof(*grown));
+                if (grown == NULL) tcs_fault("allocation");
+                tcs_gc_mark_stack = grown;
+                tcs_gc_mark_capacity = capacity;
+            }
+            tcs_gc_mark_stack[tcs_gc_mark_count++] = copy;
+            return TCS_GC_PAYLOAD(copy);
+        }
+
+        static void
+        tcs_gc_forward_slot(void *slot)
+        {
+            void *pointer;
+            memcpy(&pointer, slot, sizeof(pointer));
+            pointer = tcs_gc_promote(pointer);
+            memcpy(slot, &pointer, sizeof(pointer));
+        }
+
+        static void
+        tcs_gc_forward_value(void *value, const TcsLayout *layout)
+        {
+            uint32_t i;
+            if (layout == NULL) return;
+            for (i = 0; i < layout->count; i++)
+                tcs_gc_forward_slot((unsigned char *)value + layout->offsets[i]);
+        }
+
+        /* 旧 object (昇格直後 / dirty) の全 pointer slot を昇格先へ書き換える */
+        static void
+        tcs_gc_forward_object(TcsGcHeader *hdr)
+        {
+            void *payload = TCS_GC_PAYLOAD(hdr);
+            size_t i;
+            switch (hdr->kind) {
+            case TCS_KIND_OBJECT:
+                tcs_gc_forward_value(payload, hdr->layout);
+                break;
+            case TCS_KIND_ARRAY: {
+                TcsArray *array = payload;
+                if (hdr->layout == NULL) break;
+                for (i = 0; i < array->length; i++)
+                    tcs_gc_forward_value(array->data + i * array->element_size,
+                        hdr->layout);
+                break;
+            }
+            case TCS_KIND_LIST: {
+                TcsList *list = payload;
+                list->data = tcs_gc_promote(list->data);
+                if (hdr->layout == NULL || list->data == NULL) break;
+                for (i = 0; i < list->length; i++)
+                    tcs_gc_forward_value((unsigned char *)list->data
+                        + i * list->element_size, hdr->layout);
+                break;
+            }
+            case TCS_KIND_DICT: {
+                TcsDict *dict = payload;
+                dict->buckets = tcs_gc_promote(dict->buckets);
+                for (i = 0; i < dict->bucket_count; i++)
+                    tcs_gc_forward_slot(&dict->buckets[i]);
+                break;
+            }
+            case TCS_KIND_DICT_NODE: {
+                TcsDictNode *node = payload;
+                tcs_gc_forward_slot(&node->next);
+                tcs_gc_forward_slot(&node->key_s);
+                tcs_gc_forward_value(node->value, hdr->layout);
+                break;
+            }
+            case TCS_KIND_CLOSURE: {
+                TcsClosure *closure = payload;
+                size_t cells = (hdr->size - sizeof(TcsClosure)) / sizeof(void *);
+                for (i = 0; i < cells; i++) tcs_gc_forward_slot(&closure->cells[i]);
+                break;
+            }
+            default:
+                break;
+            }
+        }
+
+        /* フレーム境界: C# のスタックが空のときに host が呼ぶ */
+        static void __attribute__((noinline))
+        tcs_gc_frame(void)
+        {
+            size_t i;
+            tcs_gc_mark_count = 0;
+            tcs_gc_forward_statics();
+            for (i = 0; i < tcs_gc_hold_count; i++)
+                tcs_gc_forward_slot(tcs_gc_holds[i]);
+            for (i = 0; i < tcs_gc_dirty_count; i++) {
+                tcs_gc_dirty[i]->flags &= ~(uint32_t)TCS_GC_DIRTY;
+                tcs_gc_forward_object(tcs_gc_dirty[i]);
+            }
+            tcs_gc_dirty_count = 0;
+            while (tcs_gc_mark_count > 0)
+                tcs_gc_forward_object(tcs_gc_mark_stack[--tcs_gc_mark_count]);
+            tcs_gc_nursery_reset();
+            tcs_gc_frames++;
+        #ifdef TCS_GC_STRESS
+            tcs_gc_collect();
+        #else
+            if (tcs_gc_allocated_since >= tcs_gc_threshold) tcs_gc_collect();
+        #endif
+        }
+
+        /* host が frame を跨いで持つ pointer の slot (境界で昇格先へ書き換わる) */
+        static void
+        tcs_gc_hold(void **slot)
+        {
+            if (tcs_gc_hold_count == tcs_gc_hold_capacity) {
+                size_t capacity = tcs_gc_hold_capacity == 0
+                    ? 16 : tcs_gc_hold_capacity * 2;
+                void ***grown = realloc(tcs_gc_holds, capacity * sizeof(*grown));
+                if (grown == NULL) tcs_fault("allocation");
+                tcs_gc_holds = grown;
+                tcs_gc_hold_capacity = capacity;
+            }
+            tcs_gc_holds[tcs_gc_hold_count++] = slot;
+        }
+
+        static void
+        tcs_gc_release(void **slot)
+        {
+            size_t i;
+            for (i = 0; i < tcs_gc_hold_count; i++) {
+                if (tcs_gc_holds[i] != slot) continue;
+                tcs_gc_holds[i] = tcs_gc_holds[--tcs_gc_hold_count];
+                return;
+            }
         }
 
         static void *
@@ -280,21 +458,6 @@ internal sealed partial class CEmitter
                 sizeof(*closure) + cells * sizeof(void *));
             closure->fn = fn;
             return closure;
-        }
-
-        /* entry 境界: C stack の底を記録する (再入は外側の底を保つ) */
-        static void *
-        tcs_gc_enter(void *frame)
-        {
-            void *saved = tcs_gc_stack_base;
-            if (saved == NULL) tcs_gc_stack_base = frame;
-            return saved;
-        }
-
-        static void
-        tcs_gc_leave(void *saved)
-        {
-            tcs_gc_stack_base = saved;
         }
 
         """;

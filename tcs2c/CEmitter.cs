@@ -344,9 +344,19 @@ internal sealed partial class CEmitter
     {
         var parameters = new List<string>();
         if (!method.IsStatic)
-            parameters.Add(_facts.Structs.ContainsKey(method.ClassName)
-                ? $"{CType.Struct(method.ClassName).CName} *v_self"
-                : $"{CType.Ref(method.ClassName).CName} v_self");
+        {
+            if (_facts.Structs.ContainsKey(method.ClassName))
+            {
+                // struct method: 格納場所へのポインタと、その所有 heap object
+                // (stack 上なら NULL。self 経由の参照 store のバリア先)
+                parameters.Add($"{CType.Struct(method.ClassName).CName} *v_self");
+                parameters.Add("void *v_owner");
+            }
+            else
+            {
+                parameters.Add($"{CType.Ref(method.ClassName).CName} v_self");
+            }
+        }
         parameters.AddRange(method.Parameters.Select((p, i) =>
             $"{p.Type.CName} v_{Names.Id(p.Name)}_{i}"));
         return parameters.Count == 0 ? "void" : string.Join(", ", parameters);
@@ -503,6 +513,9 @@ internal sealed partial class CEmitter
                 Line(target.Boxed
                     ? $"(*{target.CName}) = {value};"
                     : $"{target.CName} = {value};");
+                // 捕捉 cell は heap object: 参照の store は owner を dirty に
+                if (target.Boxed && NeedsBarrier(targetType))
+                    Line($"tcs_wb({target.CName});");
                 return;
             }
             case IlField field when TryStaticField(field, out var staticName, out _):
@@ -514,6 +527,8 @@ internal sealed partial class CEmitter
                 when TypeOf(field.Recv).Kind == CTypeKind.StructVal:
                 Line($"{RenderStructPlace(field.Recv)}." +
                     $"{Names.Field(field.Name)} = {value};");
+                if (NeedsBarrier(targetType) && RenderStructOwner(field.Recv) is { } owner)
+                    Line($"tcs_wb({owner});");
                 return;
             case IlField field:
             {
@@ -524,6 +539,7 @@ internal sealed partial class CEmitter
                 Line($"{receiverType.CName} {temp} = ({receiverType.CName})" +
                     $"tcs_nonnull({RenderExpr(field.Recv)});");
                 Line($"{temp}->{Names.Field(field.Name)} = {value};");
+                if (NeedsBarrier(targetType)) Line($"tcs_wb({temp});");
                 return;
             }
             case IlIndex index when !index.PlusOne
@@ -550,6 +566,7 @@ internal sealed partial class CEmitter
                 Line($"{sequenceType.ElementCName} *{place} = " +
                     $"({sequenceType.ElementCName} *){at}({sequence}, {idx});");
                 Line($"*{place} = {value};");
+                if (NeedsBarrier(targetType)) Line($"tcs_wb({sequence});");
                 return;
             }
             default:
@@ -634,20 +651,34 @@ internal sealed partial class CEmitter
         Line("tcs_lib_init(void)");
         Line("{");
         _indent++;
-        Line("void *saved = tcs_gc_enter(__builtin_frame_address(0));");
         Line("tcs_init_statics();");
-        Line("tcs_gc_leave(saved);");
         _indent--;
         Line("}");
         Line();
-        // host が frame 境界等で明示的に GC を回す入口
+        // フレーム境界: entry から戻った後 (C# スタックが空) に host が呼ぶ。
+        // 若い object の昇格 + nursery リセット (+ 閾値で旧世代 mark-sweep)
         Line("void");
         Line("tcs_lib_gc(void)");
         Line("{");
         _indent++;
-        Line("void *saved = tcs_gc_enter(__builtin_frame_address(0));");
-        Line("tcs_gc_collect();");
-        Line("tcs_gc_leave(saved);");
+        Line("tcs_gc_frame();");
+        _indent--;
+        Line("}");
+        Line();
+        // host が frame を跨いで持つ tcs object の slot (境界で昇格先に書き換わる)
+        Line("void");
+        Line("tcs_lib_hold(void **slot)");
+        Line("{");
+        _indent++;
+        Line("tcs_gc_hold(slot);");
+        _indent--;
+        Line("}");
+        Line();
+        Line("void");
+        Line("tcs_lib_release(void **slot)");
+        Line("{");
+        _indent++;
+        Line("tcs_gc_release(slot);");
         _indent--;
         Line("}");
         Line();
@@ -660,9 +691,7 @@ internal sealed partial class CEmitter
             Line($"tcs_entry_{Names.Id(cls.Name)}_{Names.Id(method.Name)}(void)");
             Line("{");
             _indent++;
-            Line("void *saved = tcs_gc_enter(__builtin_frame_address(0));");
             Line($"{Names.Method(cls.Name, method.Name)}();");
-            Line("tcs_gc_leave(saved);");
             _indent--;
             Line("}");
             Line();
@@ -675,14 +704,13 @@ internal sealed partial class CEmitter
         Line("main(void)");
         Line("{");
         _indent++;
-        Line("void *saved = tcs_gc_enter(__builtin_frame_address(0));");
+        // 実行形は Main 全体が 1 フレーム (境界が無いので GC は走らない)
         Line("tcs_init_statics();");
         if (_digestF32) Line("tcs_digest = UINT32_C(2166136261);");
         if (entry is { } selected)
             Line($"{Names.Method(selected.Class.Name, selected.Method.Name)}();");
         if (_digestF32)
             Line("printf(\"%08\" PRIx32 \"\\n\", tcs_digest);");
-        Line("tcs_gc_leave(saved);");
         Line("return 0;");
         _indent--;
         Line("}");

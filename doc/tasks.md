@@ -36,7 +36,7 @@
       (digest 3/3 + 全サンプル stdout 一致)。未対応構文は明示エラー方針で、
       対応面の拡張は実利用の需要駆動 (done.md 第一〜第八参照)
 - [x] T240 / T241 完 (2026-10-01): tcs2c の GC (精密 heap / 保守的 stack の
-      mark-sweep、`-DTCS_GC_STRESS`) と対応面の完成 (enum / LINQ / String /
+      mark-sweep、`-DTCS_GC_STRESS`。T252 で世代別に置換) と対応面の完成 (enum / LINQ / String /
       Math / Dict / format / IIFE)。tcs2c.Tests が samples + 機能別 program の
       2 backend stdout 一致 (GC stress 込み) を恒常ゲートにする
       - T242–T245 完 (2026-10-02): delegate 型 field の直接呼び出し /
@@ -53,6 +53,9 @@
         未対応本文は TCS1001 + stub)。nameof / 拡張メソッド / 入れ子
         initializer / discard / 式位置の代入 / switch 早期 break を IL 化
       - T251 完 (2026-10-02): char を整数 code unit に (両 backend、Char.*)
+      - T252 完 (2026-10-02): GC をフレーム同期の世代別 (nursery bump +
+        境界で精密 copy 昇格 + 旧世代 mark-sweep、ライトバリア) に置き換え、
+        保守的 stack 走査を廃止。実行形は Main 全体が 1 フレーム
 - T219b 完 (done.md 参照): struct / record struct の値セマンティクス
   対応一式。設計方針の正本は support-matrix / CLAUDE.md / il-spec §10
 - [ ] **T220** (P1、ゲート解除 2026-07-18): hot reload の実装。ユーザー判断で

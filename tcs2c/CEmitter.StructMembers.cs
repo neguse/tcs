@@ -108,8 +108,10 @@ internal sealed partial class CEmitter
             foreach (var method in st.Methods.IsDefault ? [] : st.Methods)
             {
                 var fact = _facts.Method(st.Name, method.Name);
+                _structSelfOwner = true;
                 EmitMethodCore(method, fact,
                     new Variable("v_self", CType.Struct(st.Name)) { Boxed = true });
+                _structSelfOwner = false;
             }
         }
     }
@@ -143,6 +145,8 @@ internal sealed partial class CEmitter
         _indent++;
         Line($"{type.CName} self_value = {ZeroInit(type)};");
         Line($"{type.CName} *v_self = &self_value;");
+        Line("void *v_owner = NULL; (void)v_owner;");
+        _structSelfOwner = true;
         BoxCapturedParameters();
         foreach (var field in st.Fields)
         {
@@ -156,6 +160,7 @@ internal sealed partial class CEmitter
         _ctorReturnValue = "(*v_self)";
         EmitStats(ctor.Body!.Stats);
         _ctorReturnValue = null;
+        _structSelfOwner = false;
         Line("return (*v_self);");
         _indent--;
         Line("}");
@@ -224,16 +229,19 @@ internal sealed partial class CEmitter
                 var fact = _facts.Method(st.Name, member);
                 var sb = new StringBuilder();
                 var receiver = Temp("recv");
+                var owner = Temp("owner");
                 if (IsStructPlace(args[0]))
                 {
                     sb.Append($"{type.CName} *{receiver} = &{RenderStructPlace(args[0])}; ");
+                    sb.Append($"void *{owner} = {RenderStructOwner(args[0]) ?? "NULL"}; ");
                 }
                 else
                 {
                     sb.Append($"{type.CName} {receiver}_value = {RenderExpr(args[0])}; ");
                     sb.Append($"{type.CName} *{receiver} = &{receiver}_value; ");
+                    sb.Append($"void *{owner} = NULL; ");
                 }
-                var rendered = new List<string> { receiver };
+                var rendered = new List<string> { receiver, owner };
                 for (var i = 0; i < fact.Parameters.Count; i++)
                 {
                     var temp = Temp("arg");
