@@ -37,6 +37,24 @@ public partial class LuaEmitter
         };
     }
 
+    /// <summary>int.TryParse(s, out v) → "Int"、float/double.TryParse → "Float"、
+    /// それ以外は null。runtime の Math.TryParseInt / TryParseFloat
+    /// (found, value) multi-return へ写す。</summary>
+    private static string? NumericTryParseKind(ISymbol? symbol)
+    {
+        if (symbol is not IMethodSymbol { Name: "TryParse", IsStatic: true } m
+            || m.Parameters.Length != 2
+            || m.Parameters[0].Type.SpecialType != SpecialType.System_String
+            || m.Parameters[1].RefKind != RefKind.Out)
+            return null;
+        return m.ContainingType.SpecialType switch
+        {
+            SpecialType.System_Int32 => "Int",
+            SpecialType.System_Double or SpecialType.System_Single => "Float",
+            _ => null,
+        };
+    }
+
     private static bool IsRuneValue(ISymbol? symbol) =>
         symbol is IPropertySymbol { Name: "Value" } p
         && IsTypeNamed(p.ContainingType, "System.Text.Rune");

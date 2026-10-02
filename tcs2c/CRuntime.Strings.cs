@@ -305,20 +305,44 @@ internal sealed partial class CEmitter
             return value;
         }
 
-        static float
-        tcs_parse_f32_or_fault(TcsString *s)
+        static bool
+        tcs_parse_f32(TcsString *s, float *out)
         {
             char buffer[128];
             char *end;
-            float value;
             tcs_nonnull(s);
-            if (s->length >= sizeof(buffer)) tcs_fault("number-format");
+            if (s->length >= sizeof(buffer)) return false;
             memcpy(buffer, s->data, s->length);
             buffer[s->length] = '\0';
-            value = strtof(buffer, &end);
+            if (strlen(buffer) != s->length) return false;
+            *out = strtof(buffer, &end);
             while (*end != '\0' && tcs_is_space((unsigned char)*end)) end++;
-            if (end == buffer || *end != '\0') tcs_fault("number-format");
+            return end != buffer && *end == '\0';
+        }
+
+        static float
+        tcs_parse_f32_or_fault(TcsString *s)
+        {
+            float value;
+            if (!tcs_parse_f32(s, &value)) tcs_fault("number-format");
             return value;
+        }
+
+        /* int.TryParse / float.TryParse: (found, value or fallback) */
+        static bool
+        tcs_try_parse_i32(TcsString *s, int32_t *out, int32_t fallback)
+        {
+            if (tcs_parse_i32(s, out)) return true;
+            *out = fallback;
+            return false;
+        }
+
+        static bool
+        tcs_try_parse_f32(TcsString *s, float *out, float fallback)
+        {
+            if (tcs_parse_f32(s, out)) return true;
+            *out = fallback;
+            return false;
         }
 
         /* utf8.codes: 位置 *pos (byte) から 1 codepoint 読む。不正列は fault */

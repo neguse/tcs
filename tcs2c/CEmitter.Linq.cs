@@ -75,11 +75,12 @@ internal sealed partial class CEmitter
                 case IlReturn { Value: { } value }:
                     return TypeOf(value);
                 case IlMultiAssign { Declare: true } multi
-                    when multi.Values is [IlCall { Callee: "Dict.TryGet" } tryGet]
+                    when multi.Values is [IlCall tryGet]
                         && multi.Targets is [IlVar foundVar, IlVar valueVar]:
                     AddVariable(foundVar.Name, new Variable("__infer", CType.Bool));
-                    AddVariable(valueVar.Name,
-                        new Variable("__infer", RequireDict(tryGet.Args[0], out _)));
+                    AddVariable(valueVar.Name, new Variable("__infer",
+                        TryParseValueType(tryGet.Callee)
+                        ?? RequireDict(tryGet.Args[0], out _)));
                     break;
                 case IlIf conditional:
                 {

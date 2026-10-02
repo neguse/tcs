@@ -358,4 +358,43 @@ public class DifferentialTests
             }
             """.Replace("using System.Collections.Generic;", "using System.Collections.Generic;\nusing System.Linq;"), "P");
     }
+
+    [CFact]
+    public void DelegateFields_AndNumericTryParse()
+    {
+        Backends.AssertParity("""
+            using System;
+            public class Btn
+            {
+                public Action OnClick;
+                public Func<int, int> Map { get; set; }
+                public static Func<string> Describe;
+                public void Fire() { OnClick(); }
+                public string Name() { return Describe(); }
+            }
+            public class P
+            {
+                public static void Main()
+                {
+                    var b = new Btn();
+                    var n = 0;
+                    b.OnClick = () => { n++; };
+                    b.Map = x => x * 2;
+                    Btn.Describe = () => "btn";
+                    b.Fire();
+                    b.OnClick();
+                    Console.WriteLine(n + ":" + b.Map(21) + ":" + Btn.Describe() + ":" + b.Name());
+                    var s = 0;
+                    if (int.TryParse("42", out var a)) s += a;
+                    if (!int.TryParse("4x2", out var bad)) s += 1000 + bad;
+                    int c;
+                    var okc = int.TryParse(" 7 ", out c);
+                    s += okc ? c : -1;
+                    if (float.TryParse("1.5", out var f)) s += (int)(f * 2f);
+                    if (!float.TryParse("abc", out var g)) s += 100 + (int)g;
+                    Console.WriteLine(s);
+                }
+            }
+            """, "P");
+    }
 }

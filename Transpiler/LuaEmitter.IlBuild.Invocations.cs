@@ -128,4 +128,68 @@ public partial class LuaEmitter
         "ToString" => new IlCall("tostring", [recv]),
         _ => null,
     };
+
+    // int.TryParse(s, out v) / float.TryParse — runtime の
+    // Math.TryParseInt / TryParseFloat (found, value) を TryGetValue と同形の
+    // multi-return IIFE で受ける
+    private IlExpr? BuildNumericTryParse(SemanticModel model,
+        InvocationExpressionSyntax invocation, string kind)
+    {
+        if (invocation.ArgumentList.Arguments.Count != 2) return null;
+        var textArg = invocation.ArgumentList.Arguments[0];
+        var outArg = invocation.ArgumentList.Arguments[1];
+        if (!textArg.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
+        var text = BuildExpr(model, textArg.Expression);
+        if (text == null) return null;
+        IlExpr? target = outArg.Expression switch
+        {
+            DeclarationExpressionSyntax decl =>
+                new IlVar(VisitDeclarationExpression(decl)),
+            IdentifierNameSyntax id => new IlVar(id.Identifier.ValueText),
+            _ => null,
+        };
+        if (target == null) return null;
+        return new IlIife([
+            new IlMultiAssign(
+                [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
+                [new IlCall($"Math.TryParse{kind}", [text, new IlLit("0")])],
+                Declare: true),
+            new IlAssign(target, new IlVar("__tcs_v")),
+            new IlReturn(new IlVar("__tcs_found"))]);
+    }
+
+    // Dictionary.TryGetValue(key, out v) — legacy IIFE の写像
+    private IlExpr? BuildDictTryGetValue(SemanticModel model,
+        InvocationExpressionSyntax invocation, MemberAccessExpressionSyntax ma,
+        IMethodSymbol methodSym)
+    {
+        if (invocation.ArgumentList.Arguments.Count != 2) return null;
+        var keyArg = invocation.ArgumentList.Arguments[0];
+        var outArg = invocation.ArgumentList.Arguments[1];
+        if (!keyArg.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
+        var key = BuildExpr(model, keyArg.Expression);
+        var recv = BuildExpr(model, ma.Expression);
+        if (key == null || recv == null) return null;
+        IlExpr? target = outArg.Expression switch
+        {
+            DeclarationExpressionSyntax decl =>
+                new IlVar(VisitDeclarationExpression(decl)),
+            IdentifierNameSyntax id => new IlVar(id.Identifier.ValueText),
+            _ => null,
+        };
+        if (target == null) return null;
+        var defaultValue = GetDefaultValueForType(
+            methodSym.Parameters.Length > 1
+                ? methodSym.Parameters[1].Type : null);
+        // multi-return intrinsic (il-spec §13)。nil 比較の desugar を IL に
+        // 残さない (C backend が「nil = 不在」を型付けできないため)
+        return new IlIife([
+            new IlMultiAssign(
+                [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
+                [new IlCall("Dict.TryGet",
+                    [recv, key, new IlLit(defaultValue)])],
+                Declare: true),
+            new IlAssign(target, new IlVar("__tcs_v")),
+            new IlReturn(new IlVar("__tcs_found"))]);
+    }
 }

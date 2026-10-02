@@ -82,6 +82,10 @@ public partial class LuaEmitter
 
             if (IsEnvironmentGetEnv(symbol))
                 return $"os.getenv({string.Join(", ", args)})";
+            if (NumericTryParseKind(symbol) is { } tryParseKind && args.Count == 2)
+                return "(function() local __tcs_found, __tcs_v = " +
+                    $"Math.TryParse{tryParseKind}({args[0]}, 0); " +
+                    $"{args[1]} = __tcs_v; return __tcs_found end)()";
             if (NumericParseKind(symbol) is { } parseKind)
                 return parseKind == "int"
                     ? $"math.tointeger(tonumber({string.Join(", ", args)}))"

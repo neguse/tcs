@@ -76,16 +76,30 @@ internal sealed partial class CEmitter
             $"{function}({dictTemp}, {DictKeyArgs(dictType.Key!, call.Args[1])}); }})";
     }
 
-    // 現状 Dict.TryGet の (found, value) 形のみ (out 引数 multi-return は
+    // (found, value) 形の multi-return intrinsic: Dict.TryGet /
+    // Math.TryParseInt / Math.TryParseFloat (out 引数 multi-return は
     // ref method 側で別対応)
+    private static CType? TryParseValueType(string callee) => callee switch
+    {
+        "Math.TryParseInt" => CType.I32,
+        "Math.TryParseFloat" => CType.F32,
+        _ => null,
+    };
+
     private void EmitMultiAssign(IlMultiAssign multi)
     {
-        if (multi.Values is not [IlCall { Callee: "Dict.TryGet" } tryGet]
+        if (multi.Values is not [IlCall { Callee: "Dict.TryGet" or "Math.TryParseInt"
+                or "Math.TryParseFloat" } tryGet]
             || multi.Targets.Length != 2
             || multi.Targets[0] is not IlVar foundVar
             || multi.Targets[1] is not IlVar valueVar)
             throw new Tcs2cException(
-                "only Dict.TryGet multi-assign is supported");
+                "only (found, value) multi-return intrinsics are supported in multi-assign");
+        if (TryParseValueType(tryGet.Callee) is { } parsedType)
+        {
+            EmitTryParse(multi, tryGet, parsedType, foundVar, valueVar);
+            return;
+        }
         RequireArity("Dict.TryGet", tryGet.Args.Length, 3);
         var valueType = RequireDict(tryGet.Args[0], out var dictType);
         RequireAssignable(dictType.Key!, TypeOf(tryGet.Args[1]),
@@ -93,18 +107,10 @@ internal sealed partial class CEmitter
         RequireAssignable(valueType, TypeOf(tryGet.Args[2]),
             "Dict.TryGet fallback");
 
-        Variable Declare(string name, CType type)
-        {
-            var variable = new Variable(
-                $"v_{Names.Id(name)}_{_serial++}", type);
-            AddVariable(name, variable);
-            Line($"{type.CName} {variable.CName};");
-            return variable;
-        }
         var found = multi.Declare
-            ? Declare(foundVar.Name, CType.Bool) : Resolve(foundVar.Name);
+            ? DeclareLocal(foundVar.Name, CType.Bool) : Resolve(foundVar.Name);
         var value = multi.Declare
-            ? Declare(valueVar.Name, valueType) : Resolve(valueVar.Name);
+            ? DeclareLocal(valueVar.Name, valueType) : Resolve(valueVar.Name);
         var dictTemp = Temp("dict");
         var fallbackTemp = Temp("fallback");
         Line($"TcsDict *{dictTemp} = {RenderExpr(tryGet.Args[0])};");
@@ -113,5 +119,32 @@ internal sealed partial class CEmitter
         Line($"{found.CName} = tcs_dict_tryget({dictTemp}, " +
             $"{DictKeyArgs(dictType.Key!, tryGet.Args[1])}, " +
             $"&{value.CName}, &{fallbackTemp});");
+    }
+
+    private Variable DeclareLocal(string name, CType type)
+    {
+        var variable = new Variable($"v_{Names.Id(name)}_{_serial++}", type);
+        AddVariable(name, variable);
+        Line($"{type.CName} {variable.CName};");
+        return variable;
+    }
+
+    private void EmitTryParse(IlMultiAssign multi, IlCall call, CType parsedType,
+        IlVar foundVar, IlVar valueVar)
+    {
+        RequireArity(call.Callee, call.Args.Length, 2);
+        RequireType(CType.String, TypeOf(call.Args[0]), call.Callee);
+        RequireAssignable(parsedType, TypeOf(call.Args[1]), $"{call.Callee} fallback");
+        var found = multi.Declare
+            ? DeclareLocal(foundVar.Name, CType.Bool) : Resolve(foundVar.Name);
+        var value = multi.Declare
+            ? DeclareLocal(valueVar.Name, parsedType) : Resolve(valueVar.Name);
+        var text = Temp("parse_text");
+        var fallback = Temp("fallback");
+        var helper = parsedType == CType.I32 ? "tcs_try_parse_i32" : "tcs_try_parse_f32";
+        Line($"TcsString *{text} = {RenderExpr(call.Args[0])};");
+        Line($"{parsedType.CName} {fallback} = {RenderCoerced(call.Args[1], parsedType)};");
+        Line($"{(found.Boxed ? "(*" + found.CName + ")" : found.CName)} = " +
+            $"{helper}({text}, &{(value.Boxed ? "(*" + value.CName + ")" : value.CName)}, {fallback});");
     }
 }

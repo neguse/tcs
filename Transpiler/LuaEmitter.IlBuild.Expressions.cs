@@ -430,6 +430,8 @@ public partial class LuaEmitter
                     ?.OriginalDefinition.ToDisplayString() ?? ""))
                 return BuildDictTryGetValue(model, invocation, maEarly,
                     earlyMethod);
+            if (NumericTryParseKind(earlyMethod) is { } tryParseKind)
+                return BuildNumericTryParse(model, invocation, tryParseKind);
         }
 
         if (invocation.ArgumentList.Arguments
@@ -448,6 +450,21 @@ public partial class LuaEmitter
         {
             var symbol = model.GetSymbolInfo(ma).Symbol;
             var methodName = ma.Name.Identifier.ValueText;
+
+            // delegate 型の field / auto property の直接呼び出し `obj.F(args)`
+            // (legacy と同じ `obj.f(args)`)。custom property は fallback
+            if (symbol is IFieldSymbol or IPropertySymbol
+                && model.GetSymbolInfo(invocation).Symbol is IMethodSymbol
+                    { MethodKind: MethodKind.DelegateInvoke })
+            {
+                if (symbol is IPropertySymbol delegateProp
+                    && IsCustomProperty(delegateProp))
+                    return null;
+                var delegateRecv = BuildExpr(model, ma.Expression);
+                return delegateRecv == null
+                    ? null
+                    : new IlDynCall(new IlField(delegateRecv, N(symbol)), argArr);
+            }
 
             if (ma.Expression is BaseExpressionSyntax
                 && symbol is IMethodSymbol baseMethod)
@@ -574,6 +591,19 @@ public partial class LuaEmitter
                         : new IlInvoke(new IlVar("self"), N(method), argArr);
             if (symbol is ILocalSymbol or IParameterSymbol)
                 return new IlDynCall(new IlVar(name), argArr);
+            // 非修飾の delegate field / auto property 呼び出し `F(args)`
+            if (symbol is IFieldSymbol or IPropertySymbol
+                && model.GetSymbolInfo(invocation).Symbol is IMethodSymbol
+                    { MethodKind: MethodKind.DelegateInvoke })
+            {
+                if (symbol is IPropertySymbol delegateProp
+                    && IsCustomProperty(delegateProp))
+                    return null;
+                IlExpr owner = symbol.IsStatic
+                    ? new IlVar(TypeRef(symbol.ContainingType))
+                    : new IlVar("self");
+                return new IlDynCall(new IlField(owner, N(symbol)), argArr);
+            }
             return null;
         }
 
@@ -744,38 +774,4 @@ public partial class LuaEmitter
             : ctor;
     }
 
-    // Dictionary.TryGetValue(key, out v) — legacy IIFE の写像
-    private IlExpr? BuildDictTryGetValue(SemanticModel model,
-        InvocationExpressionSyntax invocation, MemberAccessExpressionSyntax ma,
-        IMethodSymbol methodSym)
-    {
-        if (invocation.ArgumentList.Arguments.Count != 2) return null;
-        var keyArg = invocation.ArgumentList.Arguments[0];
-        var outArg = invocation.ArgumentList.Arguments[1];
-        if (!keyArg.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
-        var key = BuildExpr(model, keyArg.Expression);
-        var recv = BuildExpr(model, ma.Expression);
-        if (key == null || recv == null) return null;
-        IlExpr? target = outArg.Expression switch
-        {
-            DeclarationExpressionSyntax decl =>
-                new IlVar(VisitDeclarationExpression(decl)),
-            IdentifierNameSyntax id => new IlVar(id.Identifier.ValueText),
-            _ => null,
-        };
-        if (target == null) return null;
-        var defaultValue = GetDefaultValueForType(
-            methodSym.Parameters.Length > 1
-                ? methodSym.Parameters[1].Type : null);
-        // multi-return intrinsic (il-spec §13)。nil 比較の desugar を IL に
-        // 残さない (C backend が「nil = 不在」を型付けできないため)
-        return new IlIife([
-            new IlMultiAssign(
-                [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
-                [new IlCall("Dict.TryGet",
-                    [recv, key, new IlLit(defaultValue)])],
-                Declare: true),
-            new IlAssign(target, new IlVar("__tcs_v")),
-            new IlReturn(new IlVar("__tcs_found"))]);
-    }
 }

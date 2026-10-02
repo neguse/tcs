@@ -565,9 +565,16 @@ internal sealed partial class CEmitter
     // closure 値の callee (変数/フィールド等) なら closure 型を返す
     private CType? TryTypeOfClosureCallee(IlDynCall call)
     {
-        if (call.Callee is IlField { Recv: IlVar receiver }
-            && _classes.ContainsKey(receiver.Name))
-            return null; // 型修飾 static 呼び出し
+        if (call.Callee is IlField { Recv: IlVar receiver } member
+            && _classes.ContainsKey(receiver.Name) && TryResolve(receiver.Name) is null)
+        {
+            // 型修飾: closure 型の static field なら closure 呼び、それ以外は
+            // static method 呼び
+            if (TryStaticField(member, out _, out var staticType)
+                && staticType.Kind == CTypeKind.Closure)
+                return staticType;
+            return null;
+        }
         var type = TypeOf(call.Callee);
         return type.Kind == CTypeKind.Closure ? type : null;
     }

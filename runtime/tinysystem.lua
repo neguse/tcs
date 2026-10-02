@@ -408,6 +408,19 @@ function Math.Round(x, digits)
   return rounded
 end
 
+-- int.TryParse / float.TryParse の lowering 先: (found, value or default)
+function Math.TryParseInt(s, default)
+  local v = math.tointeger(tonumber(s))
+  if v ~= nil then return true, v end
+  return false, default
+end
+
+function Math.TryParseFloat(s, default)
+  local v = tonumber(s)
+  if v ~= nil then return true, v + 0.0 end
+  return false, default
+end
+
 function Math.Clamp(value, min, max)
   if value < min then return min end
   if value > max then return max end

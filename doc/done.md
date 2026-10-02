@@ -1662,3 +1662,10 @@
 - T238 の snake_case 写像で Lua 側の entry 呼び (`X.Main()`) が nil になっていたのを `X.main()` へ追随。ms/frame の算出を Python 3.12 専用の入れ子 quote f-string から `%` 書式へ (3.11 以前でも動く)
 - 検証: `PERF_BENCH_RUNS=1 PERF_BENCH_FRAMES=200` で 4 kernel とも dev / release の digest 一致 (particles_struct は T219b(d) 以降 release 側も走る)、GC 込みの release が dev の 11-30x
 
+### T242: delegate 型 field の直接呼び出しと int / float.TryParse ✓ (2026-10-02)
+- IL builder: delegate 型の field / auto property の `obj.F(args)` / `Cls.F(args)` / 非修飾 `F(args)` を IlDynCall(IlField) に (従来は legacy fallback で C backend 不可)。C backend は class 名修飾の static field が closure 型なら closure 呼びとして型付け
+- `int.TryParse(s, out v)` / `float.TryParse`: runtime に Math.TryParseInt / TryParseFloat ((found, value or default) multi-return) を追加し、IL builder は TryGetValue と同形の IIFE + multi-assign、legacy visitor も同じ IIFE を出す (従来は `math.TryParse(...)` という存在しない関数を出す wrong-code)。C backend は multi-assign を (found, value) intrinsic 一般へ拡張し `tcs_try_parse_i32 / f32` で受ける
+- 検証: HostBclExtensionTests / LambdaTests に Lua 側 2 本、tcs2c.Tests に 2 backend differential 1 本 (22/22 green)、Transpiler.Tests 857/858 (残 1 は root 環境の権限テスト)
+- 判断: TryParse の runtime 関数は新 global を増やさず既存の `Math` table に置いた (ReservedRuntimeGlobals / module alias を触らない)
+- 残課題: 需要待ち (record / Nullable / Random は方針合意待ち)
+

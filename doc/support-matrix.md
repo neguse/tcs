@@ -563,6 +563,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `MathF` | **-** | | float 版 Math |
 | `Console` | **Y** | `WriteLine` → `print` | |
 | `int` / `double` / `float` の `Parse(string)` | **Y** | `math.tointeger(tonumber(s))` / `tonumber(s)` | 不正な文字列は例外でなく nil |
+| `int` / `double` / `float` の `TryParse(string, out v)` | **Y** | `Math.TryParseInt` / `Math.TryParseFloat` の (found, value) multi-return (TryGetValue と同形の IIFE) | 失敗時の out は 0 |
 | `Convert` | **-** | | |
 | `Environment` | **P** | `GetEnvironmentVariable(s)` → `os.getenv(s)` | 他メンバーは未対応 |
 | `Array` | **-** | | List で代替 |
