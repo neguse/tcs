@@ -281,4 +281,13 @@ public partial class DifferentialTests
             }
             """, "P");
     }
+
+    [Fact]
+    public void CompileErrors_AreReported()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => Backends.EmitC([
+            "public class P { public static Action hook; public static void Main() { if (hook != null) hook(); } }",
+        ], "P"));
+        Assert.Contains("error CS0246", error.Message);
+    }
 }
