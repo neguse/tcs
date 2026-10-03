@@ -256,4 +256,29 @@ public partial class DifferentialTests
             }
             """, "P");
     }
+
+    [CFact]
+    public void JaggedArray_SizedOuterDimension()
+    {
+        Backends.AssertParity("""
+            using System;
+            public class Cell { public int V; }
+            public class P
+            {
+                public static void Main()
+                {
+                    int[][] grid = new int[3][];
+                    Cell[][] cells = new Cell[2][];
+                    for (int i = 0; i < 3; i++)
+                    {
+                        grid[i] = new int[4];
+                        grid[i][3] = i * 10;
+                    }
+                    cells[1] = new Cell[2];
+                    cells[1][0] = new Cell { V = 7 };
+                    Console.WriteLine(grid[2][3] + ":" + grid[0][0] + ":" + cells[1][0].V + ":" + (cells[0] == null));
+                }
+            }
+            """, "P");
+    }
 }
