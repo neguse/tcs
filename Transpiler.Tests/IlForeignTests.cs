@@ -65,4 +65,27 @@ public class IlForeignTests
         Assert.Equal("int", get.ReturnType);
         Assert.Null(program.ForeignMethods.Single(m => m.Name.EndsWith(".load")).Receiver);
     }
+
+    // Receiver は C backend が class 表を引く名前なので、namespace の中の型でも
+    // 外部 class の IL 名 (namespace 修飾名) と一致させる
+    [Fact]
+    public void NamespacedReferenceStubInstanceMethods_ReceiverMatchesExternalClass()
+    {
+        var program = IlExport.Export(["""
+            using Lub;
+            public class Game {
+                public static int F() { Blob b = Host.Load(); return b.Get(0); }
+            }
+            """], referenceSources: ["""
+            namespace Lub
+            {
+                public class Blob { public int Get(int index) { return 0; } }
+                public static class Host { public static Blob Load() { return null!; } }
+            }
+            """]);
+        Assert.Empty(program.Diagnostics);
+        var get = program.ForeignMethods.Single(m => m.Name == "lub.blob.get");
+        Assert.Equal("Lub_Blob", get.Receiver);
+        Assert.True(program.Classes.Single(c => c.Name == "Lub_Blob").IsExternal);
+    }
 }

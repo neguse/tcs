@@ -13,7 +13,8 @@ namespace TinyCs;
 /// 参照専用型 (--ref) の static アクセスは namespace と入れ子の型名を全小文字で
 /// `.` 結合し (Lub.Gfx → lub.gfx)、enum は入っている型か namespace の下に平らに
 /// 置く (Lub.Gfx.PixelFormat.Rgba8 → lub.gfx.RGBA8、namespace Lub の EventKind.Quit
-/// → lub.QUIT)。ユーザ型の型名は写さない。
+/// → lub.QUIT)。予約語になる区切りは member と同じく `_` を後置する (End → end_)。
+/// ユーザ型の型名は写さない。
 /// </summary>
 public static class LuaNaming
 {
@@ -82,12 +83,18 @@ public static class LuaNaming
         var parts = new List<string>();
         for (; cur is INamedTypeSymbol t;
             cur = (ISymbol?)t.ContainingType ?? t.ContainingNamespace)
-            parts.Add(t.Name.ToLowerInvariant());
+            parts.Add(PathSegment(t.Name));
         for (; cur is INamespaceSymbol { IsGlobalNamespace: false } n;
             cur = n.ContainingNamespace)
-            parts.Add(n.Name.ToLowerInvariant());
+            parts.Add(PathSegment(n.Name));
         parts.Reverse();
         return string.Join(".", parts);
+    }
+
+    private static string PathSegment(string name)
+    {
+        var lower = name.ToLowerInvariant();
+        return LuaKeywords.Contains(lower) ? lower + "_" : lower;
     }
 
     private static string ToSnake(string name)

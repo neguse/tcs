@@ -982,6 +982,8 @@ C# のメンバ名は表を持たず規則で Lua 名に写す (`Transpiler/LuaN
 | record の positional parameter `PosX` | field `pos_x` (ctor 引数は C# 名) | field 名だけ写す |
 | `--ref` 型の static アクセス `Lub.Gfx.BeginPass` | `lub.gfx.begin_pass` | 入れ子の型名を全小文字で `.` 結合 |
 | `--ref` 型に入れ子の enum `Lub.Gfx.PixelFormat.Rgba8` | `lub.gfx.RGBA8` | enum 名を省いて親の下に平らに置く |
+| `--ref` 型のパスで予約語になる区切り `End.Api.Get` | `end_.api.get` | member と同じく `_` を後置 |
+| `--ref` 型のパスの先頭と同名のローカル束縛 `lub` | `lub_` | ユーザ型と同名のローカル束縛と同じ規則 |
 | `const` field (enum メンバ以外) | 値を inline | C# の意味論どおり |
 | BCL / TinySystem のメンバ (`List.Add`, `Math.Min`) | runtime の名前のまま | source に宣言の無い symbol は写さない |
 

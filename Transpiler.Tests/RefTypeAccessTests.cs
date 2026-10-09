@@ -53,6 +53,51 @@ public class RefTypeAccessTests
         Assert.Equal("1111", TestHelper.RunLua(script).Trim());
     }
 
+    // namespace を写したパスの区切りが Lua の予約語になるときは、member と同じ
+    // 規則で `_` を後置する (End → end_)
+    [Fact]
+    public void RefPathSegmentThatIsLuaKeyword_GetsUnderscoreSuffix()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using End;
+            public static class Game { public static int Run() { return Api.Get(); } }
+            """], null,
+            ["namespace End { public static class Api { public static int Get() { return 0; } } }"],
+            checkNaming: false);
+
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        var script = $$"""
+            end_ = { api = { get = function() return 5 end } }
+            {{result.Lua}}
+            print(Game.run())
+            """;
+        Assert.Equal("5", TestHelper.RunLua(script).Trim());
+    }
+
+    // --ref パスの先頭 (namespace 由来の hostapi など) と同名のローカルは、
+    // global の host table を隠さないよう改名する
+    [Fact]
+    public void LocalNamedLikeRefPathRoot_DoesNotShadowHostTable()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using HostApi;
+            public static class Game
+            {
+                public static int Run() { var hostapi = 1; return hostapi + Screen.Get(); }
+            }
+            """], null,
+            ["namespace HostApi { public static class Screen { public static int Get() { return 0; } } }"],
+            checkNaming: false);
+
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        var script = $$"""
+            hostapi = { screen = { get = function() return 10 end } }
+            {{result.Lua}}
+            print(Game.run())
+            """;
+        Assert.Equal("11", TestHelper.RunLua(script).Trim());
+    }
+
     [Fact]
     public void RefTypeInstanceMethod_EmitsColonCall()
     {

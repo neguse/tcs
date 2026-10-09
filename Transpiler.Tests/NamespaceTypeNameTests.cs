@@ -316,4 +316,16 @@ public class NamespaceTypeNameTests
         var lua = session.Artifacts.Single().Lua;
         Assert.Equal("1\t3", TestHelper.RunLua($"{lua}\nprint(Color.f(), A_Color.f())").Trim());
     }
+
+    // C# のキーワードを `@` で逃がした namespace は、`@` を除いた名前で修飾する
+    [Fact]
+    public void VerbatimKeywordNamespace_QualifiesWithoutAt()
+    {
+        const string source = """
+            namespace @event { public class C { public static int F() { return 7; } } }
+            public static class Game { public static int Run() { return @event.C.F(); } }
+            """;
+        Assert.Contains("event_C = {}", Transpiler.Transpile(source));
+        Assert.Equal("7", TestHelper.TranspileAndRun(source, "Game.Run()"));
+    }
 }

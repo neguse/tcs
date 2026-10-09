@@ -28,13 +28,17 @@ public partial class LuaEmitter
         if (type is not INamedTypeSymbol named
             || named.DeclaringSyntaxReferences.Length == 0)
             return type.Name;
-        return named.ContainingNamespace is { IsGlobalNamespace: false } ns
-            ? ns.ToDisplayString().Replace('.', '_') + "_" + named.Name
-            : named.Name;
+        var parts = new List<string> { named.Name };
+        // ToDisplayString は keyword の namespace を `@event` と逃がすので Name をつなぐ
+        for (var ns = named.ContainingNamespace; ns is { IsGlobalNamespace: false };
+            ns = ns.ContainingNamespace)
+            parts.Add(ns.Name);
+        parts.Reverse();
+        return string.Join("_", parts);
     }
 
-    // C# の simple 名だけでなく、emit が裸で参照する namespace 修飾名も
-    // ローカル束縛と衝突させない。--ref 型の除外・名前の写像は TypeName と共通。
+    // C# の simple 名だけでなく、emit が裸で参照する namespace 修飾名と
+    // --ref 型のパスの先頭 (lub.gfx の lub) もローカル束縛と衝突させない。
     internal HashSet<string> ReservedTypeNames(IAssemblySymbol assembly)
     {
         var names = new HashSet<string>(assembly.TypeNames, StringComparer.Ordinal);
@@ -47,9 +51,10 @@ public partial class LuaEmitter
                 if (member is INamespaceSymbol child)
                     stack.Push(child);
                 else if (member is INamedTypeSymbol type
-                    && type.DeclaringSyntaxReferences.Length > 0
-                    && !IsReferenceOnlyType(type))
-                    names.Add(TypeName(type));
+                    && type.DeclaringSyntaxReferences.Length > 0)
+                    names.Add(IsReferenceOnlyType(type)
+                        ? LuaNaming.RefTypePath(type).Split('.')[0]
+                        : TypeName(type));
             }
         }
         return names;
