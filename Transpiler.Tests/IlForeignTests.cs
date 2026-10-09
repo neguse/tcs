@@ -2,6 +2,26 @@ namespace TinyCs.Tests;
 
 public class IlForeignTests
 {
+    // C backend へ渡す foreign 関数名も Lua と同じ規則 (namespace を含めた
+    // 小文字パス)
+    [Fact]
+    public void NamespacedReferenceStubs_ExportNamespaceQualifiedForeignNames()
+    {
+        var program = IlExport.Export(["""
+            using Lub;
+            public class Game { public static void Main() { App.Quit(); Gfx.Clear(1); } }
+            """], referenceSources: ["""
+            namespace Lub
+            {
+                public static class App { public static void Quit() { } }
+                public static class Gfx { public static void Clear(int c) { } }
+            }
+            """]);
+        Assert.Empty(program.Diagnostics);
+        Assert.Equal(["lub.app.quit", "lub.gfx.clear"],
+            program.ForeignMethods.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal));
+    }
+
     [Fact]
     public void ReferenceStubsSupplyTypesAndCallsWithoutCompilingStubBodies()
     {

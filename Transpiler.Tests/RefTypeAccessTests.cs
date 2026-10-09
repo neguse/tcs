@@ -6,6 +6,53 @@ namespace TinyCs.Tests;
 // - field 読みは `obj.field` の透過アクセス (onEvent の event table など)
 public class RefTypeAccessTests
 {
+    // namespace の中の参照専用型も、namespace を含めた小文字パスで引く
+    // (Lub.Gfx → lub.gfx)。namespace 直下の enum は namespace の下に平らに
+    // 置き (Lub.EventKind.Quit → lub.QUIT)、入れ子 enum は親の型の下に置く
+    [Fact]
+    public void NamespacedRefTypes_UseNamespaceInLuaPath()
+    {
+        var refSource = """
+            namespace Lub
+            {
+                public enum EventKind { Quit = 1 }
+                public static class Gfx
+                {
+                    public enum PixelFormat { Rgba8 = 1 }
+                    public static int Size() { return 0; }
+                }
+                public static class App { public static void Quit() { } }
+            }
+            """;
+        var source = """
+            using Lub;
+            public static class Game
+            {
+                public static int Run()
+                {
+                    App.Quit();
+                    return Gfx.Size() + (int)Gfx.PixelFormat.Rgba8 + (int)EventKind.Quit;
+                }
+            }
+            """;
+
+        var result = Transpiler.TranspileWithDiagnostics([source], null,
+            [refSource], checkNaming: false);
+
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        var script = $$"""
+            quitted = 0
+            lub = {
+              QUIT = 1000,
+              gfx = { RGBA8 = 100, size = function() return 10 end },
+              app = { quit = function() quitted = 1 end },
+            }
+            {{result.Lua}}
+            print(Game.run() + quitted)
+            """;
+        Assert.Equal("1111", TestHelper.RunLua(script).Trim());
+    }
+
     [Fact]
     public void RefTypeInstanceMethod_EmitsColonCall()
     {
