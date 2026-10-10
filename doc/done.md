@@ -1900,5 +1900,5 @@
 ### Lua: 初期化子のない static field を initializer の段で default に戻さない (#89) ✓ (2026-10-11)
 - 先に宣言した static の初期化子 (から呼んだ method) が後ろの初期化子なし field / auto-property に書いた値を、Lua だけ後から型別 default で上書きしていた (`State.First = State.initialize()` の後の `State.later = 0`)。C# §15.5.6 どおり、全 static を default にするのは pre-zero (型宣言の直後) だけにし、initializer の段では初期化子のある field だけを宣言順に代入する
 - 検証: tcs2c.Tests の `DifferentialTests.StaticDefaults.cs` (Lua / C / C GC stress の一致 + CoreCLR で同じ program を実行した stdout `3/7/4/5/1/0` との一致)。修正前は Lua が `attempt to index a nil value (field 'ref')` で fail、修正後 pass。`ModuleDescriptorTests.DefineChunkExcludesDeclarationAndStaticInit` は初期化子なし field の initializer thunk が空であることを見る形に直した。`bash run-tests.sh` (pre-commit) 全通過
-- 判断: 初期化子なし field の StaticFieldMeta は残す (長さ 0 の範囲)。registry の declare が `default` で pre-zero し、hot apply の新規 field も pure 扱いのまま
+- 判断: 初期化子なし field の StaticFieldMeta は残す (長さ 0 の範囲)。registry の declare が `default` で pre-zero し、hot apply の新規 field も pure 扱いのまま。reload chunk (`HotReload.EmitReloadChunk`、`--watch --reload-chunks`) は v2 の pre-zero 済み fresh table から新規 field を写すので、どちらの経路でも追加した初期化子なし static は型別 default になり、既存 static は live 値のまま (`HotReloadTests` / `ModuleDescriptorTests` の `*AddedStaticWithoutInitializerGetsDefault`)
 - 残課題: なし
