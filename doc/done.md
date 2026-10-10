@@ -642,7 +642,6 @@
 - よかったこと: token文字列やsymbol lookupではなくRoslyn operationで識別したため、contextual keywordである`nameof`と通常method callを同じ共有契約で安全に分離できた
 - 判断: unsupported診断は維持しつつ、通常transpileはRoslynが確定した定数値を安全なfallbackとして出す。API診断抑制はbuilt-in `nameof`の祖先内だけに限定し、同名ユーザーmethodの引数には適用しない
 - 残課題: T138 → T163 (診断契約)
-
 ### T165: ユーザー定義演算子オーバーロード ✓ (2026-07-13)
 - 二項 `+ - * / %` と単項 `-` の operator 宣言を Lua metamethod (`__add`/`__sub`/`__mul`/`__div`/`__mod`/`__unm`) として class table (= instance metatable) へ emit するようにした (LuaEmitter.Operators.cs 新設、class / record class 両対応)
 - 同一演算子の複数 overload (Vec2*Vec2 / Vec2*double / double*Vec2 等) は overload ごとの関数 + 単一 metamethod dispatcher に分け、実行時 operand 型 (class は `getmetatable == Class`、数値/文字列/bool は `type()`) で分岐する。どれにも一致しない場合は明示 error
@@ -1586,7 +1585,6 @@
 - 検証: `dotnet test` 全 800+50 green (`Cli_AtomicOutputReplace_RespectsUnixWritePermission` は root 実行の環境要因で master でも fail)。check / build CLI の parity テスト (issue の再現コードで exit 1・Lua なし・error 3 件)、session の open / update / 復帰、classifier の単体テストを追加
 - 判断: 本対応 (IInvocationOperation.Arguments からの並べ替え + 既定値補完 + 副作用順の一時変数) は別タスク。error 化は「誤った Lua を掴ませない」ための暫定で、対応時に集合から外すだけで戻せる
 - 残課題: 名前付き引数の本対応 (#19 の期待挙動)
-
 ### List.Add を table.insert ではなく添字代入で出力する (#24) ✓ (2026-10-01)
 - Lua backend の文位置 lowering: IlCallStat / IlReturn / closure exprBody が `table.insert(t, v)` (List.Add) のとき `t[#t + 1] = v` を出力する (TryRenderListAddStat、LuaEmitter.IlEmit.cs)。IL 自体は IlCall("table.insert") のままなので tcs2c (callee 名で List.Add を検出) と IlExport / hot reload は無変更
 - 受け手は IlVar / IlField 連鎖に限る (1 回評価が自明)。`Get().Add(v)` のような式受け手だけ table.insert に fallback
@@ -1594,19 +1592,16 @@
 - 検証: ListAddIndexTests 11 件 Red→Green (文 / 式 lambda / expression-bodied method / field・auto property 受け手 / method 呼び出し受け手の 1 回評価 / 副作用引数の順序 / `new Foo()` 引数 / method 呼び出し引数 / 束縛 local の非漏洩 / List<struct> の copy / loop 内)。`dotnet test` (TCS_SPEC_CONFORMANCE/DIFFERENTIAL/FUZZ 有効) 805+48 green (Cli_AtomicOutputReplace_RespectsUnixWritePermission は root 実行環境で master でも落ちる既知の環境依存)。micro bench (Lua 5.5, 2M 要素): table.insert 51.9 ns → 添字 25.2 ns
 - 判断: render 層で文脈 (文位置) を見て切り替える方式にし、IL ノードは足さなかった — tcs2c の digest 並行性と IlExport を触らずに済み、式位置 (値が要る所) は元々 table.insert のまま。引数束縛は `do local ...; ... end` の 1 行にして生成 Lua の行構造 (source map) を崩さない
 - 残課題: 束縛形は「引数評価が受け手変数そのものを再代入する」場合 (C# は旧 list に Add) だけ C# と食い違う — 実用上出ない形として許容
-
 ### 写像後に衝突するメンバ名を warning から error にする (#36) ✓ (2026-10-01)
 - field `flash` と method `Flash` のように Lua 名が同じになるメンバは `Repro.flash = 0` と `function Repro.flash(...)` が後勝ちで片方が消えるのに、emitter の `WarnLuaNameCollisions` が warning を足すだけで build (`-o`) は壊れた Lua を exit 0 で書いていた。判定を `Shared/TinyCsComplianceFacts.TryGetLuaNameCollision` に移し、Transpiler / IncrementalCompilationSession は compile error と同じ段で `AnalyzeLuaNameCollisions` を `Errors` に入れて emit せず失敗する (CLI は check / build / watch とも非 0、WasmCompiler は session の `"): error "` 分類にそのまま乗る)。emitter 側の warning は削除し判定の正本を 1 つにした
 - analyzer / `tcs check` は同じ判定を TCS1001 `LuaNameCollision(flash/Flash)` として 2 個目以降の宣言に報告する (MethodOverload と同じ「最初の宣言は無罪」方針)。そのため `LuaNaming` を `Transpiler/` から `Shared/` へ移した (netstandard2.0 でそのまま compile できる)。同名 overload は衝突扱いせず MethodOverload に任せる
 - メッセージは他の TCS1001 と同じ `error TCS1001: unsupported syntax: LuaNameCollision(flash/Flash): 'flash' and 'Flash' both map to Lua 'flash'`。session の error/warning 分類 (`"): error "`) に乗り、spec conformance の分類も TCS100x の error を Diag (サブセット外) として数える。classes.md の Accessors 系など field と property が大小文字だけ違う例は InCompile → Diag になる
 - 検証: field/method・property/method・field/property・record positional の衝突 (error、Lua 空)、`Flash`/`flashCount` の非衝突、overload の非衝突、CLI check/build の exit 1、session の slow path error + full build parity、analyzer の TCS1001 を追加。`dotnet test` 全 804+49 (Transpiler.Tests 800 green / 3 skip、analyzer 49 green)。`Cli_AtomicOutputReplace_RespectsUnixWritePermission` 1 件は root 実行環境で master でも落ちる既存事象
 - 判断: error は compile error と同じく他の warning より先に短絡して返す (TCS1001 の同一箇所二重報告を避ける)。fast path (body 限定編集) は member 名が変わらないので衝突判定を走らせない。struct / interface は旧 emitter と同じく対象外 (struct method は静的自由関数で field と table が異なる)
-
 ### 文字列と bool の `+` を tostring で連結する (#22) ✓ (2026-10-01)
 - `"b=" + b` (bool) が `"b=" .. b` のまま出て Lua で `attempt to concatenate a boolean value` になっていた。IL builder の `WrapConcatOperand` を連結 operand 変換の単一経路にし、float の `__tcs_fstr` もここへ寄せた上で bool / bool? を `tostring` (ToString / 補間と同じ) に写す。bool? の null は C# 同様 `""` (`x ~= nil and tostring(x) or ""`)。`+=` の右辺 (BuildCompoundValue) と legacy visitor (NullSafeConcatOperand / ApplyCompound) も同じ変換にそろえた
 - 検証: StringTests に 5 件追加 (bool 右/左 operand・連鎖、ToString / 補間との一致、`+=`、bool?) — Red → Green。`dotnet test` 796+48 green (CliRuntimeTests の Unix 権限テスト 1 件は root 実行環境の既知失敗で変更と無関係)。tcs2c の verify-digests 3/3 不変、同じ C# を tcs2c でも実行し Lua と同じ `b=true:false` を確認 (C backend は IlCall `tostring(bool)` を既に `tcs_string_bool` に写すため追加変更なし)
 - 判断: 表記は .NET の `True`/`False` でなく tcs 既存の `ToString()` / 補間 / Console 出力と同じ小文字 `true`/`false` (conformance の Normalizer が known difference として吸収している既定)。文字列化の表記を .NET に寄せる変更は ToString / 補間 / C runtime をまとめて動かす別タスク
-
 ### static field の initializer を constructor と method の後に出力する (#15) ✓ (2026-10-01)
 - `public static V Zero = new V(1, 2);` のように static initializer が自クラスの constructor / static method を呼ぶと、生成 Lua では initializer 行が `function V.new` より前に並んでいたため chunk load 時に `attempt to call a nil value (field 'new')` で落ちていた。LuaEmitter の VisitClass で initializer 行の出力を constructor / method / property / operator の後 (EmitStaticFieldInitializers) に移した。pre-zero (`V.zero = <default>`) は宣言直後のままにし、initializer 同士の前方参照は従来どおり default 値を見る
 - hot reload の metadata は不変: StaticFieldMeta の Start/Length は移動後の行を指すので、define チャンク (BuildDefineLua) は initializer 行を除き、type 単位 thunk (BuildTypeInitializerLua) は宣言順のまま。registry の phase 2 (define) → phase 3 (init) の順序とも一致するため、増分 session / snapshot 側の変更は不要。EmittedTypeInfo.Shifted は Start > spliceStart で shift するので、method body の増分差し替えが initializer 行より前に来ても範囲は追従する
@@ -1614,7 +1609,6 @@
 - 検証: ClassTests に 自クラス ctor 呼び / 自クラス static method 呼び / 宣言順の 3 本 (fix 前は前 2 本が Red)、HotReloadTests に ctor 呼び initializer を持つ class の reload (retained static の identity / live 値保持、added static は v2 initializer で初期化)、ModuleDescriptorTests に snapshot の load + method-body hot apply で static 保持。`dotnet test` 797+48 green (Cli_AtomicOutputReplace_RespectsUnixWritePermission だけ root 実行環境のため fail — 権限テストで変更と無関係)、tcs2c digest 3/3 不変
 - 判断: C# の static constructor 意味論 (型の最初の使用前に initializer を宣言順に実行) に寄せ、「宣言順」は保ったまま「member 定義後」に動かすだけにした。Lua の遅延実行 (static method 内で参照) は元から動いていたので、挙動が変わるのは chunk load 時に即評価される initializer だけ
 - 残課題: 別クラスの static initializer から宣言順で後ろにある class の `new` を呼ぶ cross-class の前方参照 (`class A { static B b = new B(); } class B {}`) は未対応のまま (型の出力順の問題で、本件とは別)
-
 ### enum 型 field の既定値を 0 にする (#14) ✓ (2026-10-01)
 - initializer 無しの enum 型 instance / static field と auto property が `nil` で emit されていた (`GetDefaultValueForType` が SpecialType だけを見ていた)。`TypeKind.Enum` を 0 に写し、C# の `default(E) == 0` (member 値に依らない) に揃えた。同じ helper を通る struct の zero-init (`S.new()`)、`default(E)` 式、static field の pre-zero も同時に直る
 - hot reload の added field default (`HotReload.DefaultFor`) は型名文字列で判定するため enum を見分けられず nil だった。IlExport が enum 宣言名 (`IlExportResult.Enums`) を出し、reload chunk 側で 0 に解決するようにした
@@ -1635,7 +1629,6 @@
 - 検証: `dotnet test` 全 814+54 green (環境要因の root 権限テストを除く)。transpiler は 7 形 (4 属性 / suffix / 修飾 / global::) の Theory、analyzer は 4 形、他の属性が誤検出されない control。spec sweep は更新した baseline で green
 - 判断: semantic model で `System.Runtime.CompilerServices` の属性型に束縛することも可能だが、analyzer が構文のみの経路 (`TryGetUnsupportedSyntax(SyntaxNode)`) で診断を共有するため構文判定にした。本対応 (呼び出し側で引数式テキスト / member 名 / 行番号 / path を埋める) は別タスク
 - 残課題: caller info の本対応 (#17 の期待挙動)。`ConditionalAttribute` 等 semantic 判定の診断は analyzer 側に無いまま (従来どおり)
-
 ### Lua 予約語と同名のローカル変数を安全な名前に写す (#7) ✓ (2026-10-01)
 - `var local = 1;` / `int end` / `foreach (var until ...)` / `is int nil` / lambda parameter などローカル束縛が Lua 予約語と同名のとき、TCS1001 `LuaKeywordIdentifier` の警告を出した上でそのまま emit して不正 Lua (syntax error) を生成していた。member は LuaNaming.Member が `end_` に写しているので、ローカル束縛にも同じ規則を入れた
 - LuaLocalRenamer (Transpiler/LuaLocalRenamer.cs): emit 前に syntax tree の token 置換で写す。予約語 `x` → `x_`、同じ member body (lambda / local function を含む。top-level 文は compilation unit) に識別子として `x_` が現れるなら `_` を足す。semantic model で宣言と全参照 (closure 内含む) を同じ symbol として束ねるので、emit の各所 (IL 経路 / legacy 経路 / 既定引数 / pattern 前宣言) は名前を知らなくてよい。改行を増やさないので source map の行番号は保たれる。写した tree は `ReplaceSyntaxTree` で compilation に差し替え、新しい semantic model で emit する。予約語を含まない tree は token 走査だけで素通り
@@ -1884,6 +1877,16 @@
 - 検証: `dotnet test tcs2c.Tests --filter LibTypeIdTests` が変更前は `TCS_TYPE_LIST_F32 undeclared` の C compile error で失敗、変更後は通常 / GC stress とも pass。`bash run-tests.sh` (pre-commit) 全通過
 - 判断: 要素型は配列の id と同じ F32 / I32 に揃えた (issue の要望が「配列と同じく」)。`List<bool>` などは必要になった時点で足す
 - 残課題: `o is List<float>` (IlIsType の構造型) は tcs2c が未対応 (class だけ)。cast は通る
+
+### switch / pattern の照合を C# に揃える (#82 #83 #88 #98) ✓ (2026-10-11)
+- switch 式の `_ when 条件` を条件付きの arm にした。従来は when 無しの discard と同じく else に置き、条件を評価せず後続の `_` に上書きされていた (#82)
+- 型を書かない property pattern (`{ }` / `{ Value: 1 }`) は入力が null でないことも判定する (`T?` は値の有無、member は中の値から読む)。従来 `{ }` は `true` で null に一致し、`{ Value: 1 }` は null の member を読んで落ちた (#83)
+- 入力を複数回読む pattern (and / or、複数条件の property pattern) は、入力が呼び出しを含む式 (IsCallFree でない) なら temp (`__tcs_pat<深さ>`) に 1 回評価してから照合する。is 式の入力に加え、property pattern の中の getter (`{ Item: { A: 1, B: 2 } }`) も 1 回だけ呼ぶ (#88。T140 の残課題)
+- switch 文で `default` と同じ section にある case も出現順に照合する。従来は section ごと分岐から外して else にだけ置いたため、その case に一致する入力が後の section に流れた。本文は arm と else で同じ IL block を共有する (#98)
+- 検証: tcs2c.Tests に `DifferentialTests.Patterns.cs` の 4 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 4 本とも fail (`22:0` / `0:2` / `A\nB\nB` / Lua の nil index と Nullable の error)、修正後 pass。`bash run-tests.sh` で Analyzers.Tests 56 / Transpiler.Tests 1005 / tcs2c.Tests 60 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: temp は IIFE (`SnapshotOperand` と同じ形)。単純な変数・field 読み (IsCallFree) は読み直しても値が変わらないので temp にしない (Lua で closure を作らない)。入れ子の temp 名を深さで分けるのは、C の `T x = x;` が初期化子で新しい変数を指すため。null 判定は値型でない入力 (参照型・制約の無い型 parameter) に付ける
+- 残課題: 型を書いた property pattern の入力が `T?` のとき (`p is Pt { X: 2 }`) の member 読みは従来のまま (中の値を取り出さない)
+
 
 ### ±0 と NaN の扱いを .NET facade に揃える (#70 #71 #73 #80 #81) ✓ (2026-10-11)
 - Math.Min / Max (#80): float は MathF.Min / Max (IEEE 754:2019 minimum / maximum) と同じく NaN を伝播し、-0 を +0 より小さいとみなす。Lua は runtime の `Math.Min/Max` と、System.Math 経路の描画先を `math.min/max` から chunk prelude の `__tcs_min/__tcs_max` に替えた (module mode は `TinySystem.Math.Min/Max` へ alias)。C は F32 だけ `tcs_math_min/max` (int は従来の比較式)
