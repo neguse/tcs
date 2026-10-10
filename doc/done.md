@@ -1896,3 +1896,11 @@
 - 検証: 追加した `DifferentialTests.Math_SignedZeroAndNaN_MatchDotnet` / `Linq_MinMaxAndListSearch_NaN_MatchDotnet` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が修正前は両 backend とも不一致 (Red)、修正後 Green。`bash run-tests.sh` 全通過。micro bench (lua32、2000 万回、loop 込み): `math.min` 0.45 s → `__tcs_min` 0.40 s、`math.floor` 0.44 s → `// 1` 0.18 s
 - 判断: Floor / Ceil / Round の Lua の結果が integer から float になる (C# の型どおり)。print で直接見ると `3` ではなく `3.0` (MathSemanticTests の期待値を合わせた)。生成コードの文字列化は `__tcs_fstr` を通るので `3` のまま。int の Math.Min / Max も `__tcs_min/max` を通る (IL に型が無いため。bench では math.min より速い)
 - 残課題: float field を持つ struct 要素の List 検索と Dictionary\<float, _\> の NaN key は .NET との一致を確認していない
+
+### 補間の D 精度・raw 補間の brace・int.TryParse の書式を C# に揃える (#90 #91 #77) ✓ (2026-10-11)
+- 補間の `D<n>` を `%0<n>d` から `%.<n>d` にした。D の精度は符号を除いた最小桁数で、`%0<n>d` は符号込みの幅なので負数で 1 桁足りなかった (`-12:D4` が `-012`) (#90)
+- raw 補間 (`$$"""..."""`) の text には `{{` / `}}` の unescape を掛けない。Roslyn の ValueText が既に literal の内容 ($ の個数より短い brace の連続は文字のまま) で、通常の補間と同じ置換で brace が減っていた (#91)
+- `int.TryParse` を NumberStyles.Integer (前後の空白、先頭の符号、1 桁以上の 10 進数字) にした。Lua は書式を pattern で絞ってから integer に限って読む (`tonumber` は `1.0` / `1e3` / `0x10` も読み、LUA_32BITS では i32 を超える数字列が float に丸まって範囲内に見えた)。C は strtoll をやめて自前で読む (空白だけの文字列を成功にしていた) (#77)
+- 検証: `tcs2c.Tests/DifferentialTests.FormatParse.cs` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が変更前は fail、変更後 pass。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: C の `int.Parse` も同じ parser を使うので、空白だけの文字列は fault になる (.NET の FormatException と同じ)
+- 残課題: Lua の `int.Parse` は従来どおり `math.tointeger(tonumber(s))` (不正な文字列は nil の既知差異)。`float.TryParse` の書式は .NET と照合していない。.NET が末尾の NUL を無視する挙動は合わせていない
