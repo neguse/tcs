@@ -55,4 +55,36 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("2:2:2:2:2:2:2:7:2\n2:2:4:2\n2:true:2:2:1\n3:1", output);
     }
+
+    // LINQ と同名の user 拡張 method (ToList(int) / Where(int)) は自前の実装を呼ぶ
+    [CFact]
+    public void StructCopy_UserExtensionNamedLikeLinq()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using System.Linq;
+            public struct S { public int N; }
+            public static class Ext
+            {
+                public static List<S> ToList(this S[] xs, int take)
+                {
+                    var r = new List<S>();
+                    for (var i = 0; i < take; i++) r.Add(xs[i]);
+                    return r;
+                }
+                public static int Where(this List<S> xs, int k) { return xs.Count + k; }
+            }
+            public class P
+            {
+                public static void Main()
+                {
+                    var arr = new S[] { new S { N = 1 }, new S { N = 2 } };
+                    Console.WriteLine(arr.ToList(1).Count);
+                    Console.WriteLine(arr.ToList().Where(10));
+                }
+            }
+            """, "P");
+        Assert.Equal("1\n12", output);
+    }
 }

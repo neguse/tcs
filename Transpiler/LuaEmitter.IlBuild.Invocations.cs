@@ -16,6 +16,11 @@ public partial class LuaEmitter
         string methodName, ImmutableArray<IlExpr> args, out IlExpr? result)
     {
         result = null;
+        // 拡張 method は LINQ (System.Linq.Enumerable) だけを runtime へ写す。
+        // 同名の user 拡張 method は通常の拡張呼び出しにする
+        if (methodSym.IsExtensionMethod
+            && !IsTypeNamed(methodSym.ContainingType, "System.Linq.Enumerable"))
+            return false;
         var receiverType = model.GetTypeInfo(ma.Expression).Type;
         if (receiverType == null) return false;
         var typeDef = receiverType.OriginalDefinition.ToDisplayString();

@@ -282,4 +282,30 @@ public class StructCopyPointTests
             }
             """));
     }
+
+    // LINQ と同名の user 拡張 method は runtime の List.* ではなく通常の拡張呼び出し
+    [Fact]
+    public void UserExtensionNamedLikeLinq_IsNotRoutedToRuntime()
+    {
+        Assert.Equal("1:12", Run("""
+            public static class Ext
+            {
+                public static List<S> ToList(this S[] xs, int take)
+                {
+                    var r = new List<S>();
+                    for (var i = 0; i < take; i++) r.Add(xs[i]);
+                    return r;
+                }
+                public static int Where(this List<S> xs, int k) { return xs.Count + k; }
+            }
+            public class T
+            {
+                public static string Test()
+                {
+                    var arr = new S[] { new S { N = 1 }, new S { N = 2 } };
+                    return arr.ToList(1).Count + ":" + arr.ToList().Where(10);
+                }
+            }
+            """));
+    }
 }
