@@ -1872,6 +1872,21 @@
 - 検証: WSL (Linux) で `bash run-tests.sh` 相当 (件数は PR を参照)。追加した `Watch_ReloadChunks_ApplyInOrderAcrossMissedFrames` は実際に `tcs --watch --ref ... --entry Game --reload-chunks` を起動し、ホストが当てる前に 2 回 build を終わらせる (2 回目で instance field を追加)。2 つの chunk を順に当てると追加 field が初期化され、`OnInit` の instance と static の値が更新後の method から読めること (43 → 472)、適用済みの chunk の再実行が何もしないこと、1 つ目を飛ばすと状態を変えずに失敗することを見る
 - 残課題: restart 判定 (static initializer の変更など、`doc/hot-reload-design.md` §11) は未実装のまま
 
+### tcs2c: --lib が List<float> / List<int> の構造型 id を出す (#66) ✓ (2026-10-11)
+- `--lib` の出力に `TCS_TYPE_LIST_F32` / `TCS_TYPE_LIST_I32` を足した (`TCS_TYPE_ARRAY_F32` / `TCS_TYPE_ARRAY_I32` と同じく、program 内で intern した構造型 id)。host は `object` で受けた `List<float>` を `float[]` と見分けられ、`tcs_typed(tcs_list_new(...), TCS_TYPE_LIST_F32)` で作った値は C# 側の `(List<float>)` cast を通る
+- 検証: `dotnet test tcs2c.Tests --filter LibTypeIdTests` が変更前は `TCS_TYPE_LIST_F32 undeclared` の C compile error で失敗、変更後は通常 / GC stress とも pass。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: 要素型は配列の id と同じ F32 / I32 に揃えた (issue の要望が「配列と同じく」)。`List<bool>` などは必要になった時点で足す
+- 残課題: `o is List<float>` (IlIsType の構造型) は tcs2c が未対応 (class だけ)。cast は通る
+
+### switch / pattern の照合を C# に揃える (#82 #83 #88 #98) ✓ (2026-10-11)
+- switch 式の `_ when 条件` を条件付きの arm にした。従来は when 無しの discard と同じく else に置き、条件を評価せず後続の `_` に上書きされていた (#82)
+- 型を書かない property pattern (`{ }` / `{ Value: 1 }`) は入力が null でないことも判定する (`T?` は値の有無、member は中の値から読む)。従来 `{ }` は `true` で null に一致し、`{ Value: 1 }` は null の member を読んで落ちた (#83)
+- 入力を複数回読む pattern (and / or、複数条件の property pattern) は、入力が呼び出しを含む式 (IsCallFree でない) なら temp (`__tcs_pat<深さ>`) に 1 回評価してから照合する。is 式の入力に加え、property pattern の中の getter (`{ Item: { A: 1, B: 2 } }`) も 1 回だけ呼ぶ (#88。T140 の残課題)
+- switch 文で `default` と同じ section にある case も出現順に照合する。従来は section ごと分岐から外して else にだけ置いたため、その case に一致する入力が後の section に流れた。本文は arm と else で同じ IL block を共有する (#98)
+- 検証: tcs2c.Tests に `DifferentialTests.Patterns.cs` の 4 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 4 本とも fail (`22:0` / `0:2` / `A\nB\nB` / Lua の nil index と Nullable の error)、修正後 pass。`bash run-tests.sh` で Analyzers.Tests 56 / Transpiler.Tests 1005 / tcs2c.Tests 60 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: temp は IIFE (`SnapshotOperand` と同じ形)。単純な変数・field 読み (IsCallFree) は読み直しても値が変わらないので temp にしない (Lua で closure を作らない)。入れ子の temp 名を深さで分けるのは、C の `T x = x;` が初期化子で新しい変数を指すため。null 判定は値型でない入力 (参照型・制約の無い型 parameter) に付ける
+- 残課題: 型を書いた property pattern の入力が `T?` のとき (`p is Pt { X: 2 }`) の member 読みは従来のまま (中の値を取り出さない)
+
 ### BCL / 言語の .NET 意味論ずれ 4 件を直す (#67 / #69 / #72 / #86) ✓ (2026-10-11)
 - #67 `Random.Next(0)` / `Next(n, n)` (instance / `Shared`): 排他上限から 1 を引いて `low > up` の空区間にしていたため、Lua / C とも `interval is empty` で止まっていた。空の範囲は .NET と同じく下限を返す (Lua `lastof`、C `tcs_rand_below`)。下限 == 上限の区間を 1 回引くので、乱数列の消費は Lua / C で揃ったまま
 - #69 Lua の `OrderBy` / `OrderByDescending` が `table.sort` (不安定) で同じ key の順を崩していた。key を要素ごとに 1 回求め、元の位置を同値時の比較に使う安定 sort にした (C は既に安定 merge sort)
