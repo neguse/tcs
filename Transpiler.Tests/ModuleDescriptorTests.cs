@@ -82,7 +82,9 @@ public class ModuleDescriptorTests
         var init = ModuleArtifactText.BuildTypeInitializerLua(
             artifact.RawLua, counter);
         Assert.Contains("Counter.count = 100", init);
-        Assert.Contains("Counter.tag = nil", init);
+        // initializer のない static は pre-zero の default だけで、initializer
+        // thunk では代入しない (先の initializer が書いた値を戻さない)
+        Assert.DoesNotContain("Counter.tag", init);
 
         Assert.Equal(["__index", "new", "bump", "gone"], counter.DefinitionKeys);
         Assert.Collection(counter.StaticFields,

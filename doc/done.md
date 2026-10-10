@@ -1896,3 +1896,9 @@
 - 検証: 追加した `DifferentialTests.Math_SignedZeroAndNaN_MatchDotnet` / `Linq_MinMaxAndListSearch_NaN_MatchDotnet` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が修正前は両 backend とも不一致 (Red)、修正後 Green。`bash run-tests.sh` 全通過。micro bench (lua32、2000 万回、loop 込み): `math.min` 0.45 s → `__tcs_min` 0.40 s、`math.floor` 0.44 s → `// 1` 0.18 s
 - 判断: Floor / Ceil / Round の Lua の結果が integer から float になる (C# の型どおり)。print で直接見ると `3` ではなく `3.0` (MathSemanticTests の期待値を合わせた)。生成コードの文字列化は `__tcs_fstr` を通るので `3` のまま。int の Math.Min / Max も `__tcs_min/max` を通る (IL に型が無いため。bench では math.min より速い)
 - 残課題: float field を持つ struct 要素の List 検索と Dictionary\<float, _\> の NaN key は .NET との一致を確認していない
+
+### Lua: 初期化子のない static field を initializer の段で default に戻さない (#89) ✓ (2026-10-11)
+- 先に宣言した static の初期化子 (から呼んだ method) が後ろの初期化子なし field / auto-property に書いた値を、Lua だけ後から型別 default で上書きしていた (`State.First = State.initialize()` の後の `State.later = 0`)。C# §15.5.6 どおり、全 static を default にするのは pre-zero (型宣言の直後) だけにし、initializer の段では初期化子のある field だけを宣言順に代入する
+- 検証: tcs2c.Tests の `DifferentialTests.StaticDefaults.cs` (Lua / C / C GC stress の一致 + CoreCLR で同じ program を実行した stdout `3/7/4/5/1/0` との一致)。修正前は Lua が `attempt to index a nil value (field 'ref')` で fail、修正後 pass。`ModuleDescriptorTests.DefineChunkExcludesDeclarationAndStaticInit` は初期化子なし field の initializer thunk が空であることを見る形に直した。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: 初期化子なし field の StaticFieldMeta は残す (長さ 0 の範囲)。registry の declare が `default` で pre-zero し、hot apply の新規 field も pure 扱いのまま
+- 残課題: なし
