@@ -300,7 +300,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `? :` (三項) | **Y** | temp local + if 文 (式の途中・入れ子・条件・lambda 本体も。前置文を置けない IIFE 内 / field initializer のみ IIFE) | falsy 安全、C# の評価順を保つ |
 | `??` (null 合体) | **Y** | `or` (bool? のみ nil 判定 IIFE — `or` だと false が fallback するため)。右辺が呼び出しを含むときは temp + `if nil` | 右辺は nil のときだけ評価 |
 | `?.` (null 条件アクセス, C# 6) | **Y** | IIFE nil チェック | String/List/Dict mapping 対応 |
-| `(T)x` (キャスト) | **Y** | 透過 (型消去)。`(int)f` だけは `__tcs_trunc` で 0 方向 truncation (C backend も同じ契約) | |
+| `(T)x` (キャスト) | **Y** | 数値変換は il-spec §5 / §6 の契約: `(int)f` は `__tcs_trunc` で 0 方向 truncation、int / char → float は `(x * 1.0)` で f32 へ丸める (暗黙変換の代入・引数・return・比較の昇格も同じ。定数は float literal に畳み、組み込みの float 算術の operand は Lua / C の演算自体が変換するので省く)。参照型・bool・`T?` への cast は透過 (型消去) | C は `(float)` / `tcs_trunc_f32` |
 | `is null` / `is not null` | **Y** | `== nil` / `~= nil` | |
 | `is Type` | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定。designation なしの binary 形も対応 | |
 | `new T(args)` | **Y** | `T.new(args)` | |
@@ -813,7 +813,7 @@ LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in
 | `.Last()` / `.LastOrDefault()` | **Y** | `List.Last/LastOrDefault(list, fn, default)` | T+R。First/Last/Min/Max の empty は明示 error |
 | `.Min()` | **Y** | `List.Min(list)` | T+R。NaN は最小の値 (NaN を見た時点で NaN) |
 | `.Max()` | **Y** | `List.Max(list)` | T+R。NaN は最小の値 (NaN 以外が無いときだけ NaN) |
-| `.Sum()` | **Y** | `List.Sum(list)` | T+R |
+| `.Sum()` | **Y** | `List.Sum(list)` | T+R。int の和は checked (Enumerable.Sum と同じく途中の overflow で fault) |
 | `.Count()` / `.Count(predicate)` | **Y** | `List.Count(list, fn)` | T+R |
 | `.ToList()` | **Y** | `List.ToList(list)` | T+R |
 | `.ToDictionary(key)` / `.ToDictionary(key, value)` | **Y** | `List.ToDictionary(list, keyFn, valueFn)`。selector は各要素 1 回・key → value 順。**既知差異**: duplicate key は C# の ArgumentException ではなく Lua table 上書き (`Dictionary.Add` の duplicate も同様) | T+R |

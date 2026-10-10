@@ -214,11 +214,21 @@ function List.Max(list, selector)
   return maxVal
 end
 
+-- int の Sum は checked (Enumerable.Sum と同じく overflow は error)。和が
+-- integer なら両辺とも int: LUA_32BITS は wrap の符号、64bit 整数は i32 の
+-- 範囲で検出する
 function List.Sum(list, selector)
   selector = selector or function(x) return x end
   local total = 0
   for i = 1, #list do
-    total = total + selector(list[i])
+    local v = selector(list[i])
+    local s = total + v
+    if math.type(s) == "integer"
+        and ((v > 0 and s < total) or (v < 0 and s > total)
+          or s > 2147483647 or s < -2147483647 - 1) then
+      error("Arithmetic operation resulted in an overflow.")
+    end
+    total = s
   end
   return total
 end

@@ -394,7 +394,10 @@ internal sealed partial class CEmitter
                 var value = args.Length == 2
                     ? Closure(1, InferClosureResult(args[1], [elem]), elem) : v;
                 sb.Append($"{resultType.CName} {acc} = 0; ");
-                sb.Append(Loop($"{acc} = {acc} + {value};"));
+                // int の Sum は checked (Enumerable.Sum と同じく overflow は fault)
+                sb.Append(Loop(resultType == CType.I32
+                    ? $"{acc} = tcs_checked_add_i32({acc}, {value});"
+                    : $"{acc} = {acc} + {value};"));
                 return $"({{ {sb}{acc}; }})";
             }
             case "Min" or "Max":

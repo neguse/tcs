@@ -1896,3 +1896,13 @@
 - 検証: 追加した `DifferentialTests.Math_SignedZeroAndNaN_MatchDotnet` / `Linq_MinMaxAndListSearch_NaN_MatchDotnet` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が修正前は両 backend とも不一致 (Red)、修正後 Green。`bash run-tests.sh` 全通過。micro bench (lua32、2000 万回、loop 込み): `math.min` 0.45 s → `__tcs_min` 0.40 s、`math.floor` 0.44 s → `// 1` 0.18 s
 - 判断: Floor / Ceil / Round の Lua の結果が integer から float になる (C# の型どおり)。print で直接見ると `3` ではなく `3.0` (MathSemanticTests の期待値を合わせた)。生成コードの文字列化は `__tcs_fstr` を通るので `3` のまま。int の Math.Min / Max も `__tcs_min/max` を通る (IL に型が無いため。bench では math.min より速い)
 - 残課題: float field を持つ struct 要素の List 検索と Dictionary\<float, _\> の NaN key は .NET との一致を確認していない
+
+### int → float の変換・int の Sum の overflow・enum の int 最小値・float → int の下限を C# に揃える (#92 #93 #118 #76) ✓ (2026-10-11)
+- int / char → float の暗黙変換 (代入・引数・return・比較の昇格、`float?` への wrap の手前) を IL builder の入口 (`BuildExpr`) で `IlNumericConvert` にした。Lua は `(x * 1.0)` で描き、LUA_32BITS の integer を f32 へ丸める。従来は Lua の integer のまま残り、`float f = 16777217` が 16777217 のまま、`16777217 == 16777216f` が偽だった (#92)。定数は float literal に畳む (`float big = 100000` は `100000.0`。integer のままだと `big * big` が i32 wrap した)。明示 `(float)x` も同じ描画で、変換元が既に float なら IL に node を置かない
+- float の field / 配列要素 / `default` の既定値を Lua でも `0.0` にした (integer の 0 に int を足すと integer のまま進む)
+- int の `Sum` (selector 付きも) を checked にした。途中の加算が i32 を超えたら fault (Lua は error、C は `tcs_checked_add_i32` の `overflow`) (#93)
+- `enum` の member 値が int.MinValue のとき、Lua は通常の const と同じ `(-2147483647 - 1)` で出す。literal `-2147483648` は Lua32 で float になっていた (#118)
+- tcs2c の `tcs_trunc_f32` の下限を `>= -2147483648.0f` にした。`-2147483649.0f` は f32 で -2^31 に丸まるので、範囲内の `(int)-2147483648f` が fault していた (#76)
+- 検証: `tcs2c.Tests/DifferentialTests.NumericConversion.cs` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致、Sum の overflow は 3 経路とも "before" の後で停止) が変更前は 4 本 fail、変更後 pass。raw Lua の `tostring` で float の結果を見ていた Transpiler.Tests の期待値 (`1122` → `1122.0` など) を合わせた。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: 組み込みの float 算術 (+ - * / %) の operand では変換を省いた (Lua / C とも演算が integer を float へ変換してから計算する)。省けるのは相手の operand が Lua で float であるときなので、float の既定値を `0.0` にしてこの前提を保つ。`+ 0.0` は float の -0 を +0 にするので `* 1.0` にした
+- 残課題: Lua の `__tcs_trunc` は NaN / 範囲外の float → int で fault しない (C は fault)。host から integer で渡された float 値は従来どおり integer のまま
