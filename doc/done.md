@@ -1887,7 +1887,6 @@
 - 判断: temp は IIFE (`SnapshotOperand` と同じ形)。単純な変数・field 読み (IsCallFree) は読み直しても値が変わらないので temp にしない (Lua で closure を作らない)。入れ子の temp 名を深さで分けるのは、C の `T x = x;` が初期化子で新しい変数を指すため。null 判定は値型でない入力 (参照型・制約の無い型 parameter) に付ける
 - 残課題: 型を書いた property pattern の入力が `T?` のとき (`p is Pt { X: 2 }`) の member 読みは従来のまま (中の値を取り出さない)
 
-
 ### ±0 と NaN の扱いを .NET facade に揃える (#70 #71 #73 #80 #81) ✓ (2026-10-11)
 - Math.Min / Max (#80): float は MathF.Min / Max (IEEE 754:2019 minimum / maximum) と同じく NaN を伝播し、-0 を +0 より小さいとみなす。Lua は runtime の `Math.Min/Max` と、System.Math 経路の描画先を `math.min/max` から chunk prelude の `__tcs_min/__tcs_max` に替えた (module mode は `TinySystem.Math.Min/Max` へ alias)。C は F32 だけ `tcs_math_min/max` (int は従来の比較式)
 - Math.Floor / Ceil (#81): Lua の `math.floor/ceil` は結果を整数へ変換して -0 の符号を落とす (結果も float ではなく integer になる) ので、float のまま丸める `x // 1` / `-(-x // 1)` にした。System.Math 経路は描画時に式で出す
