@@ -1896,3 +1896,9 @@
 - 検証: 追加した `DifferentialTests.Math_SignedZeroAndNaN_MatchDotnet` / `Linq_MinMaxAndListSearch_NaN_MatchDotnet` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が修正前は両 backend とも不一致 (Red)、修正後 Green。`bash run-tests.sh` 全通過。micro bench (lua32、2000 万回、loop 込み): `math.min` 0.45 s → `__tcs_min` 0.40 s、`math.floor` 0.44 s → `// 1` 0.18 s
 - 判断: Floor / Ceil / Round の Lua の結果が integer から float になる (C# の型どおり)。print で直接見ると `3` ではなく `3.0` (MathSemanticTests の期待値を合わせた)。生成コードの文字列化は `__tcs_fstr` を通るので `3` のまま。int の Math.Min / Max も `__tcs_min/max` を通る (IL に型が無いため。bench では math.min より速い)
 - 残課題: float field を持つ struct 要素の List 検索と Dictionary\<float, _\> の NaN key は .NET との一致を確認していない
+
+### tcs2c: field と auto-property の初期化子を宣言順に実行する (#79) ✓ (2026-10-11)
+- IL の型情報 (`IlExport.CollectFields`) が全 field の後に全 auto-property を並べていたため、C backend は field と auto-property を交互に宣言した型で field の初期化子を先にまとめて実行していた (CoreCLR / Lua `APB`、C `ABP`)。instance (constructor 冒頭) と static (型の初期化) の両方。member の宣言順に並べるようにした (C# §15.5.6)
+- 検証: tcs2c.Tests の `DifferentialTests.InitializerOrder.cs` (instance と static の両方で field / auto-property を交互に宣言。Lua / C / C GC stress の一致 + CoreCLR で同じ program を実行した stdout `APBQ 0n` / `xyz 123` との一致)。修正前は C が `ABPQ 0n` / `xzy 132` で fail、修正後 pass。`IlExportTests.Export_ClassMetadataAndIlBodies` の field 列の期待を宣言順に直した。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: positional record の parameter は従来どおり先頭 (Lua の VisitRecord と同順)。struct の C layout と `LayoutHash` も宣言順になる (hot reload の比較は同じ規則で作った v1 / v2 の間なので影響しない)
+- 残課題: 基底と派生の初期化子の順 (T150 の既知差異) は対象外
