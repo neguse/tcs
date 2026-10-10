@@ -254,8 +254,12 @@ internal sealed partial class CEmitter
                 RequireArity(call.Callee, args.Length, 2);
                 RequireType(CType.I32, TypeOf(args[1]), call.Callee);
                 return CType.List(elem);
+            // 変更可能な struct 要素では Lua 向けの __copy 参照が 2 番目に付く
+            // (C は要素を値で写すので読まない)
             case "ToList":
-                RequireArity(call.Callee, args.Length, 1);
+                if (args.Length is not (1 or 2)
+                    || (args.Length == 2 && elem.Kind != CTypeKind.StructVal))
+                    throw new Tcs2cException($"{call.Callee}: expected 1 argument, got {args.Length}");
                 return CType.List(elem);
             case "ToDictionary":
             {

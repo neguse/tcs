@@ -1871,3 +1871,11 @@
 - 変更ファイル: Transpiler/Program.cs, Transpiler/HotReload.cs, Transpiler.Tests/WatchModeTests.cs, README.md, doc/tasks.md
 - 検証: WSL (Linux) で `bash run-tests.sh` 相当 (件数は PR を参照)。追加した `Watch_ReloadChunks_ApplyInOrderAcrossMissedFrames` は実際に `tcs --watch --ref ... --entry Game --reload-chunks` を起動し、ホストが当てる前に 2 回 build を終わらせる (2 回目で instance field を追加)。2 つの chunk を順に当てると追加 field が初期化され、`OnInit` の instance と static の値が更新後の method から読めること (43 → 472)、適用済みの chunk の再実行が何もしないこと、1 つ目を飛ばすと状態を変えずに失敗することを見る
 - 残課題: restart 判定 (static initializer の変更など、`doc/hot-reload-design.md` §11) は未実装のまま
+
+### Lua backend の struct copy 抜けを専用 lowering の各経路で埋める (#75 #78 #84 #85 #99 #112 #113 #115 #116 #117) ✓ (2026-10-11)
+- il-spec §10 の copy 地点のうち、汎用の代入 / 引数 / return を通らない lowering に `WrapStructCopy` (構文のない値は型だけで決める `CopyIfMutableStruct`) を入れた: object initializer の field / property 値と入れ子の collection initializer の要素 (#112)、foreach (List / 配列) の反復変数 (#113)、分解の成分 (#115)、`with` の上書き値 (#116)、custom setter の `value` (instance / static、#117)、static / instance の field・auto-property initializer と struct の member initializer (#99)、配列 / List / Dictionary の initializer の要素 (#84)、Dictionary.Add と TryGetValue の out (#78)
+- lambda の struct parameter は入口で copy する (#75)。LINQ 等の runtime は要素を copy せずに callback へ渡すので、呼び出し側では copy できない。式本体の lambda は copy 文と合わせて block 本体にする (void は呼び出し文、値を返すなら return)
+- `ToList` は変更可能な struct 要素のとき末尾引数に `S.__copy` を渡し、runtime の `List.ToList` が要素を copy する (#85)。C backend は要素を値で写すので引数を読まない (arity 検査だけ 2 引数を許す)
+- 検証: 新規 `StructCopyPointTests` 13 本 (dotnet differential 込み) は修正前に全て失敗 (例: foreach `3:3:3:3`、ToList `9:9:9`)、修正後に通過。tcs2c.Tests の `StructCopy_LoweredPathsKeepValueSemantics` (C / GC stress / Lua の一致) も修正前は失敗、修正後に通過。各 issue の最小再現を lua32 と tcs2c→gcc で実行し、全て C と一致
+- 判断: lambda は parameter が書かれるかどうかの解析で copy を省く案を採らなかった (predicate の中で元の配列を書き換えると、copy しない parameter から変化が見える)。readonly struct は従来どおり copy しない
+- 残課題: static method group を runtime に渡す経路 (`xs.Any(IsGood)`) は copy されない (wrapper closure にすると delegate の同一性が変わるので判断が要る)。`base(...)` 引数、`?.` 経由の List 呼び出し (`list?.Add(s)`)、式本体の lambda の戻り値 (`xs.Select(x => holder.F)`)、ToDictionary の値、式位置の setter 代入の値 (`var y = (h.Item = s)` で setter の変更が y に見える) も同じ種類の copy 抜けとして残る
