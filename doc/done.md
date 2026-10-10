@@ -1871,3 +1871,12 @@
 - 変更ファイル: Transpiler/Program.cs, Transpiler/HotReload.cs, Transpiler.Tests/WatchModeTests.cs, README.md, doc/tasks.md
 - 検証: WSL (Linux) で `bash run-tests.sh` 相当 (件数は PR を参照)。追加した `Watch_ReloadChunks_ApplyInOrderAcrossMissedFrames` は実際に `tcs --watch --ref ... --entry Game --reload-chunks` を起動し、ホストが当てる前に 2 回 build を終わらせる (2 回目で instance field を追加)。2 つの chunk を順に当てると追加 field が初期化され、`OnInit` の instance と static の値が更新後の method から読めること (43 → 472)、適用済みの chunk の再実行が何もしないこと、1 つ目を飛ばすと状態を変えずに失敗することを見る
 - 残課題: restart 判定 (static initializer の変更など、`doc/hot-reload-design.md` §11) は未実装のまま
+
+### switch / pattern の照合を C# に揃える (#82 #83 #88 #98) ✓ (2026-10-11)
+- switch 式の `_ when 条件` を条件付きの arm にした。従来は when 無しの discard と同じく else に置き、条件を評価せず後続の `_` に上書きされていた (#82)
+- 型を書かない property pattern (`{ }` / `{ Value: 1 }`) は入力が null でないことも判定する (`T?` は値の有無、member は中の値から読む)。従来 `{ }` は `true` で null に一致し、`{ Value: 1 }` は null の member を読んで落ちた (#83)
+- 入力を複数回読む pattern (and / or、複数条件の property pattern) は、入力が呼び出しを含む式 (IsCallFree でない) なら temp (`__tcs_pat<深さ>`) に 1 回評価してから照合する。is 式の入力に加え、property pattern の中の getter (`{ Item: { A: 1, B: 2 } }`) も 1 回だけ呼ぶ (#88。T140 の残課題)
+- switch 文で `default` と同じ section にある case も出現順に照合する。従来は section ごと分岐から外して else にだけ置いたため、その case に一致する入力が後の section に流れた。本文は arm と else で同じ IL block を共有する (#98)
+- 検証: tcs2c.Tests に `DifferentialTests.Patterns.cs` の 4 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 4 本とも fail (`22:0` / `0:2` / `A\nB\nB` / Lua の nil index と Nullable の error)、修正後 pass。`bash run-tests.sh` で Analyzers.Tests 56 / Transpiler.Tests 1005 / tcs2c.Tests 60 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: temp は IIFE (`SnapshotOperand` と同じ形)。単純な変数・field 読み (IsCallFree) は読み直しても値が変わらないので temp にしない (Lua で closure を作らない)。入れ子の temp 名を深さで分けるのは、C の `T x = x;` が初期化子で新しい変数を指すため。null 判定は値型でない入力 (参照型・制約の無い型 parameter) に付ける
+- 残課題: 型を書いた property pattern の入力が `T?` のとき (`p is Pt { X: 2 }`) の member 読みは従来のまま (中の値を取り出さない)
