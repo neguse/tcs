@@ -1904,6 +1904,22 @@
 - 判断: 実行時型は metatable の比較で見る (record の instance は型 table を metatable に持つ)。Lua は両辺が table のときだけ `__eq` を呼ぶので null 比較は従来どおり
 - 残課題: `S?` (Nullable の struct) の field は Lua で参照比較のまま (C は値等価)。基底 record の positional field のうち派生の parameter に無いもの (`record D(int v) : Root(P.Next())` の tag) は派生の `__eq` が比べない (Lua `1`、C と CoreCLR `0`)
 
+### tcs2c: struct の receiver を 1 回だけ評価し、rvalue の field は copy で呼ぶ (#95 #74) ✓ (2026-10-11)
+- struct method の receiver と struct place への field store は、place の lvalue と GC の owner (ライトバリアの対象) を別々に描いていたため、owner 側で receiver の式 (`Get().Data.Add(7)` の `Get()`、`GetA()[i]` の `GetA()`) をもう一度評価していた (#95)。place を所有する heap object (class 参照 / 配列・List) を temp に 1 回評価し、lvalue と owner の両方がその temp を指す `RenderOwnedStructPlace` にまとめた (旧 `RenderStructOwner` は削除)
+- field store で receiver に heap object を含む場合は、slot のアドレスを先に取ってから値を書く。C の `=` は左右の評価順を決めないので、C# と同じく receiver・添字を値より先に評価させる
+- property / 呼び出し結果 (rvalue) の struct の field を receiver にした method 呼び出し (`h.Prop.Inner.Bump()`) は place として `&` を取り、C compile error になっていた (#74)。`IsStructPlace` は struct field の親も place かを見るようにし、rvalue の場合は既存の copy 経路 (temp に値を置いてそのアドレスを渡す。変異は捨てる) に流す
+- 検証: tcs2c.Tests に `DifferentialTests.StructReceiver.cs` の 2 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は C の呼び出し回数が `17,2` 等、store の評価順が `via` (C# は `aiv`) で不一致、#74 の program は `lvalue required as unary '&' operand` で C compile 失敗。修正後 pass。`bash run-tests.sh` 全通過
+- 判断: receiver が local / static / 捕捉 cell / self だけの place は副作用が無いので temp を挟まず従来の形のまま出す
+
+### BCL / 言語の .NET 意味論ずれ 4 件を直す (#67 / #69 / #72 / #86) ✓ (2026-10-11)
+- #67 `Random.Next(0)` / `Next(n, n)` (instance / `Shared`): 排他上限から 1 を引いて `low > up` の空区間にしていたため、Lua / C とも `interval is empty` で止まっていた。空の範囲は .NET と同じく下限を返す (Lua `lastof`、C `tcs_rand_below`)。下限 == 上限の区間を 1 回引くので、乱数列の消費は Lua / C で揃ったまま
+- #69 Lua の `OrderBy` / `OrderByDescending` が `table.sort` (不安定) で同じ key の順を崩していた。key を要素ごとに 1 回求め、元の位置を同値時の比較に使う安定 sort にした (C は既に安定 merge sort)
+- #72 C の `string.Replace` が置換後文字列 null で fault していた。runtime は null を長さ 0 として削除し、emitter は置換後の `null` literal を受ける
+- #86 Lua で interface / 基底の virtual 経由の省略引数に実装側の既定値が入っていた (callee 冒頭の補完 (T207) が実行時の型の method で走るため)。IL builder が、ユーザー source の method 呼び出しの末尾の省略引数を、呼び出しが静的に束縛した宣言の既定値で埋める (`WithOmittedDefaults`)。IL を共有する C backend は従来どおり同じ宣言の既定値になる
+- 検証: tcs2c.Tests に `DifferentialTests.BclBehavior.cs` (4 本、C 通常 + GC stress と Lua の一致に加え、CoreCLR (net10.0) で実測した stdout との一致を見る)。修正前は 4 本とも fail (Random は Lua が `interval is empty`、OrderBy は Lua が `1,3,2,4`、Replace は C の emit が null を拒否、省略引数は Lua が `7:7:11`)、修正後は pass。`bash run-tests.sh` で Analyzers.Tests 56 / Transpiler.Tests 1005 / tcs2c.Tests 60 が全て pass
+- 判断: callee 冒頭の補完は host など C# 以外からの呼び出しのために残した (明示 null と省略を区別しない既知差もそのまま)。既定値は宣言側の syntax tree の model で IL にするので、別ファイルの interface の const / enum / float の既定値も呼び出し側で同じ値になる。既定値を IL にできないときは埋めずに callee に任せる。`--ref` の host method は対象外 (host 側が既定値を持つ)。`Next(max)` の負の上限など .NET が例外にする入力は従来どおり fault
+- 残課題: なし
+
 ### Lua backend の struct copy 抜けを専用 lowering の各経路で埋める (#75 #78 #84 #85 #99 #112 #113 #115 #116 #117) ✓ (2026-10-11)
 - il-spec §10 の copy 地点のうち、汎用の代入 / 引数 / return を通らない lowering に `WrapStructCopy` (構文のない値は型だけで決める `CopyIfMutableStruct`) を入れた: object initializer の field / property 値と入れ子の collection initializer の要素 (#112)、foreach (List / 配列) の反復変数 (#113)、分解の成分 (#115)、`with` の上書き値 (#116)、custom setter の `value` (instance / static、#117)、static / instance の field・auto-property initializer と struct の member initializer (#99)、配列 / List / Dictionary の initializer の要素 (#84)、Dictionary.Add と TryGetValue の out (#78)
 - lambda の struct parameter は入口で copy する (#75)。LINQ 等の runtime は要素を copy せずに callback へ渡すので、呼び出し側では copy できない。式本体の lambda は copy 文と合わせて block 本体にする (void は呼び出し文、値を返すなら return)
