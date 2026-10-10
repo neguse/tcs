@@ -1896,3 +1896,10 @@
 - 検証: 追加した `DifferentialTests.Math_SignedZeroAndNaN_MatchDotnet` / `Linq_MinMaxAndListSearch_NaN_MatchDotnet` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が修正前は両 backend とも不一致 (Red)、修正後 Green。`bash run-tests.sh` 全通過。micro bench (lua32、2000 万回、loop 込み): `math.min` 0.45 s → `__tcs_min` 0.40 s、`math.floor` 0.44 s → `// 1` 0.18 s
 - 判断: Floor / Ceil / Round の Lua の結果が integer から float になる (C# の型どおり)。print で直接見ると `3` ではなく `3.0` (MathSemanticTests の期待値を合わせた)。生成コードの文字列化は `__tcs_fstr` を通るので `3` のまま。int の Math.Min / Max も `__tcs_min/max` を通る (IL に型が無いため。bench では math.min より速い)
 - 残課題: float field を持つ struct 要素の List 検索と Dictionary\<float, _\> の NaN key は .NET との一致を確認していない
+
+### 後に文が続く return を do ... end に閉じ、loop 末尾の return と continue を正しい Lua にする (#106) ✓ (2026-10-11)
+- Lua の `return` は block の最後の文に限られる。loop 本体の最後が `return` で本体に `continue` があると、`return` の後ろに continue label (`::_continue_N::`) が出て構文エラーになっていた (`while (true)` / `for` / `foreach` / `do-while`)。同じ形で、for の増分 (`i = i + 1`) が `return` の後ろに続く場合 (continue が無くても) と、`return` の後の到達不能文も構文エラーだった
+- `EmitIlBlock` が、後に文が続く `return` を `do return ... end` の block に閉じる。loop 本体は `EmitLoopBody` で出し、末尾の `return` の後に continue label (使うときだけ) か同じ block の増分が続くなら閉じる
+- 検証: 追加した `DifferentialTests.Loop_TrailingReturnFollowedByLabelOrStep_MatchesCSharp` (while / for の continue、for の増分、do-while、foreach、到達不能文。Lua / C / C GC stress の一致と C# の期待値 `3 7 30 4 2 7`) が修正前は Lua の `'end' expected ... near '::'` で失敗、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: label を `return` の前に置く案は、`continue` の飛び先で `return` を実行してしまうので採らない。閉じるかどうかは末尾の文を出す時点で決める (continue label を使うかは本体を出し終えるまで分からないが、末尾の `return` より前の `continue` は出し終えている)
+- 残課題: constructor の `return;` は `return` (nil) を出すので、`new C()` が nil になり、末尾の `return;` は後ろの `return self` と合わせて構文エラーになる (この修正の対象外)
