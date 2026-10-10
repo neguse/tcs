@@ -1897,6 +1897,13 @@
 - 判断: Floor / Ceil / Round の Lua の結果が integer から float になる (C# の型どおり)。print で直接見ると `3` ではなく `3.0` (MathSemanticTests の期待値を合わせた)。生成コードの文字列化は `__tcs_fstr` を通るので `3` のまま。int の Math.Min / Max も `__tcs_min/max` を通る (IL に型が無いため。bench では math.min より速い)
 - 残課題: float field を持つ struct 要素の List 検索と Dictionary\<float, _\> の NaN key は .NET との一致を確認していない
 
+### record class の == を C# の合成 Equals に揃える (#119 #120) ✓ (2026-10-11)
+- Lua backend の record class の `__eq` が、struct の positional field を field ごとの値等価に展開する (record struct の `op_Equality` と同じ `ValueEqualityParts`)。従来は struct の table を参照比較し、同じ値でも false だった (#119)
+- `__eq` の先頭で両辺の metatable (実行時型) の一致を見る。従来は左辺の型の field だけを比べ、基底と派生・兄弟の派生型が等価になり、左右を入れ替えると結果が変わった (#120)。C backend は従来どおり type_id で同じ判定をしている
+- 検証: tcs2c.Tests に `DifferentialTests.RecordEquality.cs` の 2 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 2 本とも Lua と C が不一致 (`value:0:1:0:1:0` / `base-derived:1:0`、siblings `1:1`)、修正後 pass。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: 実行時型は metatable の比較で見る (record の instance は型 table を metatable に持つ)。Lua は両辺が table のときだけ `__eq` を呼ぶので null 比較は従来どおり
+- 残課題: `S?` (Nullable の struct) の field は Lua で参照比較のまま (C は値等価)。基底 record の positional field のうち派生の parameter に無いもの (`record D(int v) : Root(P.Next())` の tag) は派生の `__eq` が比べない (Lua `1`、C と CoreCLR `0`)
+
 ### Lua backend の struct copy 抜けを専用 lowering の各経路で埋める (#75 #78 #84 #85 #99 #112 #113 #115 #116 #117) ✓ (2026-10-11)
 - il-spec §10 の copy 地点のうち、汎用の代入 / 引数 / return を通らない lowering に `WrapStructCopy` (構文のない値は型だけで決める `CopyIfMutableStruct`) を入れた: object initializer の field / property 値と入れ子の collection initializer の要素 (#112)、foreach (List / 配列) の反復変数 (#113)、分解の成分 (#115)、`with` の上書き値 (#116)、custom setter の `value` (instance / static、#117)、static / instance の field・auto-property initializer と struct の member initializer (#99)、配列 / List / Dictionary の initializer の要素 (#84)、Dictionary.Add と TryGetValue の out (#78)
 - lambda の struct parameter は入口で copy する (#75)。LINQ 等の runtime は要素を copy せずに callback へ渡すので、呼び出し側では copy できない。式本体の lambda は copy 文と合わせて block 本体にする (void は呼び出し文、値を返すなら return)
