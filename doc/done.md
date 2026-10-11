@@ -2103,6 +2103,12 @@
 - 検証: `Transpiler.Tests/ReloadRulesAlignmentTests.cs` (同じ編集を両方に通す。restart 10 件 / live 6 件 / 意図した差 5 件)。修正前は 15 件が fail (enum 3 件が session で live、static の型の変更 2 件が native で live、空白・comment・定数の書き方 5 件が両方で restart、const と static の入れ替え 2 件が両方で live、instance field / record の型の変更 3 件が session で live)、修正後 pass。HotReloadRestartTests の live 側から static の型の変更を外して restart 側に入れた。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: const と static の入れ替えは同名・同じ型・同じ値でも restart。const は使う側に埋め込まれ、static に戻しても table の値 (実行中に変えた値) が初期値に戻らない。float / double の定数は Roslyn が f32 で畳むが emitter は式のまま書くので、値ではなく token で比べる。`new()` と `new List<int>()` は token が違うので restart のまま。IOperation や IL で意味を比べる hash は、比べ漏れた要素 (型 test の型など) が live の誤判定になるので入れなかった
 
+### Lua32 の Skip(int.MaxValue) を要素数で打ち切る (#126) ✓ (2026-10-11)
+- `l.Skip(int.MaxValue)` が Lua32 で戻らなかった。runtime の `List.Skip` が開始位置を `count + 1` で作り、LUA_32BITS では int.MaxValue + 1 が -2^31 に wrap して約 2^31 回の反復になっていた。要素数以上の count は先に空列を返し、要素数未満の count だけ `+ 1` する
+- 同じ wrap を runtime の他の helper で確認した: `List.Take` は `math.min(count, #list)` で加算なし。`List.RemoveAt` (`index + 1`) と `String.Substring` (`start + 1` / `start + length`) は有効な入力では要素数・長さを超えないので wrap しない。C backend の Skip / Take は添字と count の比較だけで加算を持たない
+- 検証: tcs2c.Tests に `DifferentialTests.SkipTakeExtremes.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。1 / 3 / 0 要素の Skip(int.MaxValue)、Skip(int.MaxValue - 1)、Skip の 0 / 負 / int.MinValue / 要素数ちょうど、Take(int.MaxValue) / Take(-1)、Skip と Take の連鎖)。修正前は lua32 が 60 秒の timeout で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の `List.Skip` を除いて master とバイト一致
+- 残課題: `String.Substring` の範囲外 (`"abc".Substring(10)` 等) は wrap と別に fault しない (il-spec §13 では fault)
+
 ### Lua の struct copy 抜け: base 引数・?. 呼び出し・ToDictionary・代入式の値 (#128 #152) ✓ (2026-10-11)
 - Lua backend で、次の経路の struct 値を copy する (il-spec §10、readonly struct は従来どおり copy しない)。`base(...)` の引数、`?.` 経由の呼び出しの引数 (`l?.Add(t)`)、value selector の無い `ToDictionary` の値 (IL は value selector の位置に `S.__copy` 参照を置き、C backend は要素を値で写すので読まない)、`??=` の右辺
 - 式位置の代入の値を、格納した slot ではなく値の copy にする (`Mut(h.Data.I = Make())`、`Mut(d[1] = src)`、`Mut(l[0] = src)`、`Mut(loc = src)` で `Mut` の変更が格納先に残っていた)。代入式の IIFE は末尾の return を copy にし、`WrapStructCopy` が IIFE を新しい値とみなす前提を満たす。custom property への代入式も同じ末尾を通し、setter には `__tcs_v` の copy を渡す (setter が `value` を書き換えると `var y = (h.Item = s)` の y に見えていた。`S?` の custom property への `??=` の値も copy になる)
