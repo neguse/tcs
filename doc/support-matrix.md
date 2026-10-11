@@ -194,6 +194,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 |------|:----:|--------------|------|
 | フィールド | **Y** | `self.Field` | initializer なしは型別 default |
 | フィールド初期化子 | **Y** | コンストラクタ内 | |
+| static フィールド / プロパティ初期化子 | **Y** | 全型の定義の後に型単位で実行 | 初期化子 (と、そこから呼ぶ method・constructor・accessor・virtual / interface 実装の本文) が読み書きする他の型の static を先に初期化する (ファイル順・宣言順に依存しない)。lambda の本文・method group の先 (delegate を作るだけで実行しない) と delegate 値の呼び出しの先は辿らない。依存は制御フローを見ない過大評価 (分岐の両側、virtual 呼び出しは全 override) なので、実際には起きない循環ができることがある。循環は宣言順で先の型を先に触ったものとして解き、相手は初期化中の型の default を読む (実際の循環なら、宣言順に触ったときの C# と同じ。偽の循環では C# / C backend と違い得る)。Lua は Main より前に全型を初期化するので、初期化子の副作用 (log 等) の順は初回アクセス時に初期化する C# / C backend と違い得る |
 | `const` フィールド | **Y** | `ClassName.CONST` | |
 | オートプロパティ (`{ get; set; }`) | **Y** | フィールド直接 | initializer なしは型別 default |
 | プロパティ初期化子 | **Y** | | |
@@ -295,12 +296,12 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `-x` (単項マイナス) | **Y** | `-x` | |
 | `++x` `x++` (インクリメント) | **Y** | 文位置は `x = x + 1`、式位置は IIFE (前置は更新後、後置は更新前の値) | custom property / 副作用 (getter 含む) receiver は 1 回評価。右側の ++ / 代入が書き換える local を左 operand / 代入先の添字が読むときは左を temp に退避 (C# の左→右評価) |
 | `--x` `x--` (デクリメント) | **Y** | 同上 | |
-| `=` (代入) | **Y** | そのまま | |
+| `=` (代入) | **Y** | そのまま | 受け手 / 添字は右辺より先に 1 回評価し、式位置の値は代入した値 (右辺が受け手を差し替えても読み直さない)。右辺が struct の格納先 (class の field、配列要素、static field) を差し替え得るときは、値を temp に置いてから格納先を辿り直して書く (`+=` 等 / `??=` も同じ) |
 | `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | **Y** | 展開 `x = x op y` | bool への `&=` `\|=` `^=` は未対応 |
 | `? :` (三項) | **Y** | temp local + if 文 (式の途中・入れ子・条件・lambda 本体も。前置文を置けない IIFE 内 / field initializer のみ IIFE) | falsy 安全、C# の評価順を保つ |
 | `??` (null 合体) | **Y** | `or` (bool? のみ nil 判定 IIFE — `or` だと false が fallback するため)。右辺が呼び出しを含むときは temp + `if nil` | 右辺は nil のときだけ評価 |
 | `?.` (null 条件アクセス, C# 6) | **Y** | IIFE nil チェック | String/List/Dict mapping 対応 |
-| `(T)x` (キャスト) | **Y** | 透過 (型消去)。`(int)f` だけは `__tcs_trunc` で 0 方向 truncation (C backend も同じ契約) | |
+| `(T)x` (キャスト) | **Y** | 数値変換は il-spec §5 / §6 の契約: `(int)f` は `__tcs_trunc` で 0 方向 truncation、整数 (int / uint / short / byte / char など) → float は `(x * 1.0)` で f32 へ丸める (暗黙変換の代入・引数・return・比較の昇格も同じ。定数は float literal に畳み、組み込みの float 算術の operand は Lua / C の演算自体が変換するので省く。この前提のため float の既定値と runtime が返す float は Lua でも float)。参照型・bool・`T?` への cast は透過 (型消去) | C は `(float)` / `tcs_trunc_f32` |
 | `is null` / `is not null` | **Y** | `== nil` / `~= nil` | |
 | `is Type` | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定。designation なしの binary 形も対応 | |
 | `new T(args)` | **Y** | `T.new(args)` | |
@@ -559,7 +560,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `Math` | **Y** | 後述の個別メンバー表参照 | `math` ラッパー |
 | `MathF` | **-** | | float 版 Math |
 | `Console` | **Y** | `WriteLine` → `print` | |
-| `int` / `double` / `float` の `Parse(string)` | **Y** | `math.tointeger(tonumber(s))` / `tonumber(s)` | 不正な文字列は例外でなく nil |
+| `int` / `double` / `float` の `Parse(string)` | **Y** | `math.tointeger(tonumber(s))` / `__tcs_tofloat(tonumber(s))` (float にする) | 不正な文字列は例外でなく nil |
 | `int` / `double` / `float` の `TryParse(string, out v)` | **Y** | `Math.TryParseInt` / `Math.TryParseFloat` の (found, value) multi-return (TryGetValue と同形の IIFE) | 失敗時の out は 0。int は NumberStyles.Integer (前後の空白、先頭の符号、10 進数字だけ。小数・指数・16 進・空白だけは失敗) |
 | `Convert` | **-** | | |
 | `Environment` | **P** | `GetEnvironmentVariable(s)` → `os.getenv(s)` | 他メンバーは未対応 |
@@ -813,7 +814,7 @@ LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in
 | `.Last()` / `.LastOrDefault()` | **Y** | `List.Last/LastOrDefault(list, fn, default)` | T+R。First/Last/Min/Max の empty は明示 error |
 | `.Min()` | **Y** | `List.Min(list)` | T+R。NaN は最小の値 (NaN を見た時点で NaN) |
 | `.Max()` | **Y** | `List.Max(list)` | T+R。NaN は最小の値 (NaN 以外が無いときだけ NaN) |
-| `.Sum()` | **Y** | `List.Sum(list)` | T+R |
+| `.Sum()` | **Y** | `List.Sum(list)` | T+R。int の和 (要素型か selector の戻り値が int) は `List.SumInt` で checked (Enumerable.Sum と同じく途中の overflow で fault)。float の和は空でも `0.0` |
 | `.Count()` / `.Count(predicate)` | **Y** | `List.Count(list, fn)` | T+R |
 | `.ToList()` | **Y** | `List.ToList(list)` | T+R |
 | `.ToDictionary(key)` / `.ToDictionary(key, value)` | **Y** | `List.ToDictionary(list, keyFn, valueFn)`。selector は各要素 1 回・key → value 順。**既知差異**: duplicate key は C# の ArgumentException ではなく Lua table 上書き (`Dictionary.Add` の duplicate も同様) | T+R |
@@ -930,7 +931,7 @@ LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in
 | Lua CMake platform 分岐 | **Y** | Linux/Windows/macOS/iOS-family/Emscripten/BSD/generic Unix |
 | 依存 lock / publish runtime 同梱 | **Y** | package pin + packages.lock.json + runtime/tinysystem.lua |
 | 命名規約チェック | **Y** | PascalCase/camelCase 警告。`--no-naming-check` で抑制 |
-| Lua 側の名前の衝突検出 | **Y** | 同じ型の `Foo` と `foo` が同じ Lua 名に落ちると error (§28)。analyzer / `tcs check` は TCS1001 `LuaNameCollision(Foo/foo)` |
+| Lua 側の名前の衝突検出 | **Y** | 同じ型の `Foo` と `foo`、型の `A_B.C` と `A.B.C` が同じ Lua 名に落ちると error (§28)。analyzer / `tcs check` は TCS1001 `LuaNameCollision(Foo/foo)` |
 
 ## 25. 許容される C# エラー (TinyC# 固有)
 
@@ -993,4 +994,10 @@ LuaNameCollision(Value/value): 'Value' and 'value' both map to Lua 'value'`) に
 overload は衝突ではなく MethodOverload (TCS1001) の領分。analyzer / `tcs check`
 は同じ判定を TCS1001 `LuaNameCollision(Value/value)` として 2 個目以降の宣言に
 報告する。
+
+型も同じく、namespace 修飾名を `_` で結合した Lua global 名が別の型と同じになる
+もの (`A_B.C` と `A.B.C` は共に `A_B_C`) は、宣言順 (入力ファイルの順と位置) で
+2 個目以降の型を error (`LuaNameCollision(A_B.C/A.B.C): 'A_B.C' and 'A.B.C' both
+map to Lua 'A_B_C'`) にする。C backend (tcs2c) も同じ error で止まる。interface /
+delegate は Lua の global を持たず、`--ref` の型は小文字パスで呼ぶので対象外。
 
