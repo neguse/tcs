@@ -1927,3 +1927,10 @@
 - 検証: `tcs2c.Tests/DifferentialTests.FormatParse.cs` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が変更前は fail、変更後 pass。`bash run-tests.sh` (pre-commit) 全通過
 - 判断: C の `int.Parse` も同じ parser を使うので、空白だけの文字列は fault になる (.NET の FormatException と同じ)
 - 残課題: Lua の `int.Parse` は従来どおり `math.tointeger(tonumber(s))` (不正な文字列は nil の既知差異)。`float.TryParse` の書式は .NET と照合していない。.NET が末尾の NUL を無視する挙動は合わせていない
+
+### struct 型の pattern を struct / `T?` の入力に当てる (#130) ✓ (2026-10-11)
+- 型を書いた property pattern の入力が `T?` (`Pt? p; p is Pt { X: 2 }`) のとき、型を書かない `{ X: 2 }` と同じく値の有無を判定して member は中の値から読む。従来 Lua は struct の table に `__tcs_is` (metatable 判定) を当てて常に不一致、C は `IlIsType target is not a class: Pt` で止まっていた
+- 同じ原因の型 pattern / 宣言 pattern (`p is Pt`、`p is Pt v`、switch の `Pt v =>` / `case Pt:`) も直した。型照合 (`BuildTypeCheck`) が pattern の入力型を受け取り、struct `S` の入力を `S` で照合するのは常に true (入力は 1 回評価)、`S?` の入力は値の有無にする。宣言 pattern は入力 (`S?` は中の値) の copy を束縛する (従来 Lua は元の struct と alias、C は `Pt?` を `Pt` に代入できず停止)
+- 検証: tcs2c.Tests に `DifferentialTests.NullablePattern.cs` の 2 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 2 本とも C が `IlIsType target is not a class: Pt` で fail (Lua は `p is Pt { X: 2 }` が `0`、`w is Pt u` の変異が元に残る)、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: switch の宣言 pattern は arm より前に束縛する既存の形のまま、`S?` の入力は値なしでも落ちないよう `__tcs_nget(sw, default)` の copy を束縛する (arm に一致しなければ使われない)。is 式は値の有無を見てから `.Value` の copy を束縛する
+- 残課題: object / interface に入れた struct (boxing) の型照合は従来どおり (struct の値は型 tag を持たない)
