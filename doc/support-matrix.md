@@ -150,7 +150,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 型 | 状態 | Lua マッピング | 備考 |
 |----|:----:|--------------|------|
 | `class` | **Y** | table + metatable | |
-| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。ToList / ToDictionary と LINQ の lambda parameter、`base(...)` / `?.` 呼び出しの引数、式位置の代入の値も値 copy。static member / operator / override はサブセット外 (TCS1001。static field と static auto property は Lua で nil を読むので build を止める error、const は使用箇所で値に畳むので可) |
+| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。ToList / ToDictionary と LINQ の lambda parameter、`base(...)` / `?.` 呼び出しの引数、式位置の代入の値、switch 式の arm の値も値 copy。static member / operator / override はサブセット外 (TCS1001。static field と static auto property は Lua で nil を読むので build を止める error、const は使用箇所で値に畳むので可) |
 | `record` / `record class` | **Y** | table + metatable (`__eq`)。IL 契約に IsRecord で収載、C backend は型ごとの構造等価関数と実行時 layout の with copy | positional record。基底 record の継承 (基底の primary ctor 引数の評価、継承した positional property と method) に対応。==/!= は実行時型の一致と、基底から順に各 record の positional field の値等価 (struct field は memberwise、struct の `T?` field は値の有無と中の値、float / `float?` field は float.Equals で NaN 同士も等しい。C# の合成 Equals と同じ)。static field (const / static readonly 込み) と static auto property は class と同じく pre-zero して型をまたぐ初期化順で初期化する。Equals / GetHashCode / ToString 呼びは対象外。C# の `(T)x` downcast は IlCast で C 側 fault 対象 |
 | `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= (field ごとの比較は record class と同じく EqualityComparer\<T\>.Default、struct の List 検索の ValueType.Equals も同じ) と with 式。readonly (record) struct は copy 全省略。IL 契約 (IlStructInfo) と C backend、hot reload の migration も struct と同じ |
 | `interface` | **P** | 出力なし | Roslyn 型チェックのみ |
@@ -300,7 +300,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | **Y** | 展開 `x = x op y` | bool への `&=` `\|=` `^=` は未対応 |
 | `? :` (三項) | **Y** | temp local + if 文 (式の途中・入れ子・条件・lambda 本体も。前置文を置けない IIFE 内 / field initializer のみ IIFE) | falsy 安全、C# の評価順を保つ |
 | `??` (null 合体) | **Y** | `or` (bool? のみ nil 判定 IIFE — `or` だと false が fallback するため)。右辺が呼び出しを含むときは temp + `if nil` | 右辺は nil のときだけ評価 |
-| `?.` (null 条件アクセス, C# 6) | **Y** | IIFE nil チェック | String/List/Dict mapping 対応。連鎖 (`x?.M().N()` / `x?.P.Q` / `x?[i].M()`) は一番内側を receiver に対する呼び出し / member にする |
+| `?.` (null 条件アクセス, C# 6) | **Y** | IIFE nil チェック | String/List/Dict mapping 対応。連鎖 (`x?.M().N()` / `x?.P.Q` / `x?[i].M()`) は一番内側を receiver に対する呼び出し / member にする。delegate の `f?.Invoke(...)` は null でなければ delegate 値を呼ぶ (戻り値は `T?` に wrap) |
 | `(T)x` (キャスト) | **Y** | 数値変換は il-spec §5 / §6 の契約: `(int)f` は `__tcs_trunc` で 0 方向 truncation、整数 (int / uint / short / byte / char など) → float は `(x * 1.0)` で f32 へ丸める (暗黙変換の代入・引数・return・比較の昇格も同じ。定数は float literal に畳み、組み込みの float 算術の operand は Lua / C の演算自体が変換するので省く。この前提のため float の既定値と runtime が返す float は Lua でも float)。参照型・bool・`T?` への cast は透過 (型消去) | C は `(float)` / `tcs_trunc_f32` |
 | `is null` / `is not null` | **Y** | `== nil` / `~= nil` | |
 | `is Type` | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定。designation なしの binary 形も対応 | |
@@ -583,7 +583,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `Type` | **N/A** | | リフレクション |
 | `Attribute` | **N/A** | | |
 | `GC` | **N/A** | | |
-| `Action<>` / `Func<>` / `Predicate<>` | **Y** | 型消去 → Lua function | |
+| `Action<>` / `Func<>` / `Predicate<>` | **Y** | 型消去 → Lua function | `f.Invoke(...)` / `f?.Invoke(...)` は `f(...)` と同じ呼び出し |
 | `Lazy<T>` | **-** | | |
 | `WeakReference<T>` | **-** | | |
 
