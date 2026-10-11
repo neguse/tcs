@@ -244,6 +244,12 @@ function List.ToList(list, copy)
   return result
 end
 
+-- Dictionary<float, _> の NaN key。Lua table は NaN を key にできないので、
+-- .NET (NaN 同士は等しい key) と同じく 1 つの key として sentinel に置き、
+-- 列挙で NaN に戻す (Dict.FloatKey / FloatKeyOut / FloatKeys。生成コードは
+-- float key の dict にだけ通す)
+local NAN_KEY = "NaN"
+
 function List.ToDictionary(list, keySelector, valueSelector)
   valueSelector = valueSelector or function(x) return x end
   local dict = {}
@@ -253,6 +259,7 @@ function List.ToDictionary(list, keySelector, valueSelector)
     -- 評価順は未規定なので local で明示する)。duplicate key は C# と
     -- 異なり上書き (既知差異、support-matrix 参照)
     local key = keySelector(item)
+    if key ~= key then key = NAN_KEY end
     dict[key] = valueSelector(item)
   end
   return dict
@@ -298,6 +305,22 @@ function Dict.Values(dict)
   local vals = {}
   for _, v in pairs(dict) do vals[#vals + 1] = v end
   return vals
+end
+
+function Dict.FloatKey(key)
+  if key ~= key then return NAN_KEY end
+  return key
+end
+
+function Dict.FloatKeyOut(key)
+  if key == NAN_KEY then return 0 / 0 end
+  return key
+end
+
+function Dict.FloatKeys(dict)
+  local keys = {}
+  for k in pairs(dict) do keys[#keys + 1] = Dict.FloatKeyOut(k) end
+  return keys
 end
 
 -- Char (整数 code unit、ASCII の判定 / 変換。C backend も同じ表)

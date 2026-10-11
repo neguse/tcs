@@ -772,6 +772,12 @@ host 側はユーザーエントリだけを持つ table をそのまま受け�
 Dictionary / List も透過)。`Count` / `Keys` / `Values` は保存メタデータでは
 なく pairs 走査で都度計算される。
 
+`Dictionary<float, V>` の NaN key は .NET (`EqualityComparer<float>.Default`) と
+同じく 1 つの key として扱う。Lua table は NaN を key にできないので、table 上は
+文字列 `"NaN"` の key に置き (`Dict.FloatKey`)、`Keys` と foreach で NaN に戻す。
+host が raw table を読むときはこの key が見える。C backend は float の key を
+対応外として生成前に止める (`Dictionary key type not supported`)。
+
 | メンバー | 状態 | Lua マッピング | 区分 |
 |---------|:----:|--------------|:----:|
 | `new Dictionary<K,V>()` | **Y** | `{}` | T |

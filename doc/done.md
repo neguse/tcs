@@ -1936,3 +1936,11 @@
 - 実測 (lua32、int + float の 2 field struct、3 回): foreach で 1000 要素の配列を 2000 周読むだけのループ 0.055 → 0.30 s、1000 要素の List.Sort (比較 lambda) + Count (述語 lambda) を 200 回 0.25 → 0.90 s。`var x = a[i]` や引数渡しと同じく copy 地点ごとに table を作る費用で、readonly struct なら copy しない
 - 判断: lambda は parameter が書かれるかどうかの解析で copy を省く案を採らなかった (predicate の中で元の配列を書き換えると、copy しない parameter から変化が見える)。readonly struct は従来どおり copy しない
 - 残課題: static method group を runtime に渡す経路 (`xs.Any(IsGood)`) は copy されない (wrapper closure にすると delegate の同一性が変わるので判断が要る)。`base(...)` 引数、`?.` 経由の List 呼び出し (`list?.Add(s)`)、式本体の lambda の戻り値 (`xs.Select(x => holder.F)`)、ToDictionary の値、式位置の setter 代入の値 (`var y = (h.Item = s)` で setter の変更が y に見える) も同じ種類の copy 抜けとして残る
+
+### Dictionary<float, V> の NaN key を .NET に揃える (#132) ✓ (2026-10-11)
+- Lua backend で `Dictionary<float, V>` に NaN の key を入れると `table index is NaN` で止まり、読み出し (`d[NaN]` / `ContainsKey`) は常に不在になっていた。.NET の `EqualityComparer<float>.Default` と同じく NaN 同士を 1 つの key として扱う
+- float key の dict だけ、key を runtime の `Dict.FloatKey` (NaN を sentinel の文字列 `"NaN"` に替える) に通してから引く: indexer の get / set、`Add`、`Remove`、`ContainsKey`、`TryGetValue`、collection / index initializer、`?.` 経由。`Keys` は `Dict.FloatKeys`、foreach の `KeyValuePair.Key` は `Dict.FloatKeyOut` で NaN に戻す。`List.ToDictionary` も NaN の key を sentinel に置く。key が読み直しても変わらない式 (変数・field・定数) なら Lua の描画で `(k ~= k and "NaN" or k)` に inline し、呼び出しを省く。NaN でない定数の key は素通し
+- C backend は float の key を従来どおり対応外とし、生成前に `Dictionary key type not supported: f32` で止まる (変更なし。test で固定)
+- 検証: tcs2c.Tests に `DifferentialTests.DictFloatKey.cs` の 2 本 (Lua が CoreCLR で実行した stdout と一致 / C が `Dictionary key type not supported` で止まる)。修正前は Lua が `table index is NaN` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime に足した関数を除いて master とバイト一致 (float key の dict を使うサンプルは無い)。lua32 の micro bench (float key の get + set を 500 万回): raw 0.45 s、inline 0.61 s、`Dict.FloatKey` 呼び出し 0.93 s
+- 判断: float 以外の key の dict は生成コードも runtime の経路も変えない (int / string key のコストは不変)。sentinel は hot reload で runtime を読み直しても同じ値になる文字列にした (float key の dict は他に文字列の key を持たない)。host が raw table を読むと `"NaN"` の key が見える (support-matrix に記載)。`Dict.Keys` 本体に NaN 戻しを足すと全 dict の列挙が遅くなるので別関数にした
+- 残課題: `Dictionary<object, V>` など float 以外の静的型の key に入れた NaN は対象外 (従来どおり `table index is NaN`)

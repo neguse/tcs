@@ -31,12 +31,11 @@ public partial class LuaEmitter
                 return methodName is "Add" or "Remove" or "ContainsKey";
             switch (methodName)
             {
-                case "Remove":
-                    result = new IlCall("Dict.Remove", [recvD, args[0]]);
-                    return true;
-                case "ContainsKey":
+                case "Remove" or "ContainsKey":
                     // backend 非依存の intrinsic call (il-spec §13)
-                    result = new IlCall("Dict.ContainsKey", [recvD, args[0]]);
+                    result = new IlCall($"Dict.{methodName}", [recvD, DictKey(model,
+                        receiverType, (ma.Parent as InvocationExpressionSyntax)
+                            ?.ArgumentList.Arguments[0].Expression, args[0])]);
                     return true;
                 case "Add":
                     // 代入形は statement 側 (BuildDictAddStatInto) が扱う
@@ -226,7 +225,8 @@ public partial class LuaEmitter
             new IlMultiAssign(
                 [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
                 [new IlCall("Dict.TryGet",
-                    [recv, key, defaultValue])],
+                    [recv, DictKey(model, model.GetTypeInfo(ma.Expression).Type,
+                        keyArg.Expression, key), defaultValue])],
                 Declare: true),
             // out への書き出しは格納値の copy (il-spec §10 の代入)
             new IlAssign(target, CopyIfMutableStruct(valueType, new IlVar("__tcs_v"))),
