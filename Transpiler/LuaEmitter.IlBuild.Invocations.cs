@@ -88,9 +88,7 @@ public partial class LuaEmitter
                 result = BuildListClear(recv);
                 return true;
             case "Sort":
-                result = new IlCall(args.Length == 0
-                    && methodSym.ContainingType.TypeArguments is [{ SpecialType: SpecialType.System_Single }]
-                    ? "List.SortFloat" : "List.Sort", [recv, .. args]);
+                result = new IlCall("List.Sort", [recv, .. args]);
                 return true;
             case "FirstOrDefault":
             case "LastOrDefault":
@@ -139,17 +137,10 @@ public partial class LuaEmitter
         recv == null ? null : new IlCall("Math.CompareTo", [recv, .. args]);
 
     // int の Sum は checked な List.SumInt (float の List.Sum と静的な型で分ける。
-    // Lua の値の subtype では float の値が integer のこともある)。float key の
-    // OrderBy は NaN を最小にする List.OrderByFloat (他の key 型の比較は素の < / >)
+    // Lua の値の subtype では float の値が integer のこともある)
     private static string TypedListMethod(string methodName, IMethodSymbol method) =>
-        methodName switch
-        {
-            "Sum" when method.ReturnType.SpecialType == SpecialType.System_Int32 => "SumInt",
-            "OrderBy" or "OrderByDescending" when method.Parameters is [.., { Type: INamedTypeSymbol
-                { TypeArguments: [_, { SpecialType: SpecialType.System_Single }] } }] =>
-                methodName + "Float",
-            _ => methodName,
-        };
+        methodName == "Sum" && method.ReturnType.SpecialType == SpecialType.System_Int32
+            ? "SumInt" : methodName;
 
     // string method の char 引数 (IndexOf(char) / Split(char) 等) は 1 文字
     // string にして runtime へ渡す (char は整数 code unit)

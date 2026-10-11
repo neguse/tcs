@@ -189,15 +189,6 @@ internal sealed partial class CEmitter
         _ => throw new Tcs2cException($"equality is not supported for {type}"),
     };
 
-    // Lua 向けの float 専用 runtime 関数 (List.SortFloat / OrderByFloat 等) は
-    // C では要素型・key 型から同じ順序を選ぶので、元の名前で扱う
-    private static string ListOpName(IlCall call)
-    {
-        var name = call.Callee["List.".Length..];
-        return name is "SortFloat" or "OrderByFloat" or "OrderByDescendingFloat"
-            ? name[..^"Float".Length] : name;
-    }
-
     // sort 用の 3 方向比較。float は Single.CompareTo と同じく NaN を最小にする
     private static string CompareExpr(CType type, string left, string right) =>
         type.Kind == CTypeKind.F32
@@ -221,7 +212,7 @@ internal sealed partial class CEmitter
 
     private CType TypeOfListOp(IlCall call)
     {
-        var name = ListOpName(call);
+        var name = call.Callee["List.".Length..];
         var args = call.Args;
         var seq = RequireSeq(args[0], call.Callee);
         var elem = seq.Element!;
@@ -322,7 +313,7 @@ internal sealed partial class CEmitter
 
     private string RenderListOp(IlCall call)
     {
-        var name = ListOpName(call);
+        var name = call.Callee["List.".Length..];
         var args = call.Args;
         var resultType = TypeOfListOp(call);
         var seq = RequireSeq(args[0], call.Callee);

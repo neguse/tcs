@@ -67,28 +67,27 @@ function List.IndexOf(list, item, eq)
   return i - 1 -- 0-indexed
 end
 
+-- 既定の順序 (.NET の既定の comparer): NaN は他のどの値より小さい。NaN は
+-- 数値の列にしか現れないので、NaN を含む列だけ NaN を扱う比較にする
+local function nanBefore(a, b) return a < b or (a ~= a and b == b) end
+local function nanAfter(a, b) return a > b or (b ~= b and a == a) end
+
+local function hasNaN(values)
+  for i = 1, #values do
+    local v = values[i]
+    if v ~= v then return true end
+  end
+  return false
+end
+
 function List.Sort(list, comparison)
   if comparison then
     table.sort(list, function(a, b) return comparison(a, b) < 0 end)
+  elseif hasNaN(list) then
+    table.sort(list, nanBefore)
   else
     table.sort(list)
   end
-end
-
--- float の既定の順序 (Single.CompareTo): NaN は他のどの値より小さい
-local function floatBefore(a, b) return a < b or (a ~= a and b == b) end
-local function floatAfter(a, b) return a > b or (b ~= b and a == a) end
-
--- List<float>.Sort(): NaN を含むときだけ比較関数を渡す
-function List.SortFloat(list)
-  for i = 1, #list do
-    local v = list[i]
-    if v ~= v then
-      table.sort(list, floatBefore)
-      return
-    end
-  end
-  table.sort(list)
 end
 
 -- LINQ-style methods
@@ -150,24 +149,15 @@ function List.FirstOrDefault(list, predicate, default)
 end
 
 -- OrderBy は安定 sort (同じ key の要素は元の順)。table.sort は不安定なので
--- 元の位置を同値時の比較に使う。nanBefore (float key) は key に NaN が
--- あるときだけ before の代わりに使う
-local function orderby(list, keySelector, before, nanBefore)
+-- 元の位置を同値時の比較に使う。key に NaN があるときだけ nan 側の比較を使う
+local function orderby(list, keySelector, before, nanOrder)
   local n = #list
   local keys, index = {}, {}
   for i = 1, n do
     keys[i] = keySelector(list[i])
     index[i] = i
   end
-  if nanBefore then
-    for i = 1, n do
-      local k = keys[i]
-      if k ~= k then
-        before = nanBefore
-        break
-      end
-    end
-  end
+  if hasNaN(keys) then before = nanOrder end
   table.sort(index, function(a, b)
     local ka, kb = keys[a], keys[b]
     if before(ka, kb) then return true end
@@ -183,19 +173,11 @@ local function less(a, b) return a < b end
 local function greater(a, b) return a > b end
 
 function List.OrderBy(list, keySelector)
-  return orderby(list, keySelector, less)
+  return orderby(list, keySelector, less, nanBefore)
 end
 
 function List.OrderByDescending(list, keySelector)
-  return orderby(list, keySelector, greater)
-end
-
-function List.OrderByFloat(list, keySelector)
-  return orderby(list, keySelector, less, floatBefore)
-end
-
-function List.OrderByDescendingFloat(list, keySelector)
-  return orderby(list, keySelector, greater, floatAfter)
+  return orderby(list, keySelector, greater, nanAfter)
 end
 
 function List.Take(list, count)
