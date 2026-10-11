@@ -214,21 +214,37 @@ function List.Max(list, selector)
   return maxVal
 end
 
--- int の Sum は checked (Enumerable.Sum と同じく overflow は error)。和が
--- integer なら両辺とも int: LUA_32BITS は wrap の符号、64bit 整数は i32 の
--- 範囲で検出する
+-- float の Sum (空でも float の 0)
 function List.Sum(list, selector)
   selector = selector or function(x) return x end
-  local total = 0
+  local total = 0.0
   for i = 1, #list do
-    local v = selector(list[i])
-    local s = total + v
-    if math.type(s) == "integer"
-        and ((v > 0 and s < total) or (v < 0 and s > total)
-          or s > 2147483647 or s < -2147483647 - 1) then
-      error("Arithmetic operation resulted in an overflow.")
+    total = total + selector(list[i])
+  end
+  return total
+end
+
+-- int の Sum は checked (Enumerable.Sum と同じく途中の overflow は error)。
+-- 和の増減が加数の符号と食い違えば wrap (LUA_32BITS)、64bit 整数の Lua では
+-- i32 の範囲外で検出する。selector 無しは identity を呼ばない loop (Sum の
+-- 大半の時間が呼び出しになるため)
+local function sum_overflow() error("Arithmetic operation resulted in an overflow.") end
+function List.SumInt(list, selector)
+  local total = 0
+  if selector then
+    for i = 1, #list do
+      local v = selector(list[i])
+      local s = total + v
+      if (v < 0) ~= (s < total) or s > 2147483647 or s < -2147483647 - 1 then sum_overflow() end
+      total = s
     end
-    total = s
+  else
+    for i = 1, #list do
+      local v = list[i]
+      local s = total + v
+      if (v < 0) ~= (s < total) or s > 2147483647 or s < -2147483647 - 1 then sum_overflow() end
+      total = s
+    end
   end
   return total
 end
@@ -472,9 +488,11 @@ function Math.TryParseInt(s, default)
   return false, default
 end
 
+-- tonumber は整数の文字列を integer で返すので float にする (* 1.0 は
+-- "-0.0" の -0 を保つ)
 function Math.TryParseFloat(s, default)
   local v = tonumber(s)
-  if v ~= nil then return true, v + 0.0 end
+  if v ~= nil then return true, v * 1.0 end
   return false, default
 end
 
@@ -691,6 +709,13 @@ function TinySystem.trunc(x)
   if i then return i end
   if x >= 0 then return math.floor(x) end
   return math.ceil(x)
+end
+
+-- float.Parse の結果 (tonumber は整数の文字列を integer で返す) を float に
+-- する。不正な文字列の nil はそのまま (生成コードは __tcs_tofloat global 経由)
+function TinySystem.tofloat(v)
+  if v == nil then return nil end
+  return v * 1.0
 end
 
 -- Nullable<T> (il-spec §13、module mode の __tcs_n* global の実体)

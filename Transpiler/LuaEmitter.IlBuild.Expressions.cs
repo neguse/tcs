@@ -466,8 +466,8 @@ public partial class LuaEmitter
 
             if (symbol is IMethodSymbol { IsStatic: true } staticFacade
                 && IsTinySystemFacade(staticFacade.ContainingType))
-                return new IlCall(
-                    $"TinySystem.{staticFacade.ContainingType.Name}.{methodName}", argArr);
+                return new IlCall($"TinySystem.{staticFacade.ContainingType.Name}."
+                    + TypedListMethod(methodName, staticFacade), argArr);
 
             if (symbol is IMethodSymbol collectionMethod
                 && TryBuildCollectionCall(model, ma, collectionMethod,
@@ -526,7 +526,7 @@ public partial class LuaEmitter
             if (NumericParseKind(symbol) is { } parseKind)
                 return parseKind == "int"
                     ? new IlCall("math.tointeger", [new IlCall("tonumber", argArr)])
-                    : new IlCall("tonumber", argArr);
+                    : new IlNumericConvert(new IlCall("tonumber", argArr), "float");
 
             if (symbol is IMethodSymbol stringStatic
                 && stringStatic.ContainingType.SpecialType

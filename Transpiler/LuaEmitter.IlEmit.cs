@@ -348,6 +348,9 @@ public partial class LuaEmitter
         },
         // int → float は `* 1.0` (LUA_32BITS は integer を f32 へ丸める。
         // + 0.0 だと float の -0 が +0 になる)。float → int は __tcs_trunc
+        // float.Parse: 不正な文字列の nil を保ったまま float にする
+        IlNumericConvert { TargetType: "float", Value: IlCall { Callee: "tonumber" } parse } =>
+            $"__tcs_tofloat({RenderIl(parse)})",
         IlNumericConvert { TargetType: "float" } convert => convert.Value is IlBin
             ? $"(({RenderIl(convert.Value)}) * 1.0)"
             : $"({RenderIl(convert.Value)} * 1.0)",

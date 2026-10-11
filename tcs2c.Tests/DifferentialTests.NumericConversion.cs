@@ -77,6 +77,93 @@ public partial class DifferentialTests
             """.ReplaceLineEndings("\n"), output);
     }
 
+    // runtime が返す float (Parse / TryParse / 空の Sum) も Lua で float なので、
+    // 組み込みの float 算術で int operand の変換を省いても f32 に丸まる。
+    // uint / short / byte → float も int と同じ変換
+    [CFact]
+    public void NumericConversion_RuntimeFloatsAndOtherIntegrals_MatchDotnet()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using System.Linq;
+            public class P
+            {
+                public static int I(float f) => (int)f;
+                public static string B(bool b) => b ? ":1" : ":0";
+                public static void Main()
+                {
+                    int value = 16777217;
+                    float parsed = float.Parse("16777217");
+                    float.TryParse("16777217", out var tried);
+                    float.TryParse("x", out var failed);
+                    var empty = new List<float>();
+                    float viaParse = parsed + value;
+                    float viaTry = tried + value;
+                    float viaFailed = failed + value;
+                    float viaSum = empty.Sum() + value;
+                    float viaSelector = empty.Sum(x => x) + value;
+                    Console.WriteLine("runtime " + I(parsed) + B(parsed == 16777216f) + " " + I(tried) + B(tried == 16777216f) + " " + I(viaParse) + B(viaParse == 33554432f) + " " + I(viaTry) + B(viaTry == 33554432f) + " " + I(viaFailed) + B(viaFailed == 16777216f) + " " + I(viaSum) + B(viaSum == 16777216f) + " " + I(viaSelector) + B(viaSelector == 16777216f));
+                    var big = new List<float> { float.Parse("2000000000"), float.Parse("2000000000") };
+                    Console.WriteLine("float-sum " + I(big.Sum() / 1000f) + " " + I(big.Sum(x => x) / 1000f));
+                    var items = new List<string> { "a", "bb" };
+                    Console.WriteLine("int-sum-selector " + items.Sum(s => s.Length) + " " + I(items.Sum(s => s.Length * 0.5f) * 10f));
+                    uint u = 16777217u;
+                    float fu = u;
+                    short sh = -7;
+                    float fs = sh;
+                    byte by = 200;
+                    float fb = by;
+                    Console.WriteLine("integral " + I(fu) + B(fu == 16777216f) + " " + B(u == 16777216f) + " " + I(fs * 2f) + " " + I(fb * 2f));
+                }
+            }
+            """, "P");
+        Assert.Equal("""
+            runtime 16777216:1 16777216:1 33554432:1 33554432:1 16777216:1 16777216:1 16777216:1
+            float-sum 4000000 4000000
+            int-sum-selector 3 15
+            integral 16777216:1 :1 -14 400
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    private static string TruncProgram(string init) => $$"""
+        using System;
+        public class P
+        {
+            public static void Main()
+            {
+                float zero = 0f;
+                float value = {{init}};
+                Console.WriteLine("before");
+                Console.WriteLine((int)value);
+            }
+        }
+        """;
+
+    // f32 → i32 の範囲は [-2^31, 2^31) (il-spec §5)。範囲外と NaN は fault
+    [CTheory]
+    [InlineData("-2147483904f")]
+    [InlineData("2147483648f")]
+    [InlineData("zero / zero")]
+    [InlineData("1f / zero")]
+    [InlineData("-1f / zero")]
+    public void FloatToInt_OutOfRange_FaultsInC(string init)
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => Backends.RunC([TruncProgram(init)], "P"));
+        Assert.Contains("float-to-int", error.Message);
+        Assert.Contains("stdout:\nbefore", error.Message.ReplaceLineEndings("\n"));
+    }
+
+    [CTheory]
+    [InlineData("-2147483648f", "-2147483648")]
+    [InlineData("-2147483648.5f", "-2147483648")]
+    [InlineData("2147483520f", "2147483520")]
+    public void FloatToInt_Boundary_ConvertsInC(string init, string expected)
+    {
+        Assert.Equal("before\n" + expected, Backends.RunC([TruncProgram(init)], "P"));
+    }
+
     private static string SumProgram(string sum) => $$"""
         using System;
         using System.Collections.Generic;

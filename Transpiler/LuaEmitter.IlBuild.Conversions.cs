@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace TinyCs;
 
-// IL builder の int → float 変換 (il-spec §5 / §6)。暗黙変換 (代入・引数・
+// IL builder の整数 → float 変換 (il-spec §5 / §6)。暗黙変換 (代入・引数・
 // return・比較の昇格) も明示ノード IlNumericConvert にする。Lua の integer は
 // float と混ぜても比較・格納で丸まらないため (16777217 が 16777216f と等しく
 // ならない)、変換を IL に残さないと C# と値が変わる
@@ -24,9 +24,9 @@ public partial class LuaEmitter
             || IsPromotedArithmeticOperand(model, expr))
             return built;
         var constant = model.GetConstantValue(expr);
-        if (constant is { HasValue: true, Value: int or char })
-            return FloatLit((float)Convert.ToInt32(constant.Value,
-                CultureInfo.InvariantCulture));
+        if (constant is { HasValue: true, Value: { } integral })
+            return FloatLit(integral is char c ? c
+                : Convert.ToSingle(integral, CultureInfo.InvariantCulture));
         return new IlNumericConvert(built, "float");
     }
 
@@ -42,7 +42,11 @@ public partial class LuaEmitter
     }
 
     private static bool IsIntegralSource(ITypeSymbol? type) =>
-        type?.SpecialType is SpecialType.System_Int32 or SpecialType.System_Char;
+        type?.SpecialType is SpecialType.System_Int32 or SpecialType.System_UInt32
+            or SpecialType.System_Int16 or SpecialType.System_UInt16
+            or SpecialType.System_Byte or SpecialType.System_SByte
+            or SpecialType.System_Int64 or SpecialType.System_UInt64
+            or SpecialType.System_Char;
 
     private static bool IsFloatConverted(IlExpr built)
     {
@@ -52,7 +56,9 @@ public partial class LuaEmitter
     }
 
     // 組み込みの float 算術 (+ - * / %) の operand は、Lua / C とも演算が
-    // integer を float へ変換してから計算するので、明示の変換を省く
+    // integer を float へ変換してから計算するので、明示の変換を省く。相手の
+    // operand が Lua でも float であることが前提 (float の既定値と runtime が
+    // 返す float (Parse / TryParse / Sum) は float にしている)
     private static bool IsPromotedArithmeticOperand(SemanticModel model,
         ExpressionSyntax expr)
     {

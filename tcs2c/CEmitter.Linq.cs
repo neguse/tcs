@@ -234,10 +234,10 @@ internal sealed partial class CEmitter
             case "Count":
                 if (args.Length == 2) _ = Pred(1);
                 return CType.I32;
-            case "Sum" or "Min" or "Max":
+            case "Sum" or "SumInt" or "Min" or "Max":
             {
                 var key = args.Length == 2 ? InferClosureResult(args[1], [elem]) : elem;
-                if (name == "Sum")
+                if (name is "Sum" or "SumInt")
                     return NumericJoin(key, CType.I32, name);
                 if (key.Kind is not (CTypeKind.I32 or CTypeKind.F32 or CTypeKind.String))
                     throw new Tcs2cException($"{call.Callee}: keys must be numbers or strings");
@@ -388,7 +388,7 @@ internal sealed partial class CEmitter
                 sb.Append(Loop($"if ({call1}) {r}++;"));
                 return $"({{ {sb}{r}; }})";
             }
-            case "Sum":
+            case "Sum" or "SumInt":
             {
                 var acc = Temp("sum");
                 var value = args.Length == 2

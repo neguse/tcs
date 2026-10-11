@@ -1899,10 +1899,12 @@
 
 ### int → float の変換・int の Sum の overflow・enum の int 最小値・float → int の下限を C# に揃える (#92 #93 #118 #76) ✓ (2026-10-11)
 - int / char → float の暗黙変換 (代入・引数・return・比較の昇格、`float?` への wrap の手前) を IL builder の入口 (`BuildExpr`) で `IlNumericConvert` にした。Lua は `(x * 1.0)` で描き、LUA_32BITS の integer を f32 へ丸める。従来は Lua の integer のまま残り、`float f = 16777217` が 16777217 のまま、`16777217 == 16777216f` が偽だった (#92)。定数は float literal に畳む (`float big = 100000` は `100000.0`。integer のままだと `big * big` が i32 wrap した)。明示 `(float)x` も同じ描画で、変換元が既に float なら IL に node を置かない
-- float の field / 配列要素 / `default` の既定値を Lua でも `0.0` にした (integer の 0 に int を足すと integer のまま進む)
-- int の `Sum` (selector 付きも) を checked にした。途中の加算が i32 を超えたら fault (Lua は error、C は `tcs_checked_add_i32` の `overflow`) (#93)
+- uint / short / byte / long などの整数 → float も同じ変換にした
+- float の field / 配列要素 / `default` の既定値、`float.Parse` (`__tcs_tofloat`、不正な文字列の nil はそのまま) と `float.TryParse` の結果 (失敗時の 0 も)、float の `Sum` (空でも) を Lua でも float にした (integer の 0 に int を足すと integer のまま進む)
+- int の `Sum` (要素型か selector の戻り値が int) を checked にした。IL の callee を静的な型で `List.SumInt` に分け、途中の加算が i32 を超えたら fault (Lua は error、C は `tcs_checked_add_i32` の `overflow`)。float の `List.Sum` は従来どおり検査しない (#93)
 - `enum` の member 値が int.MinValue のとき、Lua は通常の const と同じ `(-2147483647 - 1)` で出す。literal `-2147483648` は Lua32 で float になっていた (#118)
 - tcs2c の `tcs_trunc_f32` の下限を `>= -2147483648.0f` にした。`-2147483649.0f` は f32 で -2^31 に丸まるので、範囲内の `(int)-2147483648f` が fault していた (#76)
-- 検証: `tcs2c.Tests/DifferentialTests.NumericConversion.cs` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致、Sum の overflow は 3 経路とも "before" の後で停止) が変更前は 4 本 fail、変更後 pass。raw Lua の `tostring` で float の結果を見ていた Transpiler.Tests の期待値 (`1122` → `1122.0` など) を合わせた。`bash run-tests.sh` (pre-commit) 全通過
-- 判断: 組み込みの float 算術 (+ - * / %) の operand では変換を省いた (Lua / C とも演算が integer を float へ変換してから計算する)。省けるのは相手の operand が Lua で float であるときなので、float の既定値を `0.0` にしてこの前提を保つ。`+ 0.0` は float の -0 を +0 にするので `* 1.0` にした
-- 残課題: Lua の `__tcs_trunc` は NaN / 範囲外の float → int で fault しない (C は fault)。host から integer で渡された float 値は従来どおり integer のまま
+- 検証: `tcs2c.Tests/DifferentialTests.NumericConversion.cs` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致、Sum の overflow は 3 経路とも "before" の後で停止。C だけの float → int の境界 (-2^31 と -2147483648.5f は変換、-2147483904f / 2^31 / NaN / ±inf は fault)) が変更前は fail、変更後 pass。raw Lua の `tostring` で float の結果を見ていた Transpiler.Tests の期待値 (`1122` → `1122.0` など) を合わせた。`bash run-tests.sh` (pre-commit) 全通過
+- Sum の速さ (1000 要素 × 20000 回、9 回の最小値。計測時の load average が 20 超で絶対値は揺れるので比で見る): lua64 は master の Sum が int 0.84 s / float 0.83 s に対し、SumInt 1.23 s (selector 付き 1.43 s、master 0.63 s) / float Sum 0.79 s。lua32 は master int 0.64 s / float 0.67 s に対し、SumInt 1.10 s (selector 付き 1.79 s、master 0.81 s) / float Sum 0.68 s。最初の実装 (要素ごとの `math.type`) は int 3.18 s / float 1.94 s (lua64) だった
+- 判断: 組み込みの float 算術 (+ - * / %) の operand では変換を省いた (Lua / C とも演算が integer を float へ変換してから計算する)。省けるのは相手の operand が Lua で float であるときなので、float の既定値と runtime が返す float を float にしてこの前提を保つ。`+ 0.0` は float の -0 を +0 にするので `* 1.0` にした。Sum の int / float は Lua の値の subtype ではなく静的な型で分ける (float の値が integer のこともあり、実行時の判定は誤って fault する上に遅い)。SumInt は selector 無しで identity を呼ばない loop を持つ
+- 残課題: Lua の `__tcs_trunc` は NaN / 範囲外の float → int で fault しない (C は fault)。host から integer で渡された float 値は従来どおり integer のままで、組み込みの float 算術で int と混ぜると f32 へ丸まらない
