@@ -2109,6 +2109,17 @@
 - 検証: tcs2c.Tests に `DifferentialTests.SkipTakeExtremes.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。1 / 3 / 0 要素の Skip(int.MaxValue)、Skip(int.MaxValue - 1)、Skip の 0 / 負 / int.MinValue / 要素数ちょうど、Take(int.MaxValue) / Take(-1)、Skip と Take の連鎖)。修正前は lua32 が 60 秒の timeout で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の `List.Skip` を除いて master とバイト一致
 - 残課題: `String.Substring` の範囲外 (`"abc".Substring(10)` 等) は wrap と別に fault しない (il-spec §13 では fault)
 
+### tcs2c で Dictionary への store の key を値より先に評価する (#152) ✓ (2026-10-11)
+- 文の位置の Dictionary への代入 / 複合代入 (`D[I] += Right()`、`D[I] = Right()`、Lua では代入形の `Add`) が `*(int32_t *)tcs_dict_put(d, key, NULL) = (値);` で、C の `=` の左右の評価順が決まっていないため key を右辺の後に評価していた (`Right` が `I = 1` にすると CoreCLR `17,20`、C `10,17`)。key を temp に取ってから値を評価する。collection initializer (`{ [K()] = V() }`) も値の temp を key より先に取っていたので、key → 値の順にした
+- 検証: tcs2c.Tests に `DictStore_EvaluatesKeyBeforeValue` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。int / string key の代入・複合代入・Add・initializer)。修正前は C が `10,17` / `vkvk...` で fail、修正後 pass。Lua の生成物は変わらない
+- 判断: List / 配列の store は既に受け手と添字を temp に取っていたので、dict だけ同じ形にした
+- 残課題: なし
+
+### ?. の when-not-null の連鎖 (#162) ✓ (2026-10-11)
+- `h.S?.Len().Twice()` / `h.Q?.Next().Next()` / `h.T?.ToUpper().Length` のように when-not-null が呼び出し / member の連鎖のとき、連鎖全体を通常の式として作り、一番内側の binding (`.Len()` / `.Next()`) は receiver の local の field を返すだけだった。Lua は `Ext.twice(__tcs_ca.len(1))` (`string.len` に解決して 2) や `self` の無い `__tcs_ca.next()` を出し、`h.S?.Length.ToString()` は `__tcs_ca.Length` (nil)、`h.L?[1].Twice()` は `unsupported ElementBindingExpression` で止まっていた。C も同じ IL を受けていた
+- 連鎖の一番内側の binding (`.M()` / `.P` / `[i]`) を、連鎖が単独の when-not-null のときと同じ builder (拡張 method の静的呼び出し、string / List / Dict の写像、struct の静的ディスパッチ) で `?.` の receiver に対して作り、外側の連鎖はその IL を receiver にして作る。binding を receiver の local の field にする汎用の経路は無くした
+- 検証: tcs2c.Tests に `DifferentialTests.ConditionalChain.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。拡張 method / instance method / string / List / `V?` の連鎖、null の receiver、`?.` の入れ子、`!`)。修正前は Lua が `bad argument #1 to 'len'` / `unsupported ElementBindingExpression`、C が `method has no IL body: P.main` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+
 ### Lua の struct copy 抜け: base 引数・?. 呼び出し・ToDictionary・代入式の値 (#128 #152) ✓ (2026-10-11)
 - Lua backend で、次の経路の struct 値を copy する (il-spec §10、readonly struct は従来どおり copy しない)。`base(...)` の引数、`?.` 経由の呼び出しの引数 (`l?.Add(t)`)、value selector の無い `ToDictionary` の値 (IL は value selector の位置に `S.__copy` 参照を置き、C backend は要素を値で写すので読まない)、`??=` の右辺
 - 式位置の代入の値を、格納した slot ではなく値の copy にする (`Mut(h.Data.I = Make())`、`Mut(d[1] = src)`、`Mut(l[0] = src)`、`Mut(loc = src)` で `Mut` の変更が格納先に残っていた)。代入式の IIFE は末尾の return を copy にし、`WrapStructCopy` が IIFE を新しい値とみなす前提を満たす。custom property への代入式も同じ末尾を通し、setter には `__tcs_v` の copy を渡す (setter が `value` を書き換えると `var y = (h.Item = s)` の y に見えていた。`S?` の custom property への `??=` の値も copy になる)
