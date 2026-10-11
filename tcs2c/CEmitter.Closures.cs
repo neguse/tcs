@@ -37,44 +37,91 @@ internal sealed partial class CEmitter
     }
 
     // closure が外の変数として参照する名前 (入れ子の closure が参照するものも
-    // 含む)。初出順
+    // 含む)。初出順。closure の中の local / ループ変数は外の変数と同じ名前に
+    // できる (shadow) ので、宣言は block 単位で束縛する
     private static List<string> FreeNames(IlClosure closure)
     {
-        var bound = new HashSet<string>(closure.Params);
         var free = new List<string>();
-        void Note(string name)
-        {
-            if (!bound.Contains(name) && !free.Contains(name)) free.Add(name);
-        }
-        void E(IlExpr e)
+        void E(IlExpr e, HashSet<string> bound)
         {
             switch (e)
             {
-                case IlVar v: Note(v.Name); break;
-                case IlClosure nested: FreeNames(nested).ForEach(Note); break;
-                default: Walk(e, E, S); break;
+                case IlVar v:
+                    if (!bound.Contains(v.Name) && !free.Contains(v.Name))
+                        free.Add(v.Name);
+                    break;
+                case IlClosure nested:
+                    foreach (var name in FreeNames(nested))
+                        E(new IlVar(name), bound);
+                    break;
+                case IlIife iife: Block(iife.Stats, bound); break;
+                default: Walk(e, x => E(x, bound), st => S(st, bound)); break;
             }
         }
-        void S(IlStat st)
+        // 外の block の束縛は copy して持ち込み、内の宣言を外へ漏らさない
+        void Block(IEnumerable<IlStat> stats, HashSet<string> outer,
+            params string?[] declared)
         {
-            if (DeclaredName(st) is { } name) bound.Add(name);
-            WalkStat(st, E, S);
+            var bound = new HashSet<string>(outer);
+            foreach (var name in declared)
+                if (name != null) bound.Add(name);
+            foreach (var st in stats) S(st, bound);
         }
-        if (closure.ExprBody != null) E(closure.ExprBody);
-        if (closure.Body != null)
-            foreach (var st in closure.Body.Stats) S(st);
+        void S(IlStat st, HashSet<string> bound)
+        {
+            switch (st)
+            {
+                case IlLocal l:
+                    if (l.Init != null) E(l.Init, bound);
+                    bound.Add(l.Name);
+                    break;
+                case IlIf i:
+                    foreach (var (cond, body) in i.Arms)
+                    {
+                        E(cond, bound);
+                        Block(body.Stats, bound);
+                    }
+                    if (i.Else != null) Block(i.Else.Stats, bound);
+                    break;
+                case IlWhile w:
+                    E(w.Cond, bound);
+                    Block(w.Body.Stats, bound);
+                    if (w.Trailer != null) Block(w.Trailer.Stats, bound);
+                    break;
+                case IlRepeat rp:
+                    Block(rp.Body.Stats, bound);
+                    E(rp.Cond, bound);
+                    break;
+                case IlNumericFor nf:
+                    E(nf.Start, bound); E(nf.Limit, bound);
+                    Block(nf.Body.Stats, bound, nf.Var);
+                    break;
+                case IlForeachList fl:
+                    E(fl.Coll, bound);
+                    Block(fl.Body.Stats, bound, fl.Var);
+                    break;
+                case IlForeachDict fd:
+                    E(fd.Coll, bound);
+                    Block(fd.Body.Stats, bound, fd.Var);
+                    break;
+                case IlForeachRunes fr:
+                    E(fr.Str, bound);
+                    Block(fr.Body.Stats, bound, fr.Var);
+                    break;
+                case IlForPairs fp:
+                    E(fp.Coll, bound);
+                    Block(fp.Body.Stats, bound, fp.KVar, fp.VVar);
+                    break;
+                case IlDo d: Block(d.Body.Stats, bound); break;
+                case IlBreakScope bs: Block(bs.Body.Stats, bound); break;
+                default: WalkStat(st, x => E(x, bound), y => S(y, bound)); break;
+            }
+        }
+        var parameters = new HashSet<string>(closure.Params);
+        if (closure.ExprBody != null) E(closure.ExprBody, parameters);
+        if (closure.Body != null) Block(closure.Body.Stats, parameters);
         return free;
     }
-
-    private static string? DeclaredName(IlStat st) => st switch
-    {
-        IlLocal l => l.Name,
-        IlForeachList l => l.Var,
-        IlForeachDict l => l.Var,
-        IlForeachRunes l => l.Var,
-        IlNumericFor l => l.Var,
-        _ => null,
-    };
 
     private static void Walk(IlExpr e, Action<IlExpr> expr, Action<IlStat> stat)
     {

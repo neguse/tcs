@@ -165,4 +165,122 @@ public partial class DifferentialTests
         var c = Backends.EmitC([source], "P");
         Assert.Equal(3, c.Split("= tcs_new_cell(sizeof").Length - 1);
     }
+
+    [CFact]
+    public void Closures_LoopVariableShadowsCapturedOuterLocal()
+    {
+        // lambda の中のループ変数 / block の local が外の local と同じ名前でも、
+        // その scope の外の参照は外の local を捕捉する。ループの入れ子と
+        // break / continue の中の捕捉も見る
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            public class Sh
+            {
+                public static void Main()
+                {
+                    var l = new List<int> { 1, 1 };
+                    int v = 5;
+                    Func<int> f1 = () => { var s = 0; foreach (var v in l) s += v; return s + v; };
+                    Func<Func<int>> f2 = () => { var s = 0; foreach (var v in l) s += v; return () => s + v; };
+                    int i = 9;
+                    Func<int> f3 = () => { var s = 0; for (int i = 0; i < 2; i++) s += i; return s + i + 1; };
+                    var kv = "changed";
+                    var d = new Dictionary<string, int> { ["a"] = 1 };
+                    Func<string> f4 = () => { var r = ""; foreach (var kv in d) r += kv.Key; return r + kv; };
+                    int t = 5;
+                    Func<bool, Func<int>> f5 = c => { if (c) { int t = 1; t++; } return () => t; };
+                    Console.WriteLine(f1() + ":" + f2()() + ":" + f3() + ":" + f4() + ":" + f5(true)());
+                    var fs = new List<Func<string>>();
+                    foreach (var a in new List<int> { 1, 2, 3 })
+                    {
+                        if (a == 2) continue;
+                        foreach (var b in new int[] { 10, 20, 30 })
+                        {
+                            if (b == 30) break;
+                            fs.Add(() => a + ":" + b);
+                        }
+                    }
+                    var all = "";
+                    foreach (var f in fs) all = all + f() + ",";
+                    Console.WriteLine(all);
+                }
+            }
+            """, "Sh");
+        Assert.Equal("""
+            7:7:11:achanged:5
+            1:10,1:20,3:10,3:20,
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [CFact]
+    public void Closures_CapturedKeyValuePairSurvivesFrames()
+    {
+        // 捕捉した KeyValuePair の copy (string / List / struct の value) を
+        // static に残し、後のフレームで元の Dictionary を上書き / Remove して
+        // フレーム境界の GC (stress 含む) をまたいで読む。List は参照なので
+        // 後の Add が見える
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+            public struct Rec
+            {
+                public string Name;
+                public int N;
+                public Rec(string name, int n) { Name = name; N = n; }
+            }
+            public class Program
+            {
+                public static Dictionary<string, Func<string>> Kept = new Dictionary<string, Func<string>>();
+                public static Dictionary<string, string> Ss = new Dictionary<string, string>();
+                public static Dictionary<int, List<string>> Ls = new Dictionary<int, List<string>>();
+                public static Dictionary<string, Rec> Rs = new Dictionary<string, Rec>();
+                public static int Frames;
+                public static void Setup()
+                {
+                    Kept = new Dictionary<string, Func<string>>();
+                    Ss = new Dictionary<string, string>();
+                    Ls = new Dictionary<int, List<string>>();
+                    Rs = new Dictionary<string, Rec>();
+                    Frames = 0;
+                }
+                public static void Frame()
+                {
+                    var f = Frames;
+                    Ss["s" + f] = "v" + f;
+                    Ls[f] = new List<string> { "l" + f };
+                    Rs["r" + f] = new Rec("n" + f, f);
+                    if (f == 1)
+                    {
+                        foreach (var kv in Ss) Kept["s" + kv.Key] = () => kv.Key + "=" + kv.Value;
+                        foreach (var kv in Ls) Kept["l" + kv.Key] = () => kv.Key + "=" + kv.Value[0] + kv.Value.Count;
+                        foreach (var kv in Rs) Kept["r" + kv.Key] = () => kv.Key + "=" + Show(kv.Value);
+                    }
+                    if (f == 2)
+                    {
+                        Ss["s0"] = "over";
+                        Ss.Remove("s1");
+                        Ls[0].Add("more");
+                        Ls.Remove(1);
+                        Rs["r0"] = new Rec("over", 99);
+                        Rs.Remove("r1");
+                    }
+                    var junk = new List<string>();
+                    for (int i = 0; i < 50; i++) junk.Add("x" + i + f);
+                    Frames = f + 1;
+                }
+                static string Show(Rec r) => r.Name + r.N;
+                public static void Report()
+                {
+                    var all = "";
+                    foreach (var key in new List<string> { "ss0", "ss1", "l0", "l1", "rr0", "rr1" })
+                        all = all + Kept[key]() + ",";
+                    Console.WriteLine(all + Kept.Count);
+                }
+            }
+            """;
+        Assert.Equal("s0=v0,s1=v1,0=l02,1=l11,r0=n00,r1=n11,6",
+            Backends.AssertParityLib(source, "Program", 5));
+    }
 }
+
