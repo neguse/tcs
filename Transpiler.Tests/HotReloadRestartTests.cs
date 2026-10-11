@@ -17,6 +17,10 @@ public class HotReloadRestartTests
         "public class G { public static int P { get; set; } = 1; }",
         "public class G { public static int P { get; set; } = 2; }",
         "static initializer changed: G.p")]
+    [InlineData( // const は使う側に埋め込まれるが、static の initializer は再評価されない
+        "public class G { public const int K = 1; public static int X = K * 2; }",
+        "public class G { public const int K = 2; public static int X = K * 2; }",
+        "static initializer changed: G.k")]
     [InlineData(
         "public class A { } public class B { } public class C : A { }",
         "public class A { } public class B { } public class C : B { }",
@@ -63,24 +67,11 @@ public class HotReloadRestartTests
     [InlineData( // 型と enum member の追加
         "public enum E { One }",
         "public enum E { One, Two } public class N { }")]
-    [InlineData( // const は使う側に埋め込まれる値で、実行中に変わらない
-        "public class G { public const int K = 1; }",
-        "public class G { public const int K = 2; }")]
     public void Plan_LiveEdit_EmitsChunk(string v1, string v2)
     {
         var plan = HotReload.PlanReload([v1], [v2]);
 
         Assert.Empty(plan.RestartReasons);
         Assert.NotNull(plan.Chunk);
-    }
-
-    // const の table 上の値も v2 にする (host の Lua から G.k と読める)
-    [Fact]
-    public void Reload_ConstChange_UpdatesTableValue()
-    {
-        const string V1 = "public class G { public const int K = 1; public static int Get() { return K; } }";
-        const string V2 = "public class G { public const int K = 2; public static int Get() { return K; } }";
-        Assert.Equal("2\t2", TestHelper.RunLua(TestHelper.ComposeReload(V1, "", V2,
-            "print(G.k, G.get())")).Trim());
     }
 }

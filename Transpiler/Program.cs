@@ -600,7 +600,9 @@ public class Program
     // ホストへの message は標準出力へ、`@@tcs_<kind> <UTF-8 の byte 数>` の行と本文の
     // 組で順に書く。stream なので取りこぼしも上書きも無く、ホストは届いた順に読む。
     // kind は reload_chunk (本文は当てる Lua chunk) と restart_required (本文は
-    // 改行終端の理由の行。-o の出力は書き終えている)
+    // 改行終端の理由の行。-o の出力は書き終えている)。reload_chunk 以外の本文は
+    // 改行終端の行に限る: reload_chunk だけを解するホスト (lub) は他の行を 1 行
+    // ずつ捨てて読み進める
     private static readonly Stream ReloadChunkOut = Console.OpenStandardOutput();
 
     private static void WriteHostMessage(string kind, string text)
@@ -695,14 +697,16 @@ public class Program
                     $"[{DateTime.Now:HH:mm:ss}] Sent reload chunk {running.Build} -> {build}");
             }
             // 初回 build はホストが出力をそのまま読む。以後は chunk を書いたとき、
-            // または restart を求めたとき (ホストはこの build の出力で起動し直す) に
-            // ホストの VM がこの build に進む
-            if (running.Sources == null || plan != null)
+            // または restart を求めたとき (出力を書いた後。ホストはこの build の
+            // 出力で起動し直す) にホストの VM がこの build に進む
+            void Advance()
             {
                 running.Build = build;
                 running.Sources = sources;
                 running.References = refSources;
             }
+            if (running.Sources == null || plan?.Chunk != null)
+                Advance();
 
             var outputPath = options.OutputPath!;
             OutputFileWriter.WriteAllText(outputPath, lua);
@@ -715,6 +719,7 @@ public class Program
 
             if (plan is { Chunk: null } restart)
             {
+                Advance();
                 Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Restart required "
                     + $"(reload chunk not sent; restart the host to run build {build}):");
                 foreach (var reason in restart.RestartReasons)

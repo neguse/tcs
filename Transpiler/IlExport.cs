@@ -41,7 +41,7 @@ public sealed record IlCtorInfo(
 /// <summary>InitHash は initializer の構文の hash (無ければ null)。hot reload が
 /// 既存 static の initializer 変更を restart と判定するのに使う。</summary>
 public sealed record IlFieldInfo(string Name, string Type, bool IsStatic,
-    IlExpr? Init = null, string? InitHash = null, bool IsConst = false);
+    IlExpr? Init = null, string? InitHash = null);
 
 /// <summary>method body の IL。Body が null なら IL 未対応 (診断構文等) で
 /// backend は対象外にできる。</summary>
@@ -305,8 +305,7 @@ public static partial class IlExport
                         : LuaNaming.Member(v.Identifier.ValueText),
                     fieldSymbol?.Type.ToDisplayString() ?? "?",
                     fieldSymbol?.IsStatic ?? false,
-                    init, InitHash(v.Initializer?.Value),
-                    fieldSymbol?.IsConst ?? false));
+                    init, InitHash(v.Initializer?.Value)));
             }
         }
         foreach (var prop in cls.Members.OfType<PropertyDeclarationSyntax>()

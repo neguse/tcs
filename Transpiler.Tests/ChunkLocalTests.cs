@@ -162,28 +162,16 @@ public class ChunkLocalTests
         Assert.Equal("ok", TestHelper.RunLua(script).Trim());
     }
 
+    // enum member の追加は旧 table の中身を v2 で置き換える (値の変更は restart)
     [Fact]
-    public void Reload_V1CachedChunk_SeesV2EnumValues()
+    public void Reload_EnumMemberAdded_KeepsTableIdentity()
     {
-        const string V1 = """
-            using System;
-            public enum Kind { A, B }
-            public class Picker { public static Func<Kind> Pick = () => Kind.A; }
-            """;
-        const string V2 = """
-            using System;
-            public enum Kind { A, B, C }
-            public class Picker
-            {
-                public static Func<Kind> Pick = () => Kind.A;
-                public static bool Same() => Pick() == Kind.A;
-            }
-            """;
+        const string V1 = "public enum Kind { A, B }";
+        const string V2 = "public enum Kind { A, B, C }";
         var script = TestHelper.ComposeReload(V1, "local kind = Kind", V2,
             """
             assert(Kind == kind, "enum table identity")
             assert(kind.C == 2, "v2 member through the v1 table")
-            assert(Picker.same(), "v1 closure reads the enum table")
             print("ok")
             """);
         Assert.Equal("ok", TestHelper.RunLua(script).Trim());

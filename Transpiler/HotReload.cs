@@ -216,16 +216,14 @@ public static class HotReload
             sb.AppendLine($"    __old.{removed} = nil");
 
         // static: retained (同名同型) は生存値を保持 (struct 型は再直列化)、
-        // added / 型変更は fresh の初期値、discarded は破棄。const は実行中に
-        // 変わらない値なので、どちら側が const でも fresh の値にする
+        // added / 型変更は fresh の初期値、discarded は破棄
         var oldStatics = old.Fields.Where(f => f.IsStatic)
-            .ToDictionary(f => f.Name);
+            .ToDictionary(f => f.Name, f => f.Type);
         var newStatics = @new.Fields.Where(f => f.IsStatic).ToList();
         foreach (var field in newStatics)
         {
             var retainedSameType = oldStatics.TryGetValue(field.Name,
-                out var oldField) && oldField.Type == field.Type
-                && !oldField.IsConst && !field.IsConst;
+                out var oldType) && oldType == field.Type;
             if (!retainedSameType)
                 sb.AppendLine($"    __old.{field.Name} = __fresh.{field.Name}");
             else

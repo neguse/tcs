@@ -4,6 +4,7 @@ namespace TinyCs.Tests;
 internal sealed class WatchMessageReader
 {
     private const string Prefix = "@@tcs_";
+    private const string Malformed = "<malformed header>";
     private readonly System.Collections.Concurrent.BlockingCollection<(string Kind, string Body)>
         _messages = new();
 
@@ -15,10 +16,15 @@ internal sealed class WatchMessageReader
             {
                 while (ReadLine(stdout) is { } line)
                 {
-                    var space = line.LastIndexOf(' ');
-                    if (!line.StartsWith(Prefix, StringComparison.Ordinal) || space < 0)
+                    if (!line.StartsWith(Prefix, StringComparison.Ordinal))
                         continue;
-                    var body = new byte[int.Parse(line[(space + 1)..])];
+                    var space = line.LastIndexOf(' ');
+                    if (space < 0 || !int.TryParse(line[(space + 1)..], out var length))
+                    {
+                        _messages.Add((Malformed, line));
+                        return;
+                    }
+                    var body = new byte[length];
                     stdout.ReadExactly(body);
                     _messages.Add((line[Prefix.Length..space],
                         System.Text.Encoding.UTF8.GetString(body)));
@@ -34,6 +40,8 @@ internal sealed class WatchMessageReader
     {
         if (!_messages.TryTake(out var message, timeoutMs))
             throw new TimeoutException($"no @@tcs_{kind} within {timeoutMs}ms");
+        Assert.True(message.Kind != Malformed,
+            $"expected @@tcs_{kind}, got a malformed header: {message.Body}");
         Assert.True(message.Kind == kind,
             $"expected @@tcs_{kind}, got @@tcs_{message.Kind}:\n{message.Body}");
         return message.Body;

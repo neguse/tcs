@@ -28,13 +28,14 @@ public static class ReloadClassifier
             if (old.BaseName != cls.BaseName)
                 reasons.Add($"base changed: {cls.Name}");
             // 既存 static は生存値を保持するので、initializer の変更は反映されない。
-            // const は使う側に埋め込まれる値で実行中に変わらないので live
+            // const も restart: 使う側には埋め込まれるが、それを使う static の
+            // initializer は再評価されない
             var oldStatics = old.Fields.Where(f => f.IsStatic)
                 .ToDictionary(f => f.Name);
-            foreach (var field in cls.Fields.Where(f => f.IsStatic && !f.IsConst))
+            foreach (var field in cls.Fields.Where(f => f.IsStatic))
             {
                 if (oldStatics.TryGetValue(field.Name, out var oldField)
-                    && !oldField.IsConst && oldField.Type == field.Type
+                    && oldField.Type == field.Type
                     && oldField.InitHash != field.InitHash)
                     reasons.Add($"static initializer changed: {cls.Name}.{field.Name}");
             }

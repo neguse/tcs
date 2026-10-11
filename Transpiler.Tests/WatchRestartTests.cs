@@ -6,7 +6,8 @@ public class WatchRestartTests
 {
     // reload chunk で移行できない編集 (static の initializer 変更) では chunk を送らず、
     // 出力を書いてから restart の理由を標準出力と標準エラーへ出す。ホストが出力を
-    // 読み直して再起動したら、次の編集の chunk はその build へ当たる
+    // 読み直して再起動したら、次の編集の chunk はその build へ当たる (再起動して
+    // いない VM には当たらない)
     [Fact]
     public void Watch_ReloadChunks_StaticInitializerChange_RequestsRestart()
     {
@@ -36,6 +37,7 @@ public class WatchRestartTests
             try
             {
                 WatchModeTests.WaitForFile(outputPath, timeoutMs: 15000);
+                var initial = File.ReadAllText(outputPath);
 
                 Thread.Sleep(500);
                 File.WriteAllText(inputPath, changedInit);
@@ -52,6 +54,13 @@ public class WatchRestartTests
                     local before = m.on_frame()
                     assert(load({{WatchModeTests.LuaLongString(chunk)}}, "=v3"))()
                     print(before, m.on_frame())
+                    """).Trim());
+
+                // 起動し直していない VM には当たらず、状態も変えない
+                Assert.Equal("false\ttrue\t1", TestHelper.RunLua($$"""
+                    local m = assert(load({{WatchModeTests.LuaLongString(initial)}}, "=v1"))()
+                    local ok, err = pcall(assert(load({{WatchModeTests.LuaLongString(chunk)}}, "=v3")))
+                    print(ok, err:find("restart the host", 1, true) ~= nil, m.on_frame())
                     """).Trim());
             }
             finally

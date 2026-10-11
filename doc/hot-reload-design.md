@@ -181,7 +181,7 @@ migration が到達できる生存状態の全域 (roots):
 | static field 削除 | live | key 削除 |
 | 既存 static の initializer 変更 | **restart** | §11 のまま (値意図の変更は restart で反映) |
 | 既存 static の値 | live | 保持 (再実行しない) |
-| const の値変更 | live | 使う側に埋め込まれる値で実行中に変わらないので、type table 上の値も v2 にする |
+| const の値変更 | **restart** | 使う側には埋め込まれるが、それを使う既存 static の initializer は再評価されない |
 | base class 変更 (再親付け) | **restart** | §11 のまま。継承 field 集合と ctor 連鎖の差分移行は v1 対象外 |
 | class/record/struct/enum の追加 | live | 新規定義のみ |
 | type 削除・改名 | 条件付き | registry で生存 instance ゼロを確認できれば live、あれば restart (§11 の「判定できない」を registry で判定可能に) |
@@ -249,8 +249,10 @@ v2 metadata ──┘        │
   `reload_chunk` (本文は frame 間に 1 回実行する Lua chunk) と
   `restart_required` (本文は改行終端の理由の行)。`restart_required` を書く時点で
   `-o` の出力はその build で書き終えている。ホストは出力を読み直して VM を
-  起動し直し、driver は以後の chunk をその build からの差分で作る。知らない
-  kind は本文ごと読み飛ばす
+  起動し直し、driver は以後の chunk をその build からの差分で作る。
+  `reload_chunk` 以外の kind の本文は改行終端のテキスト行で、どの行も
+  `@@tcs_reload_chunk ` で始まらない。`reload_chunk` だけを解するホストが
+  それ以外の行を 1 行ずつ捨てても stream がずれないための条件
 - reload の適用は 1 frame を超えるブロックになり得る (migration は
   O(生存 instance × 変更 field))。dev 専用のヒッチとして許容し、SLO は
   UC2 のみ (§11 の 500ms) に置く
@@ -314,7 +316,7 @@ index で既に解決しており、chunk backend (UC1) の driver も同じ方�
 
 - ReloadPlanner 未分離。chunk backend は `ReloadClassifier` (IlExport の差分:
   既存 static の initializer 変更 / base 変更 / 型の削除・種類の変更 / enum
-  member の削除・値の変更を restart)、module backend は
+  member の削除・値の変更、const の値変更を restart)、module backend は
   `IncrementalCompilationSession.ClassifyRestart` (instance shape 変更も restart)
   と別々に判定する。§6 の struct restart detector はどちらにも無い
 - 型の削除は registry で生存 instance を見ずに常に restart (§5.2 は生存 instance
@@ -324,6 +326,7 @@ index で既に解決しており、chunk backend (UC1) の driver も同じ方�
 - top-level statement を v2 chunk が再実行してしまう (§5.2 違反)
 - instance migration が single-pass in-place (§7 違反: pairs 中の instance
   生成 initializer でエラー・未定義動作の余地、エラー時の部分適用)
+- struct table の static merge なし (struct static 値が reload で消える)
 - `[RenamedFrom]` が IlExport にない
 - registry overhead の実測なし (§2 の class 構築 workload が perf harness に
   未収載)
