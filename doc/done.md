@@ -2063,3 +2063,9 @@
 - `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
 - 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
 - 残課題: 概念の単位で分割して除外を外す (#167)
+
+### ?. の when-not-null の連鎖 (#162) ✓ (2026-10-11)
+- `h.S?.Len().Twice()` / `h.Q?.Next().Next()` / `h.T?.ToUpper().Length` のように when-not-null が呼び出し / member の連鎖のとき、連鎖全体を通常の式として作り、一番内側の binding (`.Len()` / `.Next()`) は receiver の local の field を返すだけだった。Lua は `Ext.twice(__tcs_ca.len(1))` (`string.len` に解決して 2) や `self` の無い `__tcs_ca.next()` を出し、`h.S?.Length.ToString()` は `__tcs_ca.Length` (nil)、`h.L?[1].Twice()` は `unsupported ElementBindingExpression` で止まっていた。C も同じ IL を受けていた
+- 連鎖の一番内側の binding (`.M()` / `.P` / `[i]`) を、連鎖が単独の when-not-null のときと同じ builder (拡張 method の静的呼び出し、string / List / Dict の写像、struct の静的ディスパッチ) で `?.` の receiver に対して作り、外側の連鎖はその IL を receiver にして作る。binding を receiver の local の field にする汎用の経路は無くした
+- 検証: tcs2c.Tests に `DifferentialTests.ConditionalChain.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。拡張 method / instance method / string / List / `V?` の連鎖、null の receiver、`?.` の入れ子、`!`)。修正前は Lua が `bad argument #1 to 'len'` / `unsupported ElementBindingExpression`、C が `method has no IL body: P.main` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 残課題: なし
