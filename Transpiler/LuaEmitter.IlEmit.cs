@@ -10,10 +10,27 @@ public partial class LuaEmitter
     /// migration 式として render するための公開面。</summary>
     public string RenderIlExpr(IlExpr expr) => RenderIl(expr);
 
-    private void EmitIlBlock(IlBlock block)
+    // Lua の return は block の最後の文に限られるので、後に文が続く return
+    // (到達不能文、loop 本体の後の continue label / for の増分) は do ... end に
+    // 閉じる。followed は末尾の文を出す時点で評価する (continue label を使うかは
+    // 本体を出すまで決まらない)
+    private void EmitIlBlock(IlBlock block, Func<bool>? followed = null)
     {
-        foreach (var stat in block.Stats)
-            EmitIlStat(stat);
+        var stats = block.Stats;
+        for (var i = 0; i < stats.Length; i++)
+        {
+            if (stats[i] is IlReturn
+                && (i < stats.Length - 1 || followed?.Invoke() == true))
+                EmitIlStat(new IlDo(new IlBlock([stats[i]])));
+            else
+                EmitIlStat(stats[i]);
+        }
+    }
+
+    private void EmitLoopBody(IlBlock body, int label, bool stepFollows = false)
+    {
+        EmitIlBlock(body, () => stepFollows || _usedContinueLabels.Contains(label));
+        EmitContinueLabel(label);
     }
 
     private void EmitIlStat(IlStat stat)
@@ -77,8 +94,7 @@ public partial class LuaEmitter
                 AppendLine($"for {numFor.Var} = {RenderIl(numFor.Start)}, " +
                     $"{RenderIl(numFor.Limit)} do");
                 _indent++;
-                EmitIlBlock(numFor.Body);
-                EmitContinueLabel(label);
+                EmitLoopBody(numFor.Body, label);
                 _indent--;
                 AppendLine("end");
                 PopContinueLabel();
@@ -89,8 +105,7 @@ public partial class LuaEmitter
                 var label = PushContinueLabel();
                 AppendLine($"for _, {feList.Var} in ipairs({RenderIl(feList.Coll)}) do");
                 _indent++;
-                EmitIlBlock(feList.Body);
-                EmitContinueLabel(label);
+                EmitLoopBody(feList.Body, label);
                 _indent--;
                 AppendLine("end");
                 PopContinueLabel();
@@ -101,8 +116,7 @@ public partial class LuaEmitter
                 var label = PushContinueLabel();
                 AppendLine($"for _, {feRunes.Var} in utf8.codes({RenderIl(feRunes.Str)}) do");
                 _indent++;
-                EmitIlBlock(feRunes.Body);
-                EmitContinueLabel(label);
+                EmitLoopBody(feRunes.Body, label);
                 _indent--;
                 AppendLine("end");
                 PopContinueLabel();
@@ -115,8 +129,7 @@ public partial class LuaEmitter
                 AppendLine($"for {v}_key, {v}_value in pairs({RenderIl(feDict.Coll)}) do");
                 _indent++;
                 AppendLine($"local {v} = {{Key = {v}_key, Value = {v}_value}}");
-                EmitIlBlock(feDict.Body);
-                EmitContinueLabel(label);
+                EmitLoopBody(feDict.Body, label);
                 _indent--;
                 AppendLine("end");
                 PopContinueLabel();
@@ -149,8 +162,7 @@ public partial class LuaEmitter
                 var label = PushContinueLabel();
                 AppendLine($"for {RenderIlPairsHead(forPairs)} do");
                 _indent++;
-                EmitIlBlock(forPairs.Body);
-                EmitContinueLabel(label);
+                EmitLoopBody(forPairs.Body, label);
                 _indent--;
                 AppendLine("end");
                 PopContinueLabel();
@@ -267,8 +279,8 @@ public partial class LuaEmitter
             AppendLine("do");
             _indent++;
         }
-        EmitIlBlock(whileStat.Body);
-        EmitContinueLabel(label);
+        EmitLoopBody(whileStat.Body, label,
+            whileStat.Trailer != null && !whileStat.ScopeBody);
         if (whileStat.ScopeBody)
         {
             _indent--;
@@ -346,6 +358,14 @@ public partial class LuaEmitter
             IlLit { LuaText: not "nil" } lit => $"__tcs_arr({RenderIl(na.Length)}, {lit.LuaText})",
             _ => "{}",
         },
+        // int → float は `* 1.0` (LUA_32BITS は integer を f32 へ丸める。
+        // + 0.0 だと float の -0 が +0 になる)。float → int は __tcs_trunc
+        // float.Parse: 不正な文字列の nil を保ったまま float にする
+        IlNumericConvert { TargetType: "float", Value: IlCall { Callee: "tonumber" } parse } =>
+            $"__tcs_tofloat({RenderIl(parse)})",
+        IlNumericConvert { TargetType: "float" } convert => convert.Value is IlBin
+            ? $"(({RenderIl(convert.Value)}) * 1.0)"
+            : $"({RenderIl(convert.Value)} * 1.0)",
         IlNumericConvert convert => RenderIl(convert.Value),
         IlRefCast refCast => RenderIl(refCast.Value),
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
@@ -380,10 +400,10 @@ public partial class LuaEmitter
     private string RenderIlClosure(IlClosure closure)
     {
         var paramList = string.Join(", ", closure.Params);
+        var locals = closure.PatternLocals.Length > 0
+            ? $"local {string.Join(", ", closure.PatternLocals)}; " : "";
         if (closure.ExprBody != null)
         {
-            var locals = closure.PatternLocals.Length > 0
-                ? $"local {string.Join(", ", closure.PatternLocals)}; " : "";
             if (Needs(closure.ExprBody))
             {
                 IlStat[] body = [.. closure.PatternLocals.Select(n => (IlStat)new IlLocal(n, null)),
@@ -395,7 +415,7 @@ public partial class LuaEmitter
             return $"function({paramList}) {locals}return " +
                 $"{RenderIl(closure.ExprBody)} end";
         }
-        return $"function({paramList}) {RenderIlClosureBlock(closure.Body!)} end";
+        return $"function({paramList}) {locals}{RenderIlClosureBlock(closure.Body!)} end";
     }
 
     // lifted 演算: 片方でも nil なら nil (比較は false)。op 関数は prelude の
@@ -495,6 +515,7 @@ public partial class LuaEmitter
         IlTernary t => IsCallFree(t.Cond) && IsCallFree(t.T) && IsCallFree(t.F),
         IlStructCopy sc => IsCallFree(sc.E),
         IlCast cast => IsCallFree(cast.E),
+        IlNumericConvert n => IsCallFree(n.Value),
         IlNullableWrap w => IsCallFree(w.E),
         IlNullableHasValue h => IsCallFree(h.E),
         IlIsType it => IsCallFree(it.E),

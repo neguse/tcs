@@ -142,14 +142,14 @@ public partial class LuaEmitter
         _ => type.ToString(),
     };
 
-    private static List<string>? GetDeconstructPropertyNames(ITypeSymbol? type, int count)
+    private static List<IPropertySymbol>? GetDeconstructProperties(ITypeSymbol? type, int count)
     {
         if (type is not INamedTypeSymbol named) return null;
         // Record positional parameters → properties with matching names
         var props = named.GetMembers()
             .OfType<IPropertySymbol>()
             .Where(p => !p.IsStatic && p.DeclaredAccessibility == Accessibility.Public)
-            .Select(N).ToList();
+            .ToList();
         if (props.Count >= count) return props.Take(count).ToList();
         return null;
     }
@@ -176,8 +176,10 @@ public partial class LuaEmitter
             SpecialType.System_Boolean => "false",
             SpecialType.System_Char => "0",
             SpecialType.System_Int32 or SpecialType.System_Int64
-                or SpecialType.System_UInt32 or SpecialType.System_Single
-                or SpecialType.System_Double => "0",
+                or SpecialType.System_UInt32 => "0",
+            // float は Lua でも float (integer の 0 は int と混ぜた演算が
+            // integer のまま進み、f32 へ丸まらない)
+            SpecialType.System_Single or SpecialType.System_Double => "0.0",
             _ => "nil"
         };
     }

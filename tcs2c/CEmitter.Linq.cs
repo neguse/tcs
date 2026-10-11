@@ -234,10 +234,10 @@ internal sealed partial class CEmitter
             case "Count":
                 if (args.Length == 2) _ = Pred(1);
                 return CType.I32;
-            case "Sum" or "Min" or "Max":
+            case "Sum" or "SumInt" or "Min" or "Max":
             {
                 var key = args.Length == 2 ? InferClosureResult(args[1], [elem]) : elem;
-                if (name == "Sum")
+                if (name is "Sum" or "SumInt")
                     return NumericJoin(key, CType.I32, name);
                 if (key.Kind is not (CTypeKind.I32 or CTypeKind.F32 or CTypeKind.String))
                     throw new Tcs2cException($"{call.Callee}: keys must be numbers or strings");
@@ -254,7 +254,13 @@ internal sealed partial class CEmitter
                 RequireArity(call.Callee, args.Length, 2);
                 RequireType(CType.I32, TypeOf(args[1]), call.Callee);
                 return CType.List(elem);
+            // 変更可能な struct 要素では Lua 向けの `S.__copy` 参照が 2 番目に付く
+            // (C は要素を値で写すので読まない)
             case "ToList":
+                if (args.Length == 2 && elem.Kind == CTypeKind.StructVal
+                    && args[1] is IlField { Recv: IlVar owner, Name: "__copy" }
+                    && owner.Name == elem.Name)
+                    return CType.List(elem);
                 RequireArity(call.Callee, args.Length, 1);
                 return CType.List(elem);
             case "ToDictionary":
@@ -388,13 +394,16 @@ internal sealed partial class CEmitter
                 sb.Append(Loop($"if ({call1}) {r}++;"));
                 return $"({{ {sb}{r}; }})";
             }
-            case "Sum":
+            case "Sum" or "SumInt":
             {
                 var acc = Temp("sum");
                 var value = args.Length == 2
                     ? Closure(1, InferClosureResult(args[1], [elem]), elem) : v;
                 sb.Append($"{resultType.CName} {acc} = 0; ");
-                sb.Append(Loop($"{acc} = {acc} + {value};"));
+                // int の Sum は checked (Enumerable.Sum と同じく overflow は fault)
+                sb.Append(Loop(resultType == CType.I32
+                    ? $"{acc} = tcs_checked_add_i32({acc}, {value});"
+                    : $"{acc} = {acc} + {value};"));
                 return $"({{ {sb}{acc}; }})";
             }
             case "Min" or "Max":

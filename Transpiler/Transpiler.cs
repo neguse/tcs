@@ -106,10 +106,13 @@ public static class Transpiler
         if (errors.Count > 0)
             return new TranspileResult { Errors = errors };
 
-        // 写像後の Lua 名の衝突 (`flash` と `Flash`) は片方が黙って消える
-        // 壊れた Lua になるので、compile error と同じく emit せずに失敗する。
+        // 写像後の Lua 名の衝突 (member の `flash` と `Flash`、型の `A_B.C` と
+        // `A.B.C`) は片方が黙って消える壊れた Lua になるので、compile error と
+        // 同じく emit せずに失敗する。
         foreach (var tree in trees)
             errors.AddRange(TinyCsComplianceFacts.AnalyzeLuaNameCollisions(tree));
+        errors.AddRange(TinyCsComplianceFacts.AnalyzeLuaTypeNameCollisions(
+            compilation, trees).Select(c => c.Error));
         if (errors.Count > 0)
             return new TranspileResult { Errors = errors };
 
@@ -139,6 +142,8 @@ public static class Transpiler
             emitter.TypeLocalBudget = LuaEmitter.DefaultTypeLocalBudget(trees);
         foreach (var refTree in refTrees)
             emitter.ReferenceTrees.Add(refTree);
+        emitter.StaticInitDependencies = StaticInitOrder.DependenciesByName(
+            compilation, trees, emitter.TypeName);
         if (hasTopLevelStatements)
         {
             foreach (var tree in trees)
@@ -164,9 +169,10 @@ public static class Transpiler
             }
         }
 
-        warnings.AddRange(emitter.Warnings);
-
+        // static initializer は ToString で出す (LuaEmitter.StaticInit.cs) ので、
+        // その警告も含めてから集める
         var lua = emitter.ToString();
+        warnings.AddRange(emitter.Warnings);
         if (entryClass != null)
         {
             // metadata 名 (Ns.Type) → 一意な simple 名の順で解決する
