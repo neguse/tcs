@@ -2167,3 +2167,10 @@
 - hot-reload-design.md から struct の static field を前提にした記述 (§5.1 の root の行、§11 の「struct table の static merge なし」) を消した
 - 判断: struct の static method と本体を持つ static property は従来どおり warning の TCS1001 (`StructMember(...)`)。呼ぶと Lua は nil 呼び出しで止まり、黙って別の値を読む static field とは違う
 - 残課題: C で基底の static field を派生型の名前で読む (`B.Y`、Y は基底 A の static) と `unbound IL variable: B` で止まる (record に限らず class も同じ。Lua は動く)
+
+### Lua で switch 式の arm と GetValueOrDefault(x) の struct の値を copy する (#188) ✓ (2026-10-11)
+- `var a = k switch { 1 => h.F, _ => h.G }` (Lua) で、`a` が `h.F` と同じ table になり `a.N = 9` が `h.F` に残っていた。copy 地点 (WrapStructCopy) が IIFE を新しい値として copy を省いていたが、switch 式の IIFE は arm の格納先の table をそのまま返す。宣言の初期値に限らず、代入 (`x = k switch ...`)、引数 (`Mut(k switch ...)`、`l.Add(...)`)、配列の要素、arm の入れ子 (`k switch { 1 => k switch { ... } }`) も同じだった。`S? n = k switch { 1 => h.G, _ => null }` も `h.G` と alias していた。同じ理由で `h.Opt.GetValueOrDefault(fb)` (IIFE) も `h.Opt` の中の table を返していた
+- 新しい値かどうかを IL の node の種類 (IIFE) ではなく式の形で決める (`IsFreshStructValue`: object creation / with 式 / 代入式 / switch 式、括弧は中を見る)。switch 式は arm の値を arm ごとに copy 地点として扱い、copy した値を返す。`GetValueOrDefault(x)` は受け手の copy 地点で copy する。`?:` / `??` / 括弧で包んだ switch 式は従来から copy していた
+- 検証: Transpiler.Tests に `StructCopyBranchValueTests.cs` (5 本、`TCS_DIFFERENTIAL=1` で CoreCLR と一致)、tcs2c.Tests に `DifferentialTests.StructCopyBranch.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 4 本と差分テストが fail (Lua が `opt:9` / `decl:9` / `assign:9` / `arg:5:5:5` / `nested:9`。return と lambda の本体は呼び出し側の copy で隠れて pass)、修正後 pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: switch 式の copy は受け手の側ではなく arm の側で作る (#176 の代入式の値と同じ)。受け手の側で IIFE を copy すると、新しい値を作る arm (`1 => new S { N = 1 }`) まで copy し、宣言 / 代入 / return の if 文化 (TryGetValueChainShape) も効かなくなって closure が残る。`GetValueOrDefault(x)` は受け手の側で copy するので、宣言の初期値でも closure の IIFE のまま (struct の `T?` に限る)
+- 残課題: struct の `T?` の値 (型が `S?`) は copy 地点で copy しない (IsUserStruct が `Nullable<S>` を外す)。`S? x = c ? h.F : null` と `var x = h?.F` (h は class) は `h.F` と同じ table を持ち、後で `h.F.N = 9` とすると `x.Value.N` も 9 になる (Lua、master から。CoreCLR は 0)
