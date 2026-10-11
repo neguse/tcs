@@ -225,9 +225,9 @@ public sealed partial class IncrementalCompilationSession
         // 対象外 (constructor/accessor/record/nested/警告持ち) は file 全体 emit。
         var artifact = TrySpliceMethodEmit(comp, path, tree, bodySpan)
             ?? EmitModule(comp, path, tree);
+        var prevArtifact = _lastGood.GetValueOrDefault(path);
         _lastGood[path] = artifact;
-        if (EditReachesInitializers(tree, bodySpan))
-            RefreshInitDependencies();
+        UpdateInitDependenciesAfterBodyEdit(prevArtifact, artifact, tree, bodySpan);
         Revision++;
         swEmit.Stop();
         return new SessionUpdateResult

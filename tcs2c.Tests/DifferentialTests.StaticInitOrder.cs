@@ -56,4 +56,58 @@ public partial class DifferentialTests
         var output = Backends.AssertParity([InitOrderB, InitOrderA], "A");
         Assert.Equal("16\n42,50,22,23\n3,2", output);
     }
+
+    // delegate を作るだけの initializer (method group / lambda) は、その先の
+    // 本文を実行しないので依存にしない (辿ると偽の循環で初期化順が狂う)
+    [CFact]
+    public void StaticInitializers_DelegateCreationIsNotADependency()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            public class Game
+            {
+                public static Action OnHit = Hit;
+                public static int Lives = 3;
+                static void Hit() { Score.Value += 10; }
+                public static void Main()
+                {
+                    OnHit();
+                    Console.WriteLine(Score.Bonus + "," + Score.Value);
+                    Console.WriteLine(A.F() + "," + A.Z);
+                }
+            }
+            public class Score { public static int Value = 0; public static int Bonus = Game.Lives * 100; }
+            public class A { public static Func<int> F = () => B.Y; public static int Z = 5; }
+            public class B { public static int Y = A.Z + 1; }
+            """, "Game");
+        Assert.Equal("300,10\n6,5", output);
+    }
+
+    // struct 型の static の zero 値 (pre-zero) は struct の定義より前に評価され
+    // 得るので、struct が後ろのファイルでも落ちない
+    private const string StructStaticA = """
+        using System;
+        public class A
+        {
+            public static V2 P = new V2(1, Cfg.N);
+            public static V2 Q;
+            public static void Main()
+            {
+                Q.X += 3;
+                Console.WriteLine(P.X + "," + P.Y + "," + Q.X + "," + Q.Y);
+            }
+        }
+        """;
+
+    private const string StructStaticB = """
+        public struct V2 { public int X; public int Y; public V2(int x, int y) { X = x; Y = y; } }
+        public class Cfg { public static int N = Seed(); static int Seed() { return 4; } }
+        """;
+
+    [CFact]
+    public void StaticInitializers_StructStaticDeclaredBeforeStruct()
+    {
+        Assert.Equal("1,4,3,0", Backends.AssertParity([StructStaticA, StructStaticB], "A"));
+        Assert.Equal("1,4,3,0", Backends.AssertParity([StructStaticB, StructStaticA], "A"));
+    }
 }

@@ -93,5 +93,60 @@ public class StaticInitOrderTests
         var output = RunSnapshot(Snapshot(session),
             "print(reg.types[\"a.cs#A\"].x)");
         Assert.Equal(["7"], output);
+
+        // 触る型・呼ぶ method が変わらない編集では依存を取り直さず引き継ぐ
+        r = session.Update("lib.cs", lib.Replace("return 1;", "return Z.W * 1;"));
+        Assert.True(r.Success && r.FastPath);
+        output = RunSnapshot(Snapshot(session),
+            "print(reg.types[\"a.cs#A\"].x)");
+        Assert.Equal(["7"], output);
+    }
+
+    // fast path でも method 単位の差し替えができない編集 (constructor 本文など)
+    // は module を丸ごと emit し直す。その module の型の依存を失わない
+    [Fact]
+    public void ConstructorBodyEditKeepsInitDependencies()
+    {
+        var a = """
+            public class A
+            {
+                public static int K = B.Base + 1;
+                public int V;
+                public A() { V = 1; }
+            }
+            """;
+        var session = new IncrementalCompilationSession();
+        session.OpenProject([
+            ("a.cs", a),
+            ("b.cs", "public class B { public static int Base = 10; }"),
+        ]);
+        var r = session.Update("a.cs", a.Replace("V = 1;", "V = 2;"));
+        Assert.True(r.Success && r.FastPath);
+        var output = RunSnapshot(Snapshot(session),
+            "print(reg.types[\"a.cs#A\"].k)");
+        Assert.Equal(["11"], output);
+    }
+
+    // struct 型の static の pre-zero は descriptor の構築時 (型の定義より前) に
+    // 評価されるので、struct の module が後ろでも落ちない
+    [Fact]
+    public void StructStaticBeforeStructModule()
+    {
+        var session = new IncrementalCompilationSession();
+        session.OpenProject([
+            ("a.cs", """
+                public class A
+                {
+                    public static V2 P = new V2(1, 2);
+                    public static V2 Q;
+                }
+                """),
+            ("v2.cs", "public struct V2 { public int X; public int Y; public V2(int x, int y) { X = x; Y = y; } }"),
+        ]);
+        var output = RunSnapshot(Snapshot(session), """
+            local A = reg.types["a.cs#A"]
+            print(A.p.x + A.p.y, A.q.x, A.q.y)
+            """);
+        Assert.Equal(["3\t0\t0"], output);
     }
 }

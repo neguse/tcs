@@ -16,6 +16,14 @@ public partial class LuaEmitter
     /// (StaticInitOrder.DependenciesByName)。null なら宣言順。</summary>
     public IReadOnlyDictionary<string, List<string>>? StaticInitDependencies { get; set; }
 
+    // static の pre-zero は型の定義より前 (module mode では descriptor の構築時)
+    // に評価されるので、struct の zero 値は `S.new()` を呼ばず table literal で書く
+    private string StaticDefaultLua(ITypeSymbol? type) =>
+        IsUserStruct(type)
+            ? "{" + string.Join(", ", ValueMembers(type).Select(m =>
+                $"{m.Name} = {StaticDefaultLua(m.Type)}")) + "}"
+            : GetDefaultValueForType(type);
+
     private void DeferStaticFieldInitializers(SemanticModel model, string name,
         EmittedTypeInfo info,
         List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)> staticFieldInits)

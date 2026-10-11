@@ -86,6 +86,14 @@ public sealed class StaticInitDependencies(Compilation compilation,
     public static string MethodKey(IMethodSymbol method) =>
         method.OriginalDefinition.ToDisplayString();
 
+    /// <summary>method の本文が直接触る型・呼ぶ method (変化の比較用)。</summary>
+    public string EffectsKey(IMethodSymbol method)
+    {
+        var e = MethodEffects(method);
+        return string.Join(",", e.Types.Select(t => t.ToDisplayString())) + ";"
+            + string.Join(",", e.Callees.Select(MethodKey));
+    }
+
     public bool HasStaticInitializers(INamedTypeSymbol type) =>
         StaticInitializers(type).Any();
 
@@ -198,7 +206,9 @@ public sealed class StaticInitDependencies(Compilation compilation,
                 effects.Callees.AddRange(b.InstanceConstructors);
         }
         // virtual / interface の呼び出しは project 内の実装すべてに届き得る
-        if (Overrides().TryGetValue(method, out var impls))
+        if ((method.IsVirtual || method.IsAbstract || method.IsOverride
+                || method.ContainingType.TypeKind == TypeKind.Interface)
+            && Overrides().TryGetValue(method, out var impls))
             effects.Callees.AddRange(impls);
         return effects;
     }
@@ -209,10 +219,26 @@ public sealed class StaticInitDependencies(Compilation compilation,
         into.Callees.AddRange(from.Callees);
     }
 
+    // lambda の本文と method group の先は、delegate を作るだけでは実行されない
+    // ので辿らない (辿ると偽の依存・循環で初期化順が狂う)
+    private static IEnumerable<IOperation> ExecutedOperations(IOperation root)
+    {
+        var stack = new Stack<IOperation>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var op = stack.Pop();
+            yield return op;
+            if (op is IAnonymousFunctionOperation) continue;
+            foreach (var child in op.ChildOperations.Reverse())
+                stack.Push(child);
+        }
+    }
+
     private Effects Collect(IOperation root)
     {
         var effects = new Effects([], []);
-        foreach (var op in root.DescendantsAndSelf())
+        foreach (var op in ExecutedOperations(root))
         {
             switch (op)
             {
@@ -229,9 +255,6 @@ public sealed class StaticInitDependencies(Compilation compilation,
                     break;
                 case IObjectCreationOperation { Constructor: { } ctor }:
                     effects.Callees.Add(ctor);
-                    break;
-                case IMethodReferenceOperation mref:
-                    effects.Callees.Add(mref.Method);
                     break;
                 case IBinaryOperation { OperatorMethod: { } m }:
                     effects.Callees.Add(m);

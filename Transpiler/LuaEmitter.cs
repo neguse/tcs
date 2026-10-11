@@ -215,7 +215,7 @@ public partial class LuaEmitter
         var preZeroStart = _sb.Length;
         foreach (var (fieldName, _, type) in staticFieldInits)
         {
-            var defaultValue = GetDefaultValueForType(type!);
+            var defaultValue = StaticDefaultLua(type);
             if (defaultValue != "nil")
                 AppendLine($"{name}.{fieldName} = {defaultValue}");
         }
@@ -284,7 +284,7 @@ public partial class LuaEmitter
             // field 初期化を許す。それ以外の initializer 変更は restart 境界。
             var pure = init == null || model.GetConstantValue(init).HasValue;
             info.StaticFields.Add(new StaticFieldMeta(fieldName,
-                GetDefaultValueForType(type),
+                StaticDefaultLua(type),
                 init == null ? "<default>"
                     : ModuleArtifactText.Sha256(init.ToString()),
                 pure, initStart, _sb.Length - initStart));
