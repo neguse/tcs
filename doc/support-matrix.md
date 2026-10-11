@@ -364,7 +364,7 @@ C# `int` と一致する。シフトは `__tcs_shl` / `__tcs_shr` (count を 31 
 | パターン | C# ver | 状態 | Lua マッピング | 備考 |
 |---------|--------|:----:|--------------|------|
 | 定数パターン `is 42`, `is null` | 7 | **Y** | `== 42`, `== nil` | |
-| 型パターン `is MyClass` | 7 | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定 | struct `S` / `S?` の入力を同じ struct 型で照合するのは値の有無だけ |
+| 型パターン `is MyClass` | 7 | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定 | struct `S` / `S?` の入力を同じ struct 型で照合するのは値の有無だけ。`object` に入れた `List<T>` / 配列 / `Dictionary<K,V>` への型 test は Lua では TCS1001 (table は構造型の tag を持たない。C backend は構造型 id で判定) |
 | `not` パターン `is not null` | 9 | **Y** | `~= nil` | |
 | 破棄パターン `_` | 7 | **Y** | switch 式の default | `_ when 条件` は条件付きの arm |
 | 宣言パターン `is int i` | 7 | **Y** | 型判定 + local 束縛 | if / ternary / 複合条件 / lambda / switch で束縛。struct は入力 (`S?` は中の値) の copy を束縛 |

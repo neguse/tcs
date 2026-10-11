@@ -33,6 +33,9 @@ public partial class LuaEmitter
         ConstantPatternSyntax cp => BuildExpr(model, cp.Expression) is { } value
             ? new IlBin(IlBinOp.Eq, governing, value) : null,
         DiscardPatternSyntax => new IlLit("true"),
+        TypePatternSyntax tp =>
+            BuildTypeCheck(governing, PatternInputType(model, tp),
+                model.GetTypeInfo(tp.Type).Type, FormatTypeReference(model, tp.Type)),
         DeclarationPatternSyntax dp =>
             BuildTypeCheck(governing, PatternInputType(model, dp),
                 model.GetTypeInfo(dp.Type).Type, FormatTypeReference(model, dp.Type)),

@@ -1934,3 +1934,11 @@
 - 検証: tcs2c.Tests に `DifferentialTests.NullablePattern.cs` の 2 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 2 本とも C が `IlIsType target is not a class: Pt` で fail (Lua は `p is Pt { X: 2 }` が `0`、`w is Pt u` の変異が元に残る)、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: switch の宣言 pattern は arm より前に束縛する既存の形のまま、`S?` の入力は値なしでも落ちないよう `__tcs_nget(sw, default)` の copy を束縛する (arm に一致しなければ使われない)。is 式は値の有無を見てから `.Value` の copy を束縛する
 - 残課題: object / interface に入れた struct (boxing) の型照合は従来どおり (struct の値は型 tag を持たない)
+
+### 構造型 (List / 配列 / Dictionary) への is (#131) ✓ (2026-10-11)
+- C backend: `o is List<float>` / `o is float[]` / `o is Dictionary<string, object>` (is 式、switch の arm、`case List<float>:`、`is not`) を、box 時に `tcs_typed` が付ける構造型 id (cast と同じ id) の一致で判定する。IL は新しい `IlIsRefType` (型表記は IlRefCast と同じ)。従来は `IlIsType target is not a class: List<float>` で止まっていた
+- Lua backend: table は構造型の tag を持たず `List<float>` と `List<int>` / 配列を見分けられないので、IL 化せず TCS1001 (`unsupported syntax: expression: IsExpression`) を出し、本文は実行時 error の stub にする。従来は診断なしで `__tcs_is(o, List<float>)` という読めない Lua を出していた。入力の静的型が同じ構造型 (`List<float> l; l is List<float>`) なら null 判定にする (両 backend)
+- switch の arm の型 pattern (`float[] =>` のように TypePatternSyntax になるもの) も照合に入れた。従来は IL 化に失敗していた
+- 検証: tcs2c.Tests に `DifferentialTests.StructuralIs.cs` の 2 本 (C 通常 + GC stress が CoreCLR で実行した stdout と一致 / Lua が TCS1001 を出し実行時 error の stub になる)。修正前は 2 本とも fail (C は `method has no IL body: P.kind`、Lua は警告なし)、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: 構造型の型 test を作るかは builder の `StructuralTypeTests` (IlExport だけ有効) で分けた。Lua で要素を覗いて推測する判定は空の List や List と配列を区別できないので入れない。IlExport の IL を Lua に描く経路 (hot reload の field 初期化子) では実行時 error にする
+- 残課題: C で `object` を入力にした宣言 pattern (`o is List<float> l`、switch の `List<float> l =>`) は class (`o is Box b`) と同じく未対応のまま (`cannot assign object to ...` / `field receiver is not a class reference` で止まる)

@@ -13,6 +13,13 @@ public partial class LuaEmitter
     {
         if (LuaTypeNameFor(patternType) is { } luaType)
             return new IlIsLuaType(expr, luaType);
+        if (IsStructuralType(patternType))
+        {
+            if (SymbolEqualityComparer.Default.Equals(inputType, patternType))
+                return new IlBin(IlBinOp.Ne, expr, new IlLit("nil"));
+            return StructuralTypeTests
+                ? new IlIsRefType(expr, patternType!.ToDisplayString()) : null;
+        }
         if (patternType is { IsValueType: true } && inputType != null)
         {
             if (SymbolEqualityComparer.Default.Equals(inputType, patternType))
@@ -36,6 +43,11 @@ public partial class LuaEmitter
         return declType is INamedTypeSymbol { IsReadOnly: true }
             ? value : new IlStructCopy(value, TypeName(declType!));
     }
+
+    private static bool IsStructuralType(ITypeSymbol? type) =>
+        type is IArrayTypeSymbol || type != null
+            && (IsListType(type.OriginalDefinition.ToDisplayString())
+                || IsDictType(type.OriginalDefinition.ToDisplayString()));
 
     private static ITypeSymbol? PatternInputType(SemanticModel model,
         SyntaxNode node) => model.GetOperation(node) switch
