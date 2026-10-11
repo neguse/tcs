@@ -36,6 +36,10 @@ public partial class LuaEmitter
         TypePatternSyntax tp =>
             BuildTypeCheck(governing, PatternInputType(model, tp),
                 model.GetTypeInfo(tp.Type).Type, FormatTypeReference(model, tp.Type)),
+        DeclarationPatternSyntax { Designation: SingleVariableDesignationSyntax sv } dp
+            when StructDesignation(model, dp) is (var inputType, var declType) =>
+            BuildStructDeclarationIs(new IlVar(sv.Identifier.ValueText), governing,
+                inputType, declType),
         DeclarationPatternSyntax dp =>
             BuildTypeCheck(governing, PatternInputType(model, dp),
                 model.GetTypeInfo(dp.Type).Type, FormatTypeReference(model, dp.Type)),
@@ -44,7 +48,7 @@ public partial class LuaEmitter
             ? new IlBin(RelationalIlOp(rel), governing, v) : null,
         BinaryPatternSyntax bp => BindPatternInput(governing, input =>
             BuildPattern(model, bp.Left, input) is { } l
-            && BuildPattern(model, bp.Right, input) is { } r
+            && BuildPattern(model, bp.Right, AndRightInput(model, bp, input)) is { } r
                 ? BinaryPatternIl(bp, l, r) : null),
         _ => null,
     };
@@ -72,7 +76,7 @@ public partial class LuaEmitter
             ? new IlBin(RelationalIlOp(rp), expr, v) : null,
         BinaryPatternSyntax bp => BindPatternInput(expr, input =>
             BuildIsSubPattern(model, input, bp.Left) is { } l
-            && BuildIsSubPattern(model, input, bp.Right) is { } r
+            && BuildIsSubPattern(model, AndRightInput(model, bp, input), bp.Right) is { } r
                 ? BinaryPatternIl(bp, l, r) : null),
         RecursivePatternSyntax rp => BuildRecursivePattern(model, expr, rp),
         _ => null,
@@ -184,9 +188,7 @@ public partial class LuaEmitter
         {
             var name = ((SingleVariableDesignationSyntax)dp.Designation!)
                 .Identifier.ValueText;
-            stats.Add(new IlLocal(name, DesignationValue(sw,
-                PatternInputType(model, dp), model.GetTypeInfo(dp.Type).Type,
-                hasValue: false)));
+            stats.Add(SwitchDesignationLocal(model, dp, name, sw));
         }
 
         var arms = new List<(IlExpr, IlBlock)>();
@@ -227,15 +229,11 @@ public partial class LuaEmitter
             { Designation: SingleVariableDesignationSyntax sv } dp)
         {
             var name = sv.Identifier.ValueText;
-            var inputType = PatternInputType(model, dp);
-            var declType = model.GetTypeInfo(dp.Type).Type;
-            if (IsUserStruct(declType) && inputType != null
-                && SymbolEqualityComparer.Default.Equals(
-                    UnwrapNullable(inputType), declType))
+            if (StructDesignation(model, dp) is (var inputType, var declType))
                 return BuildStructDeclarationIs(new IlVar(name), expr, inputType,
                     declType);
-            var check = BuildTypeCheck(new IlVar(name), inputType, declType,
-                FormatTypeReference(model, dp.Type));
+            var check = BuildTypeCheck(new IlVar(name), PatternInputType(model, dp),
+                model.GetTypeInfo(dp.Type).Type, FormatTypeReference(model, dp.Type));
             return check == null ? null : new IlIife([
                 new IlAssign(new IlVar(name), expr),
                 new IlReturn(check)]);
@@ -270,9 +268,8 @@ public partial class LuaEmitter
             var dp = (DeclarationPatternSyntax)label.Pattern;
             var name = ((SingleVariableDesignationSyntax)dp.Designation!)
                 .Identifier.ValueText;
-            products.Add(new IlLocal(name, DesignationValue(sw,
-                PatternInputType(model, dp), model.GetTypeInfo(dp.Type).Type,
-                hasValue: false)) { Origin = switchStmt });
+            products.Add(SwitchDesignationLocal(model, dp, name, sw)
+                with { Origin = switchStmt });
         }
 
         // default と同じ section の case も出現順に照合する (後の section の

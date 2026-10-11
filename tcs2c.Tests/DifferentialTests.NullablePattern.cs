@@ -78,4 +78,47 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("1,0,1\n7,2\n2,109,-1\nzero,pt,none\n4,9\n1,1\n3\n2:1", output);
     }
+
+    // and の右辺は左辺が絞った struct の値を照合する。同名の designation を持つ
+    // arm は arm ごとに copy を束縛する (前の arm の when での変異を見ない)
+    [CFact]
+    public void StructPattern_AndNarrowingAndPerArmCopy()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            public struct Pt { public int X; }
+            public class Holder { public Pt? At; }
+            public class P
+            {
+                static int Arms(Pt? p) => p switch
+                {
+                    Pt v when (v.X = 100) < 0 => -1,
+                    Pt v => v.X,
+                    _ => -2,
+                };
+                static int Cases(Pt? p)
+                {
+                    switch (p)
+                    {
+                        case Pt v when (v.X = 100) < 0: return -1;
+                        case Pt v: return v.X;
+                        default: return -2;
+                    }
+                }
+                static int Plain(Pt p) => p switch { Pt v when (v.X = 50) < 0 => -1, Pt v => v.X };
+                public static void Main()
+                {
+                    Pt? p = new Pt { X = 2 };
+                    Pt? q = null;
+                    Console.WriteLine((p is Pt and { X: 2 } ? 1 : 0) + "," + (q is Pt and { X: 2 } ? 1 : 0) + "," + (p is Pt and not { X: 3 } ? 1 : 0) + "," + (p is Pt and { X: 3 } ? 1 : 0));
+                    var h = new Holder { At = new Pt { X = 4 } };
+                    var e = new Holder();
+                    Console.WriteLine((h is { At: Pt { X: 4 } and { X: > 3 } } ? 1 : 0) + "," + (e is { At: Pt { X: 4 } and { X: > 3 } } ? 1 : 0));
+                    Console.WriteLine((p is { } and { X: 2 } ? 1 : 0) + "," + (p is not null and { X: 2 } ? 1 : 0));
+                    Console.WriteLine(Arms(new Pt { X = 1 }) + "," + Arms(null) + "," + Cases(new Pt { X = 1 }) + "," + Cases(null) + "," + Plain(new Pt { X = 7 }));
+                }
+            }
+            """, "P");
+        Assert.Equal("1,0,1,0\n1,0\n1,1\n1,-2,1,-2,7", output);
+    }
 }
