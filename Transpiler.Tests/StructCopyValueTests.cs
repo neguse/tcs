@@ -129,4 +129,25 @@ public class StructCopyValueTests
             }
             """));
     }
+
+    // S? の custom property への ??= の値 (型は S) も copy。値を受けた側の
+    // 変更は格納先に残らない
+    [Fact]
+    public void CoalesceAssignToNullableStructProperty_ValueIsCopy()
+    {
+        Assert.Equal("3:3", Run("""
+            public class H { S? c; public S? CustOpt { get { return c; } set { c = value; } } }
+            public class T
+            {
+                static int Mut(S x) { x.N = 77; return x.N; }
+                public static string Test()
+                {
+                    var h = new H();
+                    var src = new S { N = 3 };
+                    Mut(h.CustOpt ??= src);
+                    return h.CustOpt.Value.N + ":" + src.N;
+                }
+            }
+            """));
+    }
 }

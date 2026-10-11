@@ -157,7 +157,7 @@ public partial class LuaEmitter
                 ? new IlIife([.. stats, new IlReturn(new IlVar("__tcs_v"))])
                 : null;
         else if (IsCustomPropertyTarget(model, assign.Left))
-            return BuildPropAssignExpr(model, assign);
+            iife = BuildPropAssignExpr(model, assign);
         else if (NeedsLoweredAssign(model, assign)
             || NeedsFixedAssignTarget(model, assign))
             iife = BuildLoweredAssign(model, assign);
