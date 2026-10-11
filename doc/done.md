@@ -1950,6 +1950,14 @@
 - 判断: label を `return` の前に置く案は、`continue` の飛び先で `return` を実行してしまうので採らない。閉じるかどうかは末尾の文を出す時点で決める (continue label を使うかは本体を出し終えるまで分からないが、末尾の `return` より前の `continue` は出し終えている)
 - 残課題: constructor の `return;` は `return` (nil) を出すので、`new C()` が nil になり、末尾の `return;` は後ろの `return self` と合わせて構文エラーになる (この修正の対象外)
 
+### 別 namespace の同名 --ref 型を両方出し、型の Lua global 名の衝突を診断する (#104 #105) ✓ (2026-10-11)
+- tcs2c: `--ref` の外部 class を辿る訪問済み集合の key を simple 名から型 symbol (generic は定義) にした。`A.Opts` と `B.Opts` の片方が外部 class として出ず `unsupported IL type: B.Opts` で止まっていた (#104)
+- 型の Lua global 名 (namespace 修飾名を `_` で結合) が先に宣言された別の型と同じになるもの (`A_B.C` と `A.B.C` は共に `A_B_C`) を、member の LuaNameCollision と同じ書式の TCS1001 `LuaNameCollision(A_B.C/A.B.C)` にした。transpiler / `tcs check` / 増分 session は error で Lua を出さず、IlExport も同じ error を Diagnostics に返すので tcs2c も止まる。analyzer は 2 個目以降の型に warning。従来 Lua は黙って後勝ちの `2 2`、C は `duplicate class: A_B_C` だった (#105)
+- 型の global 名の規則を `LuaNaming.TypeGlobalName` (Shared) に移し、emit (`LuaEmitter.TypeName`) と診断が同じ関数を使う
+- 検証: 追加した `RefNamespaceTests` (IlExport の外部 class が `A_Opts` だけ → 両方、生成 C を host 付きで compile / 実行して `37`)、`LuaTypeNameCollisionTests` 6 本 (transpile / 複数ファイル / 非衝突 / check / 増分 session / IlExport) と analyzer の 1 本は修正前に red、修正後 green。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1011 / tcs2c.Tests 64 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: 「別名にする」案は q.md Q2 の flat な修飾名を変えるので採らず、診断にした。宣言順は入力ファイルの順と位置で、最初の型は報告しない (member と同じ)。interface / delegate は Lua の global を持たず、入れ子の型は NestedTypeDeclaration の領分、`--ref` の型は小文字パスで呼ぶので対象外。generic と非 generic の同名型 (`Queue` と `Queue<T>`) も Lua では同じ global なので同じ error になり、conformance baseline の types.md:ConstructedTypes1 が InCompile → Diag。IlExport は単相化で書き換える前の tree で判定する (Lua 経路と同じ規則、位置も入力のまま)
+- 残課題: なし
+
 ### Lua: 初期化子のない static field を initializer の段で default に戻さない (#89) ✓ (2026-10-11)
 - 先に宣言した static の初期化子 (から呼んだ method) が後ろの初期化子なし field / auto-property に書いた値を、Lua だけ後から型別 default で上書きしていた (`State.First = State.initialize()` の後の `State.later = 0`)。C# §15.5.6 どおり、全 static を default にするのは pre-zero (型宣言の直後) だけにし、initializer の段では初期化子のある field だけを宣言順に代入する
 - 検証: tcs2c.Tests の `DifferentialTests.StaticDefaults.cs` (Lua / C / C GC stress の一致 + CoreCLR で同じ program を実行した stdout `3/7/4/5/1/0` との一致)。修正前は Lua が `attempt to index a nil value (field 'ref')` で fail、修正後 pass。`ModuleDescriptorTests.DefineChunkExcludesDeclarationAndStaticInit` は初期化子なし field の initializer thunk が空であることを見る形に直した。`bash run-tests.sh` (pre-commit) 全通過
