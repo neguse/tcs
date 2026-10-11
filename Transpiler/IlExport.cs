@@ -38,8 +38,10 @@ public sealed record IlCtorInfo(
     ImmutableArray<IlExpr> BaseArgs = default,
     ImmutableArray<IlExpr?> ParameterDefaults = default);
 
+/// <summary>InitHash は initializer の構文の hash (無ければ null)。hot reload が
+/// 既存 static の initializer 変更を restart と判定するのに使う。</summary>
 public sealed record IlFieldInfo(string Name, string Type, bool IsStatic,
-    IlExpr? Init = null);
+    IlExpr? Init = null, string? InitHash = null);
 
 /// <summary>method body の IL。Body が null なら IL 未対応 (診断構文等) で
 /// backend は対象外にできる。</summary>
@@ -141,7 +143,7 @@ public static partial class IlExport
             diagnostics.AddRange(
                 TinyCsComplianceFacts.AnalyzeUnsupportedSyntaxes(tree, model));
         }
-        var emitter = new LuaEmitter();
+        var emitter = new LuaEmitter { StructuralTypeTests = true };
         emitter.ReferenceTrees.UnionWith(references);
         var reservedTypeNames = emitter.ReservedTypeNames(compilation.Assembly);
         // Lua 出力と同じ名前で IL を出す (予約語ローカルの写し、LuaLocalRenamer)
@@ -283,13 +285,9 @@ public static partial class IlExport
         var positional = record?.ParameterList?.Parameters.ToList() ?? [];
         foreach (var p in positional)
         {
-            // base の primary ctor へ渡すだけの parameter (同名 member を
-            // 継承している) は C# も property を合成しないので field にしない
             var name = p.Identifier.ValueText;
-            var synthesized = symbol?.GetMembers(name)
-                .Any(m => SymbolEqualityComparer.Default.Equals(
-                    m.ContainingType, symbol)) ?? true;
-            if (!synthesized) continue;
+            if (symbol != null && !LuaEmitter.IsSynthesizedPositional(symbol, name))
+                continue;
             var paramSymbol = model.GetDeclaredSymbol(p);
             fields.Add(new IlFieldInfo(
                 LuaNaming.Member(name),
@@ -314,7 +312,7 @@ public static partial class IlExport
                                 : LuaNaming.Member(v.Identifier.ValueText),
                             fieldSymbol?.Type.ToDisplayString() ?? "?",
                             fieldSymbol?.IsStatic ?? false,
-                            init));
+                            init, InitHash(v.Initializer?.Value)));
                     }
                     break;
                 case PropertyDeclarationSyntax prop when prop.AccessorList != null
@@ -329,12 +327,15 @@ public static partial class IlExport
                             : LuaNaming.Member(prop.Identifier.ValueText),
                         propSymbol?.Type.ToDisplayString() ?? "?",
                         propSymbol?.IsStatic ?? false,
-                        propInit));
+                        propInit, InitHash(prop.Initializer?.Value)));
                     break;
             }
         }
         return fields;
     }
+
+    private static string? InitHash(ExpressionSyntax? init) =>
+        init == null ? null : ModuleArtifactText.Sha256(init.ToString());
 
     private static IlCtorInfo? BuildCtor(LuaEmitter emitter, SemanticModel model,
         TypeDeclarationSyntax cls)
@@ -357,10 +358,15 @@ public static partial class IlExport
                     baseArgs.Add(built);
                 }
             }
-            var body = positional.Select(p => (IlStat)new IlAssign(
-                new IlField(new IlVar("self"),
-                    LuaNaming.Member(p.Identifier.ValueText)),
-                new IlVar(p.Identifier.ValueText)));
+            // 基底から継承した positional property は基底の ctor が持つ
+            var symbol = model.GetDeclaredSymbol(cls);
+            var body = positional
+                .Where(p => symbol == null || LuaEmitter.IsSynthesizedPositional(
+                    symbol, p.Identifier.ValueText))
+                .Select(p => (IlStat)new IlAssign(
+                    new IlField(new IlVar("self"),
+                        LuaNaming.Member(p.Identifier.ValueText)),
+                    new IlVar(p.Identifier.ValueText)));
             return new IlCtorInfo(
                 [.. positional.Select(p => p.Identifier.ValueText)],
                 [.. positional.Select(p =>

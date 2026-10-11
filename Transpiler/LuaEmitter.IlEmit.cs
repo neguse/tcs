@@ -341,6 +341,11 @@ public partial class LuaEmitter
             $"(({RenderIl(floorArg)}) // 1)",
         IlCall { Callee: "Math.Ceil", Args: [var ceilArg] } =>
             $"(-(-({RenderIl(ceilArg)}) // 1))",
+        // float key の NaN 置換は読み直しても値が変わらない key なら inline
+        // (呼び出しを省く。sentinel は runtime の Dict.FloatKey と同じ "NaN")
+        IlCall { Callee: "Dict.FloatKey", Args: [var floatKey] }
+            when IsCallFree(floatKey) =>
+            $"({RenderIl(floatKey)} ~= {RenderIl(floatKey)} and \"NaN\" or {RenderIl(floatKey)})",
         IlCall call =>
             $"{LuaCallee(call.Callee)}({string.Join(", ", call.Args.Select(RenderIl))})",
         IlDynCall dyn =>
@@ -358,9 +363,20 @@ public partial class LuaEmitter
             IlLit { LuaText: not "nil" } lit => $"__tcs_arr({RenderIl(na.Length)}, {lit.LuaText})",
             _ => "{}",
         },
+        // int → float は `* 1.0` (LUA_32BITS は integer を f32 へ丸める。
+        // + 0.0 だと float の -0 が +0 になる)。float → int は __tcs_trunc
+        // float.Parse: 不正な文字列の nil を保ったまま float にする
+        IlNumericConvert { TargetType: "float", Value: IlCall { Callee: "tonumber" } parse } =>
+            $"__tcs_tofloat({RenderIl(parse)})",
+        IlNumericConvert { TargetType: "float" } convert => convert.Value is IlBin
+            ? $"(({RenderIl(convert.Value)}) * 1.0)"
+            : $"({RenderIl(convert.Value)} * 1.0)",
         IlNumericConvert convert => RenderIl(convert.Value),
         IlRefCast refCast => RenderIl(refCast.Value),
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
+        // Lua 出力の builder は作らない (StructuralTypeTests)。IlExport の IL を
+        // 描く経路 (hot reload の field 初期化子) では実行時 error にする
+        IlIsRefType => "error(\"TinyC#: unsupported structural type test\")",
         IlStructCopy copy => $"{copy.TypeName}.__copy({RenderIl(copy.E)})",
         IlCast cast => RenderIl(cast.E),
         IlNullableWrap wrap => RenderIl(wrap.E),
@@ -504,6 +520,7 @@ public partial class LuaEmitter
         IlTernary t => IsCallFree(t.Cond) && IsCallFree(t.T) && IsCallFree(t.F),
         IlStructCopy sc => IsCallFree(sc.E),
         IlCast cast => IsCallFree(cast.E),
+        IlNumericConvert n => IsCallFree(n.Value),
         IlNullableWrap w => IsCallFree(w.E),
         IlNullableHasValue h => IsCallFree(h.E),
         IlIsType it => IsCallFree(it.E),

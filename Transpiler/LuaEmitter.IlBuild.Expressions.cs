@@ -10,12 +10,14 @@ namespace TinyCs;
 // VisitMemberAccess の意味決定を写像し、未対応は null (method fallback)。
 public partial class LuaEmitter
 {
-    // 式構築の入口。T → T? の暗黙変換 (Roslyn の ConvertedType) をここで
-    // 一元的に IlNullableWrap に写す (代入 / 引数 / return / lifted operand)
+    // 式構築の入口。暗黙変換 (Roslyn の ConvertedType) の int → float と
+    // T → T? をここで一元的に IlNumericConvert / IlNullableWrap に写す
+    // (代入 / 引数 / return / 比較・lifted の operand)
     private IlExpr? BuildExpr(SemanticModel model, ExpressionSyntax expr)
     {
         var built = BuildExprCore(model, expr);
-        return built == null ? null : ApplyNullableConversion(model, expr, built);
+        return built == null ? null : ApplyNullableConversion(model, expr,
+            ApplyNumericConversion(model, expr, built));
     }
 
     private IlExpr? BuildExprCore(SemanticModel model, ExpressionSyntax expr)
@@ -68,10 +70,14 @@ public partial class LuaEmitter
             case AssignmentExpressionSyntax assignExpr:
             {
                 // 式位置の代入 (`(i = y) >= 0`、`arr[x = 1]`): 文として代入し
-                // 代入後の左辺を値にする IIFE
+                // 代入後の左辺を値にする IIFE (読み直しで受け手が変わり得る
+                // ときは受け手 / 添字を固定した place を読む)
+                if (NeedsStructSlotAssign(model, assignExpr))
+                    return BuildStructSlotAssignExpr(model, assignExpr);
                 if (IsCustomPropertyTarget(model, assignExpr.Left))
                     return BuildPropAssignExpr(model, assignExpr);
-                if (NeedsLoweredAssign(model, assignExpr))
+                if (NeedsLoweredAssign(model, assignExpr)
+                    || NeedsFixedAssignTarget(model, assignExpr))
                     return BuildLoweredAssign(model, assignExpr);
                 var assignStats = new List<IlStat>();
                 if (!BuildExprStatInto(model, assignExpr, null, assignStats))
@@ -124,8 +130,7 @@ public partial class LuaEmitter
                 if (value == null || target == null) return value;
                 if (target.SpecialType is SpecialType.System_Int32
                     or SpecialType.System_Single or SpecialType.System_Double)
-                    return new IlNumericConvert(value,
-                        target.SpecialType == SpecialType.System_Int32 ? "int" : "float");
+                    return NumericCastIl(value, model.GetTypeInfo(cast.Expression).Type, target);
                 return target.IsReferenceType || target.SpecialType == SpecialType.System_Boolean
                     || target.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T
                     ? new IlRefCast(value, target.ToDisplayString()) : value;
@@ -156,7 +161,8 @@ public partial class LuaEmitter
                 var typeDef = receiverType?.OriginalDefinition.ToDisplayString() ?? "";
                 var plusOne = IsListType(typeDef)
                     || receiverType is IArrayTypeSymbol;
-                return new IlIndex(recv, index, plusOne);
+                return new IlIndex(recv, DictKey(model, receiverType,
+                    elemAccess.ArgumentList.Arguments[0].Expression, index), plusOne);
             }
             case DefaultExpressionSyntax def:
             {
@@ -265,7 +271,8 @@ public partial class LuaEmitter
             var typeRef = bin.Right is TypeSyntax typeSyntax
                 ? FormatTypeReference(model, typeSyntax)
                 : BuildTypeRefText(model, bin.Right);
-            var check = BuildTypeCheck(operand, patternType, typeRef);
+            var check = BuildTypeCheck(operand, model.GetTypeInfo(bin.Left).Type,
+                patternType, typeRef);
             return check == null ? null : new IlParen(check);
         }
 
@@ -465,8 +472,8 @@ public partial class LuaEmitter
 
             if (symbol is IMethodSymbol { IsStatic: true } staticFacade
                 && IsTinySystemFacade(staticFacade.ContainingType))
-                return new IlCall(
-                    $"TinySystem.{staticFacade.ContainingType.Name}.{methodName}", argArr);
+                return new IlCall($"TinySystem.{staticFacade.ContainingType.Name}."
+                    + TypedListMethod(methodName, staticFacade), argArr);
 
             if (symbol is IMethodSymbol { IsExtensionMethod: true, ReducedFrom: null } staticExt)
                 return BuildStaticFormExtensionCall(model, invocation, staticExt, argArr);
@@ -522,12 +529,14 @@ public partial class LuaEmitter
                 return new IlCall($"Math.{luaName}", argArr);
             }
 
+            if (IsNumericCompareTo(symbol))
+                return BuildNumericCompareTo(BuildExpr(model, ma.Expression), argArr);
             if (IsEnvironmentGetEnv(symbol))
                 return new IlCall("os.getenv", argArr);
             if (NumericParseKind(symbol) is { } parseKind)
                 return parseKind == "int"
                     ? new IlCall("math.tointeger", [new IlCall("tonumber", argArr)])
-                    : new IlCall("tonumber", argArr);
+                    : new IlNumericConvert(new IlCall("tonumber", argArr), "float");
 
             if (symbol is IMethodSymbol stringStatic
                 && stringStatic.ContainingType.SpecialType
@@ -663,7 +672,7 @@ public partial class LuaEmitter
                     ? new IlCall("Dict.Count", [obj])
                     : new IlLen(obj);
             if (member == "Keys" && IsDictType(typeDef))
-                return new IlCall("Dict.Keys", [obj]);
+                return DictKeys(receiverType, obj);
             if (member == "Values" && IsDictType(typeDef))
                 return new IlCall("Dict.Values", [obj]);
             if (member == "Length"
@@ -734,7 +743,8 @@ public partial class LuaEmitter
                     var key = BuildExpr(model, kvInit.Expressions[0]);
                     var value = BuildExpr(model, kvInit.Expressions[1]);
                     if (key == null || value == null) return null;
-                    entries.Add(new IlTableEntry(key,
+                    entries.Add(new IlTableEntry(
+                        DictKey(model, typeSymbol, kvInit.Expressions[0], key),
                         WrapStructCopy(model, kvInit.Expressions[1], value)));
                 }
                 else if (e is AssignmentExpressionSyntax
@@ -744,11 +754,12 @@ public partial class LuaEmitter
                     } indexAssign)
                 {
                     // indexer initializer: { ["k"] = v } (legacy と同じ [k] = v 項)
-                    var key = BuildExpr(model,
-                        indexInit.ArgumentList.Arguments[0].Expression);
+                    var keySyntax = indexInit.ArgumentList.Arguments[0].Expression;
+                    var key = BuildExpr(model, keySyntax);
                     var value = BuildExpr(model, indexAssign.Right);
                     if (key == null || value == null) return null;
-                    entries.Add(new IlTableEntry(key,
+                    entries.Add(new IlTableEntry(
+                        DictKey(model, typeSymbol, keySyntax, key),
                         WrapStructCopy(model, indexAssign.Right, value)));
                 }
                 else

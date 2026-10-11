@@ -31,12 +31,11 @@ public partial class LuaEmitter
                 return methodName is "Add" or "Remove" or "ContainsKey";
             switch (methodName)
             {
-                case "Remove":
-                    result = new IlCall("Dict.Remove", [recvD, args[0]]);
-                    return true;
-                case "ContainsKey":
+                case "Remove" or "ContainsKey":
                     // backend 非依存の intrinsic call (il-spec §13)
-                    result = new IlCall("Dict.ContainsKey", [recvD, args[0]]);
+                    result = new IlCall($"Dict.{methodName}", [recvD, DictKey(model,
+                        receiverType, (receiver.Parent?.Parent as InvocationExpressionSyntax)
+                            ?.ArgumentList.Arguments[0].Expression, args[0])]);
                     return true;
                 case "Add":
                     // 代入形は statement 側 (BuildDictAddStatInto) が扱う
@@ -62,7 +61,7 @@ public partial class LuaEmitter
                         [recvExt, predicateExt, DefaultIl(methodSym.ReturnType)]);
                     return true;
                 }
-                result = new IlCall($"List.{methodName}",
+                result = new IlCall($"List.{TypedListMethod(methodName, methodSym)}",
                     [recvExt, .. WithStructElementOps(
                         model.GetTypeInfo(receiver).Type, methodSym, methodName, args)]);
                 return true;
@@ -102,8 +101,9 @@ public partial class LuaEmitter
         }
         if (ListRuntimeMethods.Contains(methodName))
         {
-            result = new IlCall($"List.{methodName}", [recv, .. WithStructElementOps(
-                model.GetTypeInfo(receiver).Type, methodSym, methodName, args)]);
+            result = new IlCall($"List.{TypedListMethod(methodName, methodSym)}",
+                [recv, .. WithStructElementOps(
+                    model.GetTypeInfo(receiver).Type, methodSym, methodName, args)]);
             return true;
         }
         return false;
@@ -126,6 +126,21 @@ public partial class LuaEmitter
                 args[1..], out var result)
             ? result : null;
     }
+
+    // int / float の CompareTo(同じ型): -1 / 0 / 1 を返す backend 非依存の
+    // intrinsic (float の NaN は他のどの値より小さい)。他の形は TCS1002
+    private static bool IsNumericCompareTo(ISymbol? symbol) =>
+        symbol is IMethodSymbol m && TinyCsComplianceFacts.IsSupportedNumericCompareTo(m);
+
+    private static IlExpr? BuildNumericCompareTo(IlExpr? recv,
+        ImmutableArray<IlExpr> args) =>
+        recv == null ? null : new IlCall("Math.CompareTo", [recv, .. args]);
+
+    // int の Sum は checked な List.SumInt (float の List.Sum と静的な型で分ける。
+    // Lua の値の subtype では float の値が integer のこともある)
+    private static string TypedListMethod(string methodName, IMethodSymbol method) =>
+        methodName == "Sum" && method.ReturnType.SpecialType == SpecialType.System_Int32
+            ? "SumInt" : methodName;
 
     // string method の char 引数 (IndexOf(char) / Split(char) 等) は 1 文字
     // string にして runtime へ渡す (char は整数 code unit)
@@ -151,12 +166,16 @@ public partial class LuaEmitter
     // struct 要素の Contains / IndexOf / Remove は値等価 (C# の
     // EqualityComparer<T>.Default)。Lua の raw == は table identity なので
     // 型別の op_Equality を末尾引数で渡す。ToList は新しい List へ要素の
-    // copy を入れるので、変更可能な struct なら型別 __copy を渡す (C backend は
-    // どちらも要素型から判るので無視)
+    // copy を入れるので、変更可能な struct なら型別 __copy を渡す。float key の
+    // ToDictionary は key の NaN 置換 (Dict.FloatKey) を渡す (C backend は
+    // いずれも要素型から判るので無視)
     private IlExpr[] WithStructElementOps(ITypeSymbol? listType,
         IMethodSymbol? methodSym, string methodName, IEnumerable<IlExpr> argList)
     {
         var args = argList.ToArray();
+        if (methodName == "ToDictionary" && HasFloatKey(methodSym?.ReturnType))
+            return [.. args, .. args.Length < 2 ? [new IlLit("nil")] : Array.Empty<IlExpr>(),
+                new IlField(new IlVar("Dict"), "FloatKey")];
         if (methodName == "ToList"
             && methodSym?.TypeArguments.FirstOrDefault() is { } item
             && IsMutableStruct(item))
@@ -209,7 +228,8 @@ public partial class LuaEmitter
         return new IlIife([
             new IlMultiAssign(
                 [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
-                [new IlCall($"Math.TryParse{kind}", [text, new IlLit("0")])],
+                [new IlCall($"Math.TryParse{kind}",
+                    [text, new IlLit(kind == "Float" ? "0.0" : "0")])],
                 Declare: true),
             new IlAssign(target, new IlVar("__tcs_v")),
             new IlReturn(new IlVar("__tcs_found"))]);
@@ -244,7 +264,8 @@ public partial class LuaEmitter
             new IlMultiAssign(
                 [new IlVar("__tcs_found"), new IlVar("__tcs_v")],
                 [new IlCall("Dict.TryGet",
-                    [recv, key, defaultValue])],
+                    [recv, DictKey(model, model.GetTypeInfo(ma.Expression).Type,
+                        keyArg.Expression, key), defaultValue])],
                 Declare: true),
             // out への書き出しは格納値の copy (il-spec §10 の代入)
             new IlAssign(target, CopyIfMutableStruct(valueType, new IlVar("__tcs_v"))),

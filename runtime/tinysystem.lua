@@ -224,11 +224,37 @@ function List.Max(list, selector)
   return maxVal
 end
 
+-- float の Sum (空でも float の 0)
 function List.Sum(list, selector)
   selector = selector or function(x) return x end
-  local total = 0
+  local total = 0.0
   for i = 1, #list do
     total = total + selector(list[i])
+  end
+  return total
+end
+
+-- int の Sum は checked (Enumerable.Sum と同じく途中の overflow は error)。
+-- 和の増減が加数の符号と食い違えば wrap (LUA_32BITS)、64bit 整数の Lua では
+-- i32 の範囲外で検出する。selector 無しは identity を呼ばない loop (Sum の
+-- 大半の時間が呼び出しになるため)
+local function sum_overflow() error("Arithmetic operation resulted in an overflow.") end
+function List.SumInt(list, selector)
+  local total = 0
+  if selector then
+    for i = 1, #list do
+      local v = selector(list[i])
+      local s = total + v
+      if (v < 0) ~= (s < total) or s > 2147483647 or s < -2147483647 - 1 then sum_overflow() end
+      total = s
+    end
+  else
+    for i = 1, #list do
+      local v = list[i]
+      local s = total + v
+      if (v < 0) ~= (s < total) or s > 2147483647 or s < -2147483647 - 1 then sum_overflow() end
+      total = s
+    end
   end
   return total
 end
@@ -244,7 +270,13 @@ function List.ToList(list, copy)
   return result
 end
 
-function List.ToDictionary(list, keySelector, valueSelector)
+-- Dictionary<float, _> の NaN key。Lua table は NaN を key にできないので、
+-- .NET (NaN 同士は等しい key) と同じく 1 つの key として sentinel に置き、
+-- 列挙で NaN に戻す (Dict.FloatKey / FloatKeyOut / FloatKeys。生成コードは
+-- float key の dict にだけ通し、ToDictionary には keyMap として渡す)
+local NAN_KEY = "NaN"
+
+function List.ToDictionary(list, keySelector, valueSelector, keyMap)
   valueSelector = valueSelector or function(x) return x end
   local dict = {}
   for i = 1, #list do
@@ -253,6 +285,7 @@ function List.ToDictionary(list, keySelector, valueSelector)
     -- 評価順は未規定なので local で明示する)。duplicate key は C# と
     -- 異なり上書き (既知差異、support-matrix 参照)
     local key = keySelector(item)
+    if keyMap then key = keyMap(key) end
     dict[key] = valueSelector(item)
   end
   return dict
@@ -298,6 +331,22 @@ function Dict.Values(dict)
   local vals = {}
   for _, v in pairs(dict) do vals[#vals + 1] = v end
   return vals
+end
+
+function Dict.FloatKey(key)
+  if key ~= key then return NAN_KEY end
+  return key
+end
+
+function Dict.FloatKeyOut(key)
+  if key == NAN_KEY then return 0 / 0 end
+  return key
+end
+
+function Dict.FloatKeys(dict)
+  local keys = {}
+  for k in pairs(dict) do keys[#keys + 1] = Dict.FloatKeyOut(k) end
+  return keys
 end
 
 -- Char (整数 code unit、ASCII の判定 / 変換。C backend も同じ表)
@@ -448,6 +497,16 @@ function Math.Sign(x)
   return 0
 end
 
+-- C# の int / float の CompareTo: -1 / 0 / 1。NaN は他のどの値よりも小さく、
+-- NaN 同士は 0 (±0 は 0)
+function Math.CompareTo(a, b)
+  if a < b then return -1 end
+  if a > b then return 1 end
+  if a == b then return 0 end
+  if a ~= a then return b ~= b and 0 or -1 end
+  return 1
+end
+
 -- C# Math.Round: banker's rounding (midpoint rounds to even)。0 に丸めた
 -- 結果は x の符号を持つ (Round(-0.25) は -0)
 function Math.Round(x, digits)
@@ -483,9 +542,11 @@ function Math.TryParseInt(s, default)
   return false, default
 end
 
+-- tonumber は整数の文字列を integer で返すので float にする (* 1.0 は
+-- "-0.0" の -0 を保つ)
 function Math.TryParseFloat(s, default)
   local v = tonumber(s)
-  if v ~= nil then return true, v + 0.0 end
+  if v ~= nil then return true, v * 1.0 end
   return false, default
 end
 
@@ -708,6 +769,13 @@ function TinySystem.trunc(x)
   if i then return i end
   if x >= 0 then return math.floor(x) end
   return math.ceil(x)
+end
+
+-- float.Parse の結果 (tonumber は整数の文字列を integer で返す) を float に
+-- する。不正な文字列の nil はそのまま (生成コードは __tcs_tofloat global 経由)
+function TinySystem.tofloat(v)
+  if v == nil then return nil end
+  return v * 1.0
 end
 
 -- Nullable<T> (il-spec §13、module mode の __tcs_n* global の実体)
