@@ -2063,3 +2063,10 @@
 - `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
 - 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
 - 残課題: 概念の単位で分割して除外を外す (#167)
+
+### record の等価で float field を float.Equals で比べる (#163) ✓ (2026-10-11)
+- record / record struct の ==/!= は C# の合成 Equals と同じく field を EqualityComparer\<T\>.Default で比べる。float / double (と `float?`) の field は float.Equals で、NaN 同士は等しく +0 と -0 も等しい。従来は両 backend とも IEEE の == で、`new F(float.NaN) == new F(float.NaN)` が false だった
+- Lua は field ごとの等価式 (`MemberEqualityParts`) が float に `(a == b or a ~= a and b ~= b)` を出す。struct の値等価 (record struct の op_Equality と、struct の List 検索が使う ValueType.Equals) も同じ式を通る。C は field の等価式 (`FieldEqualExpr`) が float を runtime の `tcs_float_equals` にする。`T?` の field は Nullable\<T\>.Equals (中の float も NaN 同士は等しい) にし、`float? == float?` の lifted == は IEEE のまま残した。C の List 検索 (#122) も同じ `tcs_float_equals` を使い、`List<float?>.Contains(NaN)` が false だったのも直した
+- 検証: tcs2c.Tests に `DifferentialTests.RecordFloatEquality.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。record / 派生 record / record struct / `float?` field / struct field / 入れ子 / struct と record の List 検索 / `List<float?>`)。修正前は Lua と C がともに `record-nan:0:1:0:0` 等で CoreCLR と違い、C は `List<float?>` の Contains も 0 だった。修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: struct の ValueType.Equals も CoreCLR では float field を float.Equals で比べる (NaN の struct 同士で `List<S>.Contains` が true) ので、record struct と分けずに同じ式にした
+- 残課題: record struct の `T?` 同士の lifted == (`RS? a, b; a == b`) は float に限らず C# と違う (CoreCLR は値が等しければ true。Lua は値が等しくても false、C は `invalid operands to binary ==` で C コンパイルに失敗する)
