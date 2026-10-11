@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 using TinyCs;
 
@@ -189,6 +190,13 @@ internal sealed partial class CEmitter
         _ => throw new Tcs2cException($"equality is not supported for {type}"),
     };
 
+    // sort 用の 3 方向比較。float は Single.CompareTo と同じく NaN を最小にする
+    private static string CompareExpr(CType type, string left, string right) =>
+        type.Kind == CTypeKind.F32
+            ? $"({left} < {right} ? -1 : {left} > {right} ? 1 : {left} == {right} ? 0 : " +
+              $"{left} != {left} ? ({right} != {right} ? 0 : -1) : 1)"
+            : $"({LessExpr(type, left, right)} ? -1 : {LessExpr(type, right, left)} ? 1 : 0)";
+
     private static string LessExpr(CType type, string left, string right) => type.Kind switch
     {
         CTypeKind.I32 or CTypeKind.F32 => $"({left} < {right})",
@@ -259,14 +267,14 @@ internal sealed partial class CEmitter
             // 変更可能な struct 要素では Lua 向けの `S.__copy` 参照が 2 番目に付く
             // (C は要素を値で写すので読まない)
             case "ToList":
-                if (args.Length == 2 && elem.Kind == CTypeKind.StructVal
-                    && args[1] is IlField { Recv: IlVar owner, Name: "__copy" }
-                    && owner.Name == elem.Name)
+                if (args.Length == 2 && IsElementCopyRef(args[1], elem))
                     return CType.List(elem);
                 RequireArity(call.Callee, args.Length, 1);
                 return CType.List(elem);
             // float key では Lua 向けの key 置換 (Dict.FloatKey) が 4 番目に付く
-            // (C は float key を受けないので下の key 型検査で止まる)
+            // (C は float key を受けないので下の key 型検査で止まる)。value
+            // selector の無い変更可能な struct 要素では、Lua 向けの `S.__copy` が
+            // value selector の位置に付く
             case "ToDictionary":
             {
                 if (args.Length is not (2 or 3 or 4))
@@ -274,7 +282,8 @@ internal sealed partial class CEmitter
                 var key = InferClosureResult(args[1], [elem]);
                 if (key.Kind is not (CTypeKind.I32 or CTypeKind.String))
                     throw new Tcs2cException($"Dictionary key type not supported: {key}");
-                var value = args.Length == 3 ? InferClosureResult(args[2], [elem]) : elem;
+                var value = HasValueSelector(args, elem)
+                    ? InferClosureResult(args[2], [elem]) : elem;
                 return CType.Dict(key, value);
             }
             // struct 要素では Lua 向けの op_Equality 参照が 3 番目に付く
@@ -464,7 +473,7 @@ internal sealed partial class CEmitter
                 var fk = Temp("keyfn");
                 sb.Append($"TcsClosure *{fk} = (TcsClosure *)tcs_nonnull({RenderCoerced(args[1], keyType)}); ");
                 string valueExpr = v;
-                if (args.Length == 3)
+                if (HasValueSelector(args, elem))
                 {
                     var valueType = CType.Closure(value, [elem]);
                     var fv = Temp("valfn");
@@ -526,7 +535,7 @@ internal sealed partial class CEmitter
         switch (mode)
         {
             case "natural":
-                body.Append($"    return {LessExpr(elem, "x", "y")} ? -1 : {LessExpr(elem, "y", "x")} ? 1 : 0;\n");
+                body.Append($"    return {CompareExpr(elem, "x", "y")};\n");
                 break;
             case "comparison":
                 body.Append($"    int32_t r = {CallClosure("f", closureType!, "x", "y")};\n");
@@ -537,7 +546,7 @@ internal sealed partial class CEmitter
                 body.Append($"    {key!.CName} kx = {CallClosure("f", closureType!, "x")};\n");
                 body.Append($"    {key.CName} ky = {CallClosure("f", closureType!, "y")};\n");
                 var (lo, hi) = mode == "key" ? ("kx", "ky") : ("ky", "kx");
-                body.Append($"    return {LessExpr(key, lo, hi)} ? -1 : {LessExpr(key, hi, lo)} ? 1 : 0;\n");
+                body.Append($"    return {CompareExpr(key, lo, hi)};\n");
                 break;
             }
         }
@@ -545,4 +554,13 @@ internal sealed partial class CEmitter
         _pendingClosures.Add(body.ToString());
         return fnName;
     }
+
+    // Lua 向けに付く要素型の `S.__copy` 参照 (C は要素を値で写すので読まない)
+    private static bool IsElementCopyRef(IlExpr arg, CType elem) =>
+        elem.Kind == CTypeKind.StructVal
+        && arg is IlField { Recv: IlVar owner, Name: "__copy" }
+        && owner.Name == elem.Name;
+
+    private static bool HasValueSelector(ImmutableArray<IlExpr> args, CType elem) =>
+        args.Length == 3 && !IsElementCopyRef(args[2], elem);
 }

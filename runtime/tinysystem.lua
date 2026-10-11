@@ -67,9 +67,24 @@ function List.IndexOf(list, item, eq)
   return i - 1 -- 0-indexed
 end
 
+-- 既定の順序 (.NET の既定の comparer): NaN は他のどの値より小さい。NaN は
+-- 数値の列にしか現れないので、NaN を含む列だけ NaN を扱う比較にする
+local function nanBefore(a, b) return a < b or (a ~= a and b == b) end
+local function nanAfter(a, b) return a > b or (b ~= b and a == a) end
+
+local function hasNaN(values)
+  for i = 1, #values do
+    local v = values[i]
+    if v ~= v then return true end
+  end
+  return false
+end
+
 function List.Sort(list, comparison)
   if comparison then
     table.sort(list, function(a, b) return comparison(a, b) < 0 end)
+  elseif hasNaN(list) then
+    table.sort(list, nanBefore)
   else
     table.sort(list)
   end
@@ -134,14 +149,15 @@ function List.FirstOrDefault(list, predicate, default)
 end
 
 -- OrderBy は安定 sort (同じ key の要素は元の順)。table.sort は不安定なので
--- 元の位置を同値時の比較に使う
-local function orderby(list, keySelector, before)
+-- 元の位置を同値時の比較に使う。key に NaN があるときだけ nan 側の比較を使う
+local function orderby(list, keySelector, before, nanOrder)
   local n = #list
   local keys, index = {}, {}
   for i = 1, n do
     keys[i] = keySelector(list[i])
     index[i] = i
   end
+  if hasNaN(keys) then before = nanOrder end
   table.sort(index, function(a, b)
     local ka, kb = keys[a], keys[b]
     if before(ka, kb) then return true end
@@ -153,12 +169,15 @@ local function orderby(list, keySelector, before)
   return result
 end
 
+local function less(a, b) return a < b end
+local function greater(a, b) return a > b end
+
 function List.OrderBy(list, keySelector)
-  return orderby(list, keySelector, function(a, b) return a < b end)
+  return orderby(list, keySelector, less, nanBefore)
 end
 
 function List.OrderByDescending(list, keySelector)
-  return orderby(list, keySelector, function(a, b) return a > b end)
+  return orderby(list, keySelector, greater, nanAfter)
 end
 
 function List.Take(list, count)
@@ -432,6 +451,52 @@ end
 
 function String.IsNullOrEmpty(s)
   return s == nil or s == ""
+end
+
+-- enum の文字列化 (Enum.ToString)。spec は IL builder が作る `名前:値` の列で、
+-- Flags は先頭が `*` (il-spec §13)。spec ごとに 1 度だけ表へ展開する
+local enumSpecs = {}
+
+local function enumSpec(spec)
+  local info = enumSpecs[spec]
+  if info then return info end
+  info = { flags = string.sub(spec, 1, 1) == "*", names = {}, values = {} }
+  for name, value in string.gmatch(spec, "([^*,:]+):(-?%d+)") do
+    info.names[#info.names + 1] = name
+    info.values[#info.values + 1] = math.tointeger(tonumber(value)) or tonumber(value)
+  end
+  enumSpecs[spec] = info
+  return info
+end
+
+-- 定義された値は名前、Flags は上位の member から含まれる bit を取った名前を
+-- 昇順に ", " で繋ぐ。どちらでも表せない値は数値。T? の null は空文字列。
+-- host の enum が Lua の値を数でなく持つとき ([LubLuaString] 等) はその値
+function String.FormatEnum(v, spec)
+  if v == nil then return "" end
+  if type(v) ~= "number" then return tostring(v) end
+  local info = enumSpec(spec)
+  local names, values = info.names, info.values
+  if not info.flags then
+    for i = 1, #values do
+      if values[i] == v then return names[i] end
+    end
+    return tostring(v)
+  end
+  if v == 0 then
+    if values[1] == 0 then return names[1] end
+    return "0"
+  end
+  local rest, found = v, {}
+  for i = #values, 1, -1 do
+    local cur = values[i]
+    if cur ~= 0 and rest & cur == cur then
+      rest = rest & ~cur
+      table.insert(found, 1, names[i])
+      if rest == 0 then return table.concat(found, ", ") end
+    end
+  end
+  return tostring(v)
 end
 
 function String.Split(str, ...)

@@ -50,7 +50,9 @@ byte。literal は ASCII のみ、T251)。
   `IlNullableHasValue` で分岐し `IlNullableValue` (copy) に対して member を
   参照する。結果が非 nullable 値型なら `IlNullableWrap` で `T?` に揃える
   (値なし側は IIFE の fall-through = 値なし)。`??=` も `T?` では
-  `not IlNullableHasValue` で判定する (T247)。
+  `not IlNullableHasValue` で判定する (T247)。式位置の `a ??= b` の値は
+  代入後の a で、a が `T?` なら式の型 `T` に合わせて `IlNullableValue` で
+  中の値を取り出す (代入後は必ず値がある)。
   意味論の規範は C# §12.4.8 で、dotnet differential がそれを検証する。
   文字列化 (`__tcs_nstr`) は値なしを空文字列にする (C# の
   `string.Concat(null)` / 補間と同じ)。backend 表現は dev = nil または値、
@@ -137,12 +139,18 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
   4. 値文脈での place 読み出し（`var p = a[i]`、`var q = s.Inner`）
 
   1 には field / property / object / collection / 配列の initializer、
-  `with` の上書き値、分解の成分、foreach の反復変数、out への書き出しを
-  含む。2 には property setter の `value` を含む
+  `with` の上書き値、分解の成分、foreach の反復変数、out への書き出し、
+  `??=` の右辺を含む。2 には property setter の `value`、`base(...)` の引数、
+  `?.` 経由の呼び出しの引数を含む
+- 式位置の代入 (`F(a[i] = v)`) の値は代入した値の copy で、格納先とは
+  独立した値（受けた側の変更は格納先に残らない）。custom property への代入は
+  setter に copy を渡し、setter が `value` を変えても式の値は変わらない
 - lambda の struct parameter は入口で copy する（LINQ 等の runtime は要素を
   copy せずに渡すため、呼び出し側では copy できない）。`ToList` は新しい
   List に要素の copy を入れる（IL は末尾引数に `S.__copy` 参照を付け、
-  要素を値で写す backend は読まなくてよい）
+  要素を値で写す backend は読まなくてよい）。value selector の無い
+  `ToDictionary` も値は要素の copy（IL は value selector の位置に
+  `S.__copy` 参照を置く）
 - struct 配列の要素は互いに独立した place。連続メモリ配置は backend 表現の
   自由であり IL の意味論ではない
 - struct の instance member は静的ディスパッチの自由関数
@@ -207,6 +215,12 @@ fault = 決定的に検出される実行時異常。発生した fault はプ�
   実行可能な正本として既に担保している）
 - 数値→文字列（補間・Console 出力・ToString）:
   i32 は 10 進最短表記、f32 は shortest round-trip 10 進表記が規範
+- enum (と enum の `T?`) の文字列化は `IlCall("String.FormatEnum", [v, spec])`。
+  spec は string literal で、`名前:値` を `,` で並べる。`[Flags]` (と書式 "F")
+  は先頭に `*` を付けて全 member を .NET の EnumInfo と同じ並び (値の符号なし
+  昇順) で持ち、それ以外は値ごとに .NET が選ぶ名前を 1 つ持つ。値は実行時の
+  32 bit の 2 の補数 (uint の 0x80000000 は int.MinValue)。`T?` の値なしは
+  空文字列。値が数でない (host の enum が Lua の文字列等で持つ) ときはその値
 - 数学関数（Sin / Cos / Sqrt 等）の規範は「同一プラットフォーム上で全
   backend が同一値」。プラットフォーム間のビット一致は保証しない。
   digest workload は数学関数を使わない（perf の libm 排除方針と同一）
