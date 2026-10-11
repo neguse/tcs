@@ -2086,9 +2086,36 @@
 - 捕捉 cell を作る変数を、関数 (method / closure) ごとに、その関数の直下の closure が捕捉する名前に絞った。従来は method 全体の捕捉名の集合で判断していて、`l.Count(x => x > 1)` の `x` が、同じ method の別の lambda (`x => l.Count(y => y == x)`) のせいで要素ごとに `tcs_new_cell` していた
 - 検証: tcs2c.Tests に `DifferentialTests.ForeachCapture.cs` の 4 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。List / 配列 / string / `EnumerateRunes()` / struct 要素 / lambda の中の foreach / instance method / 入れ子の closure / KeyValuePair、--lib 形でフレーム境界の GC をまたぐもの、cell を作る数)。修正前は 3 本が C の `undeclared`、cell の数の 1 本が 5 (期待 3) で fail、修正後 pass。`bash run-tests.sh` 全通過。Transpiler (Lua 生成) は変えていないので lub の C# サンプルの生成 Lua は変わらない
 - 判断: 捕捉の判断は名前単位のまま (同じ関数の中の同名の別変数は過剰に box しうるが意味は同じ)
+- 残課題: なし
+
+### record の等価で float field を float.Equals で比べる (#163) ✓ (2026-10-11)
+- record / record struct の ==/!= は C# の合成 Equals と同じく field を EqualityComparer\<T\>.Default で比べる。float / double (と `float?`) の field は float.Equals で、NaN 同士は等しく +0 と -0 も等しい。従来は両 backend とも IEEE の == で、`new F(float.NaN) == new F(float.NaN)` が false だった
+- Lua は field ごとの等価式 (`MemberEqualityParts`) が float に `(a == b or a ~= a and b ~= b)` を出す。struct の値等価 (record struct の op_Equality と、struct の List 検索が使う ValueType.Equals) も同じ式を通る。C は field の等価式 (`FieldEqualExpr`) が float を runtime の `tcs_float_equals` にする。`T?` の field は Nullable\<T\>.Equals (中の float も NaN 同士は等しい) にし、`float? == float?` の lifted == は IEEE のまま残した。C の List 検索 (#122) も同じ `tcs_float_equals` を使い、`List<float?>.Contains(NaN)` が false だったのも直した
+- 検証: tcs2c.Tests に `DifferentialTests.RecordFloatEquality.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。record / 派生 record / record struct / `float?` field / struct field / 入れ子 / struct と record の List 検索 / `List<float?>`)。修正前は Lua と C がともに `record-nan:0:1:0:0` 等で CoreCLR と違い、C は `List<float?>` の Contains も 0 だった。修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: struct の ValueType.Equals も CoreCLR では float field を float.Equals で比べる (NaN の struct 同士で `List<S>.Contains` が true) ので、record struct と分けずに同じ式にした
+- 残課題: record struct の `T?` 同士の lifted == (`RS? a, b; a == b`) は float に限らず C# と違う (CoreCLR は値が等しければ true。Lua は値が等しくても false、C は `invalid operands to binary ==` で C コンパイルに失敗する)
+
+### hot reload の restart 判定を native (watch) と web (増分 session) で揃え、initializer を書き方に依らずに比べる (#155) ✓ (2026-10-11)
+- restart の規則を `ReloadRules` の 1 つにした。reload chunk (`ReloadClassifier`、IlExport の metadata) と増分 session (`IncrementalCompilationSession.ClassifyRestart`、emitter の記録) はそれぞれの metadata を `ReloadType` に写して同じ規則で判定する。session は enum member の削除・値の変更を restart にし (従来 live で、保存済みの整数が別の member を指した)、native は既存 static の型の変更を restart にする (従来 live で新しい初期値に置き換えた。session は initializer の文字列が同じ `int X = 1` → `float X = 1` を live にしていた)。session の emitter 記録に enum member の値と static の型を足した
+- initializer の hash は `Sha256(init.ToString())` (trivia 込みの構文の文字列) をやめ、整数・bool・char・string の定数は値と型、それ以外は trivia を除いた token 列にした (IlExport の InitHash、session の static と instance shape で共通)。`1+2` → `1 + 2` / `3`、空白・comment だけの編集は restart にならない。const と static の入れ替えは initializer の変更 (restart) にした
+- session の instance shape に field の型 (class) と positional member の型 (record) を入れた。従来は `int A = 1` → `float A = 1`、`string S` → `int[] S` (どちらも default は nil)、`record R(int X)` → `record R(float X)` を live にしていた
+- 意図した差 (native は instance shape の変更と副作用のありうる static の追加を live に移行、session は restart) は残し、規則表を hot-reload-design.md §11 に書いた
+- 検証: `Transpiler.Tests/ReloadRulesAlignmentTests.cs` (同じ編集を両方に通す。restart 10 件 / live 6 件 / 意図した差 5 件)。修正前は 15 件が fail (enum 3 件が session で live、static の型の変更 2 件が native で live、空白・comment・定数の書き方 5 件が両方で restart、const と static の入れ替え 2 件が両方で live、instance field / record の型の変更 3 件が session で live)、修正後 pass。HotReloadRestartTests の live 側から static の型の変更を外して restart 側に入れた。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: const と static の入れ替えは同名・同じ型・同じ値でも restart。const は使う側に埋め込まれ、static に戻しても table の値 (実行中に変えた値) が初期値に戻らない。float / double の定数は Roslyn が f32 で畳むが emitter は式のまま書くので、値ではなく token で比べる。`new()` と `new List<int>()` は token が違うので restart のまま。IOperation や IL で意味を比べる hash は、比べ漏れた要素 (型 test の型など) が live の誤判定になるので入れなかった
+
+### Lua32 の Skip(int.MaxValue) を要素数で打ち切る (#126) ✓ (2026-10-11)
+- `l.Skip(int.MaxValue)` が Lua32 で戻らなかった。runtime の `List.Skip` が開始位置を `count + 1` で作り、LUA_32BITS では int.MaxValue + 1 が -2^31 に wrap して約 2^31 回の反復になっていた。要素数以上の count は先に空列を返し、要素数未満の count だけ `+ 1` する
+- 同じ wrap を runtime の他の helper で確認した: `List.Take` は `math.min(count, #list)` で加算なし。`List.RemoveAt` (`index + 1`) と `String.Substring` (`start + 1` / `start + length`) は有効な入力では要素数・長さを超えないので wrap しない。C backend の Skip / Take は添字と count の比較だけで加算を持たない
+- 検証: tcs2c.Tests に `DifferentialTests.SkipTakeExtremes.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。1 / 3 / 0 要素の Skip(int.MaxValue)、Skip(int.MaxValue - 1)、Skip の 0 / 負 / int.MinValue / 要素数ちょうど、Take(int.MaxValue) / Take(-1)、Skip と Take の連鎖)。修正前は lua32 が 60 秒の timeout で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の `List.Skip` を除いて master とバイト一致
+- 残課題: `String.Substring` の範囲外 (`"abc".Substring(10)` 等) は wrap と別に fault しない (il-spec §13 では fault)
+
+### tcs2c で Dictionary への store の key を値より先に評価する (#152) ✓ (2026-10-11)
+- 文の位置の Dictionary への代入 / 複合代入 (`D[I] += Right()`、`D[I] = Right()`、Lua では代入形の `Add`) が `*(int32_t *)tcs_dict_put(d, key, NULL) = (値);` で、C の `=` の左右の評価順が決まっていないため key を右辺の後に評価していた (`Right` が `I = 1` にすると CoreCLR `17,20`、C `10,17`)。key を temp に取ってから値を評価する。collection initializer (`{ [K()] = V() }`) も値の temp を key より先に取っていたので、key → 値の順にした
+- 検証: tcs2c.Tests に `DictStore_EvaluatesKeyBeforeValue` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。int / string key の代入・複合代入・Add・initializer)。修正前は C が `10,17` / `vkvk...` で fail、修正後 pass。Lua の生成物は変わらない
+- 判断: List / 配列の store は既に受け手と添字を temp に取っていたので、dict だけ同じ形にした
+- 残課題: なし
 
 ### ?. の when-not-null の連鎖 (#162) ✓ (2026-10-11)
 - `h.S?.Len().Twice()` / `h.Q?.Next().Next()` / `h.T?.ToUpper().Length` のように when-not-null が呼び出し / member の連鎖のとき、連鎖全体を通常の式として作り、一番内側の binding (`.Len()` / `.Next()`) は receiver の local の field を返すだけだった。Lua は `Ext.twice(__tcs_ca.len(1))` (`string.len` に解決して 2) や `self` の無い `__tcs_ca.next()` を出し、`h.S?.Length.ToString()` は `__tcs_ca.Length` (nil)、`h.L?[1].Twice()` は `unsupported ElementBindingExpression` で止まっていた。C も同じ IL を受けていた
 - 連鎖の一番内側の binding (`.M()` / `.P` / `[i]`) を、連鎖が単独の when-not-null のときと同じ builder (拡張 method の静的呼び出し、string / List / Dict の写像、struct の静的ディスパッチ) で `?.` の receiver に対して作り、外側の連鎖はその IL を receiver にして作る。binding を receiver の local の field にする汎用の経路は無くした
 - 検証: tcs2c.Tests に `DifferentialTests.ConditionalChain.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。拡張 method / instance method / string / List / `V?` の連鎖、null の receiver、`?.` の入れ子、`!`)。修正前は Lua が `bad argument #1 to 'len'` / `unsupported ElementBindingExpression`、C が `method has no IL body: P.main` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
-- 残課題: なし
