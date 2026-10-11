@@ -142,7 +142,7 @@ public static partial class IlExport
         {
             var model = inputCompilation.GetSemanticModel(tree);
             diagnostics.AddRange(
-                TinyCsComplianceFacts.AnalyzeUnsupportedSyntaxes(tree, model));
+                TinyCsComplianceFacts.AnalyzeUnsupportedSyntaxes(tree, model, references.Contains));
         }
         var emitter = new LuaEmitter { StructuralTypeTests = true };
         emitter.ReferenceTrees.UnionWith(references);

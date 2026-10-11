@@ -54,6 +54,7 @@ public static partial class TinyCsComplianceFacts
         SyntaxKind.BaseConstructorInitializer,
         SyntaxKind.NamespaceDeclaration,
         SyntaxKind.FileScopedNamespaceDeclaration,
+        SyntaxKind.DelegateDeclaration,
     ];
 
     // Lua 5.5 reserved words (deps/lua llex.c luaX_tokens). C# identifiers
@@ -90,7 +91,9 @@ public static partial class TinyCsComplianceFacts
         // class / record の継承は対象外 (q.md Q15)
         || IsInheritanceSyntax(syntaxName)
         // Lua / 生成コードの予約と重なる識別子 (q.md Q16)
-        || IsIdentifierSyntax(syntaxName);
+        || IsIdentifierSyntax(syntaxName)
+        // host の interface の実装は host の名前と user の名前が合わない (q.md Q16)
+        || syntaxName.StartsWith(RefInterfaceImplementationPrefix, StringComparison.Ordinal);
 
     // runtime が _G に置く名前。runtime/tinysystem.lua の module table
     // (`TinySystem.List = List` 等) を LuaRuntime.CreateEmbeddedPrelude と
@@ -453,8 +456,11 @@ public static partial class TinyCsComplianceFacts
         return false;
     }
 
+    /// <param name="isReferenceTree">`--ref` (参照専用) の tree の判定。transpiler /
+    /// 増分 session / IlExport が渡す。analyzer は null (参照専用の tree を持たない)</param>
     public static bool TryGetUnsupportedSyntax(SyntaxNode node,
-        SemanticModel model, out string syntaxName)
+        SemanticModel model, out string syntaxName,
+        Func<SyntaxTree, bool>? isReferenceTree = null)
     {
         if (TryGetUnsupportedSyntax(node, out syntaxName)) return true;
 
@@ -532,6 +538,9 @@ public static partial class TinyCsComplianceFacts
             return true;
 
         if (TryGetClassInheritance(node, model, out syntaxName))
+            return true;
+
+        if (TryGetRefInterfaceImplementation(node, model, isReferenceTree, out syntaxName))
             return true;
 
         return node is InvocationExpressionSyntax
@@ -624,12 +633,13 @@ public static partial class TinyCsComplianceFacts
     }
 
     public static IEnumerable<string> AnalyzeUnsupportedSyntaxes(
-        SyntaxTree tree, SemanticModel model)
+        SyntaxTree tree, SemanticModel model,
+        Func<SyntaxTree, bool>? isReferenceTree = null)
     {
         var root = tree.GetRoot();
         foreach (var node in root.DescendantNodes())
         {
-            if (!TryGetUnsupportedSyntax(node, model, out var syntaxName))
+            if (!TryGetUnsupportedSyntax(node, model, out var syntaxName, isReferenceTree))
                 continue;
 
             yield return FormatDiagnostic(node,

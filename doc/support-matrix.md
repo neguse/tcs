@@ -1034,6 +1034,7 @@ warning、tcs2c も IL の前に止まる) にする。`--ref` の型は対象�
 | 生成コードが class table に置く key と同名の member `@new`, `ctor` | `ReservedClassKey(new)` | `T.new` (ctor) / `S.ctor` (positional record struct) を上書きする |
 | 型名の `_` `My_Type` | `UnderscoreTypeName(My_Type)` | namespace の中の型は namespace 修飾名を `_` で結合した平らな global (`A.B.C` → `A_B_C`) になるので、`_` を含む名前は別の修飾名と同じ global になり得る |
 | namespace 名の `_` `A.B_C` | `UnderscoreNamespaceName(B_C)` | 同上 |
+| `--ref` の interface の実装 `class Impl : IHostHook` | `RefInterfaceImplementation(IHostHook)` | interface 経由の呼び出しは host の名前 (`h:do_thing()`)、実装は C# の名前 (`Impl:DoThing`) で届かない。user の interface の実装と、host の interface を値として受け渡すだけなら可 |
 
 member 名と local 名の `_` (`max_hp`、`_init`、`a_b`) はそのまま書ける。
 

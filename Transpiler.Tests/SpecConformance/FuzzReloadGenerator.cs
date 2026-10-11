@@ -100,7 +100,7 @@ internal sealed class FuzzReloadGenerator(int seed)
         var asserts = new StringBuilder();
         var staticAssign = 7000 + _rng.Next(1000);
         if (statics[0].Retained)
-            state.AppendLine($"RC0.st0 = {staticAssign}");
+            state.AppendLine($"RC0.St0 = {staticAssign}");
 
         for (var k = 1; k <= instances; k++)
         {
@@ -177,10 +177,10 @@ internal sealed class FuzzReloadGenerator(int seed)
         }
 
         if (statics[0].Retained)
-            asserts.AppendLine($"assert(RC0.st0 == {staticAssign}, " +
+            asserts.AppendLine($"assert(RC0.St0 == {staticAssign}, " +
                 "\"retained static\")");
         else
-            asserts.AppendLine("assert(RC0.st0 == nil, \"dropped static\")");
+            asserts.AppendLine("assert(RC0.St0 == nil, \"dropped static\")");
         if (addedStatic != default)
             asserts.AppendLine($"assert(RC0.{LuaNaming.UserMember(addedStatic.Item1)} == " +
                 $"{addedStatic.Item2}, \"added static\")");

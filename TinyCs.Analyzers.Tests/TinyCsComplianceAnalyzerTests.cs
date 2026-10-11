@@ -743,7 +743,8 @@ public partial class TinyCsComplianceAnalyzerTests
 
     private static async Task<IReadOnlyList<Diagnostic>> AnalyzeAsync(
         string source,
-        IDictionary<string, ReportDiagnostic>? specificDiagnosticOptions = null)
+        IDictionary<string, ReportDiagnostic>? specificDiagnosticOptions = null,
+        IEnumerable<MetadataReference>? extraReferences = null)
     {
         var tree = CSharpSyntaxTree.ParseText(source,
             CSharpParseOptions.Default.WithLanguageVersion(
@@ -757,7 +758,7 @@ public partial class TinyCsComplianceAnalyzerTests
         var compilation = CSharpCompilation.Create(
             "TinyCsAnalyzerTests",
             [tree],
-            GetReferences(),
+            GetReferences().Concat(extraReferences ?? []),
             options);
 
         var analyzers = ImmutableArray.Create<DiagnosticAnalyzer>(

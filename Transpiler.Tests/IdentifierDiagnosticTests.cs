@@ -108,6 +108,23 @@ public class IdentifierDiagnosticTests
             "error TCS1001: unsupported syntax: DoubleUnderscoreIdentifier(__tcs_value)"));
     }
 
+    // 旧 temp 名 (`__init` / `__ret`) と同じ綴りの user の local も、`__` の規則で止まる
+    // (以前は通っていた)
+    [Fact]
+    public void LocalNamedLikeOldInitializerTemp_IsError()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            var __init = 5;
+            var p = new Point { X = __init };
+            public class Point { public int X; }
+            """], checkNaming: false);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, e => e.Contains(
+            "error TCS1001: unsupported syntax: DoubleUnderscoreIdentifier(__init)"));
+        Assert.Empty(result.Lua);
+    }
+
     // member 名と local 名の `_`、1 つの `_` で始まる名前、namespace の `.` 区切り、
     // `new` / `ctor` の local はそのまま書ける
     [Fact]

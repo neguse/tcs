@@ -120,7 +120,7 @@ public class ClassTests
             """, """
             (function()
               local d = Defaults.new()
-              return tostring(d.Count) .. "," .. tostring(d.Enabled) .. "," .. tostring(d.name == nil)
+              return tostring(d.Count) .. "," .. tostring(d.Enabled) .. "," .. tostring(d.Name == nil)
             end)()
             """);
 
@@ -140,7 +140,7 @@ public class ClassTests
             """, """
             (function()
               local d = Defaults.new()
-              return tostring(d.Count) .. "," .. tostring(d.Enabled) .. "," .. tostring(d.name == nil)
+              return tostring(d.Count) .. "," .. tostring(d.Enabled) .. "," .. tostring(d.Name == nil)
             end)()
             """);
 

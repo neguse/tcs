@@ -104,11 +104,14 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
             context.Node.GetLocation(), syntaxName));
     }
 
-    // class / record の基底 class (q.md Q15)。interface の実装は対象外
+    // class / record の基底 class (q.md Q15) と、host の interface の実装 (q.md
+    // Q16)。user の interface の実装は対象外
     private static void AnalyzeClassInheritance(SyntaxNodeAnalysisContext context)
     {
         if (!TinyCsComplianceFacts.TryGetClassInheritance(context.Node,
-            context.SemanticModel, out var syntaxName))
+                context.SemanticModel, out var syntaxName)
+            && !TinyCsComplianceFacts.TryGetRefInterfaceImplementation(context.Node,
+                context.SemanticModel, null, out syntaxName))
         {
             return;
         }

@@ -122,7 +122,7 @@ public static class Transpiler
             // build を止める種類 (TinyCsComplianceFacts.IsBuildBlocking) は
             // error 行で返るので Errors へ回し、Lua を書かない
             foreach (var diag in TinyCsComplianceFacts.AnalyzeUnsupportedSyntaxes(
-                         tree, model))
+                         tree, model, refTrees.Contains))
                 (TinyCsComplianceFacts.IsErrorDiagnostic(diag) ? errors : warnings)
                     .Add(diag);
             warnings.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedCollectionNulls(

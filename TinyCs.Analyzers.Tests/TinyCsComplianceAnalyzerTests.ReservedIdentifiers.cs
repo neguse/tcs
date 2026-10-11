@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 
 namespace TinyCs.Analyzers.Tests;
@@ -60,5 +61,40 @@ public partial class TinyCsComplianceAnalyzerTests
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Contains("UnderscoreNamespaceName(Game_Core)", diagnostic.GetMessage());
+    }
+
+    // delegate の型名も同じ規則 (DelegateDeclaration 自体も TCS1001 だが、識別子の
+    // 規則が先に当たる)
+    [Fact]
+    public async Task DelegateWithUnderscore_Reports()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            public delegate void My_Del(int v);
+            """);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Contains("UnderscoreTypeName(My_Del)", diagnostic.GetMessage());
+    }
+
+    // host (metadata、runtime 以外の assembly) の interface の実装 (q.md Q16)。BCL の
+    // interface は対象外
+    [Fact]
+    public async Task HostInterfaceImplementation_Reports()
+    {
+        var stub = CSharpCompilation.Create("HostStub",
+            [CSharpSyntaxTree.ParseText("public interface IHostHook { void DoThing(int v); }")],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        Assert.True(stub.Emit(image).Success);
+        var diagnostics = await AnalyzeAsync("""
+            public class Impl : IHostHook { public void DoThing(int v) { } }
+            public class D : System.IDisposable { public void Dispose() { } }
+            """, extraReferences: [MetadataReference.CreateFromImage(image.ToArray())]);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal(TinyCsDiagnosticIds.UnsupportedSyntax, diagnostic.Id);
+        Assert.Contains("RefInterfaceImplementation(IHostHook)", diagnostic.GetMessage());
+        Assert.Equal(0, diagnostic.Location.GetLineSpan().StartLinePosition.Line);
     }
 }
