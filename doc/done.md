@@ -2063,3 +2063,10 @@
 - `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
 - 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
 - 残課題: 概念の単位で分割して除外を外す (#167)
+
+### Math.Log(x, base) の特殊値を MathF.Log に揃える (#147) ✓ (2026-10-11)
+- `Math.Log(2f, 1f)` / `Math.Log(2f, 0f)` / `Math.Log(2f, +∞)` が Lua / C で +∞ / -0 / +0 になっていた (`log(x) / log(base)` をそのまま返す)。MathF.Log と同じく、base が 1、または x が 1 でなく base が 0 / +∞ のとき NaN にする。x が 1 なら base 0 / +∞ は従来どおり -0 / +0
+- Lua: 底付きの `Math.Log` は生成 Lua が `math.log` を直接呼ぶのをやめ、runtime の `Math.Log` (判定を足した wrapper) を呼ぶ。1 引数の `Math.Log` は従来どおり `math.log` を直接呼ぶ。C: runtime の `tcs_math_log` に同じ判定を足した
+- 検証: tcs2c.Tests に `DifferentialTests.MathLogBase.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。x と base を 1 / ±0 / ±∞ / NaN / 有限値で総当たり)。修正前は Lua / C が base=1 で +∞ を出して fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の `Math.Log` を除いて master とバイト一致 (底付きの Log を使うサンプルは無い)
+- 判断: 底 2 / 10 は従来どおり log2 / log10 を使う (Lua の `math.log` と同じ。MathF.Log は底によらず `Log(x) / Log(base)`)。精度の差は特殊値の分類と別の問題なので変えない
+- 残課題: なし
