@@ -2058,3 +2058,11 @@
 - 検証: tcs2c.Tests に `DifferentialTests.ExtensionCalls.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。static の形・既定値の省略・struct receiver の copy・`?.` の null / 非 null・`V?` receiver・LINQ の static の形)。修正前は Lua が `attempt to perform arithmetic on a table value`、C が `Ext.twice: expected 1 arguments, got 2` で fail、修正後 pass。#139 本文の 2 program も 3 backend が CoreCLR と同じ `10` / `6`。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1025 / tcs2c.Tests 78 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: static の形の判定は `ReducedFrom` の有無で行う (`IsExtensionMethod` は両方の形で true)
 - 残課題: なし
+
+### hot reload の restart 判定を native (watch) と web (増分 session) で揃え、initializer を書き方に依らずに比べる (#155) ✓ (2026-10-11)
+- restart の規則を `ReloadRules` の 1 つにした。reload chunk (`ReloadClassifier`、IlExport の metadata) と増分 session (`IncrementalCompilationSession.ClassifyRestart`、emitter の記録) はそれぞれの metadata を `ReloadType` に写して同じ規則で判定する。session は enum member の削除・値の変更を restart にし (従来 live で、保存済みの整数が別の member を指した)、native は既存 static の型の変更を restart にする (従来 live で新しい初期値に置き換えた。session は initializer の文字列が同じ `int X = 1` → `float X = 1` を live にしていた)。session の emitter 記録に enum member の値と static の型を足した
+- initializer の hash は `Sha256(init.ToString())` (trivia 込みの構文の文字列) をやめ、定数は値と型、それ以外は trivia を除いた token 列にした (IlExport の InitHash、session の static と instance shape で共通)。`1+2` → `1 + 2` / `3`、空白・comment だけの編集は restart にならない
+- 意図した差 (native は instance shape の変更と副作用のありうる static の追加を live に移行、session は restart) は残し、規則表を hot-reload-design.md §11 に書いた
+- 検証: `Transpiler.Tests/ReloadRulesAlignmentTests.cs` (同じ編集を両方に通す。restart 7 件 / live 7 件 / 意図した差 2 件)。修正前は 9 件が fail (enum 3 件が session で live、static の型の変更 2 件が native で live、空白・comment・定数の書き方 4 件が両方で restart)、修正後 pass。HotReloadRestartTests の live 側から static の型の変更を外して restart 側に入れた。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: const と static の入れ替え (同名・同じ型・同じ値) は両方 live のまま (修正前も両方 live だった)。使う側の埋め込みと table の値は同じ値になる。`new()` と `new List<int>()` は token が違うので restart のまま。IOperation や IL で意味を比べる hash は、比べ漏れた要素 (型 test の型など) が live の誤判定になるので入れなかった
+- 残課題: なし
