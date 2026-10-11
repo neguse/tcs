@@ -38,8 +38,10 @@ public sealed record IlCtorInfo(
     ImmutableArray<IlExpr> BaseArgs = default,
     ImmutableArray<IlExpr?> ParameterDefaults = default);
 
+/// <summary>InitHash は initializer の構文の hash (無ければ null)。hot reload が
+/// 既存 static の initializer 変更を restart と判定するのに使う。</summary>
 public sealed record IlFieldInfo(string Name, string Type, bool IsStatic,
-    IlExpr? Init = null);
+    IlExpr? Init = null, string? InitHash = null);
 
 /// <summary>method body の IL。Body が null なら IL 未対応 (診断構文等) で
 /// backend は対象外にできる。</summary>
@@ -102,6 +104,11 @@ public static partial class IlExport
         var trees = csharpSources
             .Select((s, i) => CSharpSyntaxTree.ParseText(s, path: sourcePaths?[i] ?? ""))
             .ToArray();
+        // 型の Lua global 名の衝突は Lua 経路と同じ error。generic の単相化で
+        // 書き換える前の tree で判定する (位置も入力のまま)
+        var collisions = TinyCsComplianceFacts.AnalyzeLuaTypeNameCollisions(
+            CSharpCompilation.Create("IlExport", trees.Concat(references),
+                Transpiler.References), trees).Select(c => c.Error).ToArray();
         if (specializeGenerics)
         {
             var specialized = IlSpecialization.Expand(trees, references);
@@ -127,6 +134,7 @@ public static partial class IlExport
                     $"error {d.Id}: {d.GetMessage()}";
             }).ToArray();
         if (errors.Length > 0) return new IlExportResult([], [.. errors]);
+        if (collisions.Length > 0) return new IlExportResult([], [.. collisions]);
 
         var diagnostics = new List<string>();
         foreach (var tree in trees)
@@ -277,52 +285,57 @@ public static partial class IlExport
         var positional = record?.ParameterList?.Parameters.ToList() ?? [];
         foreach (var p in positional)
         {
-            // base の primary ctor へ渡すだけの parameter (同名 member を
-            // 継承している) は C# も property を合成しないので field にしない
             var name = p.Identifier.ValueText;
-            var synthesized = symbol?.GetMembers(name)
-                .Any(m => SymbolEqualityComparer.Default.Equals(
-                    m.ContainingType, symbol)) ?? true;
-            if (!synthesized) continue;
+            if (symbol != null && !LuaEmitter.IsSynthesizedPositional(symbol, name))
+                continue;
             var paramSymbol = model.GetDeclaredSymbol(p);
             fields.Add(new IlFieldInfo(
                 LuaNaming.Member(name),
                 paramSymbol?.Type.ToDisplayString() ?? "?",
                 false));
         }
-        foreach (var field in cls.Members.OfType<FieldDeclarationSyntax>())
+        // 初期化子は field と auto property の区別なく宣言順に実行するので
+        // (C# §15.5.6)、member の宣言順に並べる
+        foreach (var member in cls.Members)
         {
-            foreach (var v in field.Declaration.Variables)
+            switch (member)
             {
-                var fieldSymbol = model.GetDeclaredSymbol(v) as IFieldSymbol;
-                var init = v.Initializer != null
-                    ? emitter.ExportExprIl(model, v.Initializer.Value) : null;
-                fields.Add(new IlFieldInfo(
-                    fieldSymbol != null
-                        ? LuaNaming.MemberName(fieldSymbol)
-                        : LuaNaming.Member(v.Identifier.ValueText),
-                    fieldSymbol?.Type.ToDisplayString() ?? "?",
-                    fieldSymbol?.IsStatic ?? false,
-                    init));
+                case FieldDeclarationSyntax field:
+                    foreach (var v in field.Declaration.Variables)
+                    {
+                        var fieldSymbol = model.GetDeclaredSymbol(v) as IFieldSymbol;
+                        var init = v.Initializer != null
+                            ? emitter.ExportExprIl(model, v.Initializer.Value) : null;
+                        fields.Add(new IlFieldInfo(
+                            fieldSymbol != null
+                                ? LuaNaming.MemberName(fieldSymbol)
+                                : LuaNaming.Member(v.Identifier.ValueText),
+                            fieldSymbol?.Type.ToDisplayString() ?? "?",
+                            fieldSymbol?.IsStatic ?? false,
+                            init, InitHash(v.Initializer?.Value)));
+                    }
+                    break;
+                case PropertyDeclarationSyntax prop when prop.AccessorList != null
+                    && prop.AccessorList.Accessors
+                        .All(a => a.Body == null && a.ExpressionBody == null):
+                    var propSymbol = model.GetDeclaredSymbol(prop);
+                    var propInit = prop.Initializer != null
+                        ? emitter.ExportExprIl(model, prop.Initializer.Value) : null;
+                    fields.Add(new IlFieldInfo(
+                        propSymbol != null
+                            ? LuaNaming.MemberName(propSymbol)
+                            : LuaNaming.Member(prop.Identifier.ValueText),
+                        propSymbol?.Type.ToDisplayString() ?? "?",
+                        propSymbol?.IsStatic ?? false,
+                        propInit, InitHash(prop.Initializer?.Value)));
+                    break;
             }
-        }
-        foreach (var prop in cls.Members.OfType<PropertyDeclarationSyntax>()
-            .Where(p => p.AccessorList != null && p.AccessorList.Accessors
-                .All(a => a.Body == null && a.ExpressionBody == null)))
-        {
-            var propSymbol = model.GetDeclaredSymbol(prop);
-            var propInit = prop.Initializer != null
-                ? emitter.ExportExprIl(model, prop.Initializer.Value) : null;
-            fields.Add(new IlFieldInfo(
-                propSymbol != null
-                    ? LuaNaming.MemberName(propSymbol)
-                    : LuaNaming.Member(prop.Identifier.ValueText),
-                propSymbol?.Type.ToDisplayString() ?? "?",
-                propSymbol?.IsStatic ?? false,
-                propInit));
         }
         return fields;
     }
+
+    private static string? InitHash(ExpressionSyntax? init) =>
+        init == null ? null : ModuleArtifactText.Sha256(init.ToString());
 
     private static IlCtorInfo? BuildCtor(LuaEmitter emitter, SemanticModel model,
         TypeDeclarationSyntax cls)
@@ -345,10 +358,15 @@ public static partial class IlExport
                     baseArgs.Add(built);
                 }
             }
-            var body = positional.Select(p => (IlStat)new IlAssign(
-                new IlField(new IlVar("self"),
-                    LuaNaming.Member(p.Identifier.ValueText)),
-                new IlVar(p.Identifier.ValueText)));
+            // 基底から継承した positional property は基底の ctor が持つ
+            var symbol = model.GetDeclaredSymbol(cls);
+            var body = positional
+                .Where(p => symbol == null || LuaEmitter.IsSynthesizedPositional(
+                    symbol, p.Identifier.ValueText))
+                .Select(p => (IlStat)new IlAssign(
+                    new IlField(new IlVar("self"),
+                        LuaNaming.Member(p.Identifier.ValueText)),
+                    new IlVar(p.Identifier.ValueText)));
             return new IlCtorInfo(
                 [.. positional.Select(p => p.Identifier.ValueText)],
                 [.. positional.Select(p =>

@@ -66,7 +66,7 @@ public sealed class SessionUpdateResult
     public int EmittedModuleCount { get; init; }
 }
 
-public sealed class IncrementalCompilationSession
+public sealed partial class IncrementalCompilationSession
 {
     private readonly bool _checkNaming;
     private readonly SyntaxTree[] _refTrees;
@@ -115,6 +115,7 @@ public sealed class IncrementalCompilationSession
         if (!_hasErrors)
         {
             EmitAll();
+            RefreshInitDependencies();
             Revision++;
         }
     }
@@ -224,7 +225,9 @@ public sealed class IncrementalCompilationSession
         // 対象外 (constructor/accessor/record/nested/警告持ち) は file 全体 emit。
         var artifact = TrySpliceMethodEmit(comp, path, tree, bodySpan)
             ?? EmitModule(comp, path, tree);
+        var prevArtifact = _lastGood.GetValueOrDefault(path);
         _lastGood[path] = artifact;
+        UpdateInitDependenciesAfterBodyEdit(prevArtifact, artifact, tree, bodySpan);
         Revision++;
         swEmit.Stop();
         return new SessionUpdateResult
@@ -263,6 +266,7 @@ public sealed class IncrementalCompilationSession
 
         var swEmit = Stopwatch.StartNew();
         var changed = EmitAll();
+        RefreshInitDependencies();
         Revision++;
         swEmit.Stop();
 
@@ -366,13 +370,19 @@ public sealed class IncrementalCompilationSession
             return errors;
 
         // Lua 名の衝突は full build (Transpiler) と同じく error で emit を止める。
-        // fast path (body 限定編集) は member 名が変わらないので対象外。
+        // fast path (body 限定編集) は member 名も型名も変わらないので対象外。
         foreach (var p in _moduleOrder)
         {
             var collisions = TinyCsComplianceFacts
                 .AnalyzeLuaNameCollisions(_trees[p]).ToList();
             errors.AddRange(collisions);
             _diagBuckets[p].AddRange(collisions);
+        }
+        foreach (var (tree, error) in TinyCsComplianceFacts
+            .AnalyzeLuaTypeNameCollisions(comp, [.. _moduleOrder.Select(p => _trees[p])]))
+        {
+            errors.Add(error);
+            _diagBuckets[tree.FilePath].Add(error);
         }
         if (errors.Count > 0)
             return errors;
@@ -431,12 +441,14 @@ public sealed class IncrementalCompilationSession
             emitter.ReferenceTrees.Add(rt);
         var model = comp.GetSemanticModel(tree);
         emitter.Visit(comp, model, tree);
+        // static initializer (と警告) は ToString で出る
+        var lua = emitter.ToString();
         return new SessionModuleArtifact
         {
             ModuleId = path,
             SourceHash = Sha256(_texts[path].ToString()),
             SurfaceHash = SurfaceHash(tree),
-            Lua = emitter.ToString(),
+            Lua = lua,
             Warnings = [.. emitter.Warnings],
             Types = emitter.EmittedTypes,
             RawLua = emitter.RawOutput,
