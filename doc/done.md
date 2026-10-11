@@ -2063,3 +2063,9 @@
 - `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
 - 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
 - 残課題: 概念の単位で分割して除外を外す (#167)
+
+### 式位置の `??=` の値を非 nullable の値にする (#152) ✓ (2026-10-11)
+- `int r = (x.Opt ??= 7)` (`Opt` は `int?`) で、代入式の IIFE が `T?` の place (`x.opt`) をそのまま値として返していた。C# の式の型は `int` なので、C backend は `int?` の値を `int` として扱えず `concat operands are not stringifiable: string, i32?` / `print does not support i32?` で止まっていた。左辺が `T?` で式の型が `T` のとき、IIFE の値を `IlNullableValue` で中の値にする (field / local / static / auto-property / custom property / struct の member / 受け手を固定する経路、struct の `S?` も同じ)
+- 検証: tcs2c.Tests に `CoalesceAssignment_ValueIsUnderlyingType` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は C が `concat operands are not stringifiable: i32?, string` で fail、修正後 pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: C backend で `T?` → `T` を暗黙に許すのではなく、IL に式の型どおりの値を置く (Lua は `__tcs_nval` を 1 回呼ぶだけ)
+- 残課題: なし

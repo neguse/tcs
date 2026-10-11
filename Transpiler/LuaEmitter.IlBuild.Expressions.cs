@@ -71,7 +71,8 @@ public partial class LuaEmitter
             {
                 // 式位置の代入 (`(i = y) >= 0`、`arr[x = 1]`): 文として代入し
                 // 代入後の左辺を値にする IIFE (読み直しで受け手が変わり得る
-                // ときは受け手 / 添字を固定した place を読む)
+                // ときは受け手 / 添字を固定した place を読む。`T?` への ??= は
+                // 中の値。CoalesceAssignValue)
                 if (NeedsStructSlotAssign(model, assignExpr))
                     return BuildStructSlotAssignExpr(model, assignExpr);
                 if (IsCustomPropertyTarget(model, assignExpr.Left))
@@ -84,7 +85,8 @@ public partial class LuaEmitter
                     return null;
                 var assigned = BuildExpr(model, assignExpr.Left);
                 return assigned == null
-                    ? null : new IlIife([.. assignStats, new IlReturn(assigned)]);
+                    ? null : new IlIife([.. assignStats,
+                        new IlReturn(CoalesceAssignValue(model, assignExpr, assigned))]);
             }
             case CastExpressionSyntax cast:
             {

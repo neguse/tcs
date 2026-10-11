@@ -142,7 +142,8 @@ public partial class LuaEmitter
     private IlIife? BuildStructSlotAssignExpr(SemanticModel model,
         AssignmentExpressionSyntax assign) =>
         BuildStructSlotAssign(model, assign) is { } stats
-            ? new IlIife([.. stats, new IlReturn(new IlVar("__tcs_v"))])
+            ? new IlIife([.. stats, new IlReturn(
+                CoalesceAssignValue(model, assign, new IlVar("__tcs_v")))])
             : null;
 
     private bool BuildStructSlotAssignInto(SemanticModel model,
