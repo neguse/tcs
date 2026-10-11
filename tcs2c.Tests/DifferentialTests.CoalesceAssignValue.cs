@@ -27,6 +27,7 @@ public partial class DifferentialTests
                 static int? Static;
                 static X Get() { return Shared; }
                 static int Twice(int v) { return v * 2; }
+                static void Mut(S v) { v.N = 77; }
                 public static void Main()
                 {
                     var x = new X();
@@ -43,13 +44,15 @@ public partial class DifferentialTests
                     Console.WriteLine(Twice(x.Opt ??= 1) + ":" + (loc ??= 1) + ":" + x.Opt.Value + ":" + Static.Value);
                     var src = new S { N = 5 };
                     S s = (x.SOpt ??= src);
-                    Console.WriteLine(s.N + ":" + x.SOpt.Value.N);
+                    S? o = null;
+                    Mut(o ??= src);
+                    Console.WriteLine(s.N + ":" + x.SOpt.Value.N + ":" + o.Value.N + ":" + src.N);
                     string? name = null;
                     string n = (name ??= "a");
                     Console.WriteLine(n + name);
                 }
             }
             """, "P");
-        Assert.Equal("7:7:3:4:5:6:8:10\n14:3:7:10\n5:5\naa", output);
+        Assert.Equal("7:7:3:4:5:6:8:10\n14:3:7:10\n5:5:5:5\naa", output);
     }
 }
