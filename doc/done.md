@@ -2059,6 +2059,11 @@
 - 判断: static の形の判定は `ReducedFrom` の有無で行う (`IsExtensionMethod` は両方の形で true)
 - 残課題: なし
 
+### file size の上限から LuaEmitter.IlBuild.Expressions.cs を一時的に外す ✓ (2026-10-11)
+- `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
+- 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
+- 残課題: 概念の単位で分割して除外を外す (#167)
+
 ### Lua の struct copy 抜け: base 引数・?. 呼び出し・ToDictionary・代入式の値 (#128 #152) ✓ (2026-10-11)
 - Lua backend で、次の経路の struct 値を copy する (il-spec §10、readonly struct は従来どおり copy しない)。`base(...)` の引数、`?.` 経由の呼び出しの引数 (`l?.Add(t)`)、value selector の無い `ToDictionary` の値 (IL は value selector の位置に `S.__copy` 参照を置き、C backend は要素を値で写すので読まない)、`??=` の右辺
 - 式位置の代入の値を、格納した slot ではなく値の copy にする (`Mut(h.Data.I = Make())`、`Mut(d[1] = src)`、`Mut(l[0] = src)`、`Mut(loc = src)` で `Mut` の変更が格納先に残っていた)。代入式の IIFE は末尾の return を copy にし、`WrapStructCopy` が IIFE を新しい値とみなす前提を満たす。custom property への代入式は setter に `__tcs_v` の copy を渡す (setter が `value` を書き換えると `var y = (h.Item = s)` の y に見えていた)
