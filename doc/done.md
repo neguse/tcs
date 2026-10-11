@@ -2005,6 +2005,30 @@
 - 判断: 組み込みの float 算術 (+ - * / %) の operand では変換を省いた (Lua / C とも演算が integer を float へ変換してから計算する)。省けるのは相手の operand が Lua で float であるときなので、float の既定値と runtime が返す float を float にしてこの前提を保つ。`+ 0.0` は float の -0 を +0 にするので `* 1.0` にした。Sum の int / float は Lua の値の subtype ではなく静的な型で分ける (float の値が integer のこともあり、実行時の判定は誤って fault する上に遅い)。SumInt は selector 無しで identity を呼ばない loop を持つ
 - 残課題: Lua の `__tcs_trunc` は NaN / 範囲外の float → int で fault しない (C は fault)。host から integer で渡された float 値は従来どおり integer のままで、組み込みの float 算術で int と混ぜると f32 へ丸まらない
 
+### tcs2c: 入れ子の lambda が外側の lambda の parameter を捕捉できるようにする (#140) ✓ (2026-10-11)
+- `x => arr.Count(y => y == x)` の内側の closure が外側の lambda の parameter `x` を捕捉すると、C が `'v_x_0' undeclared` で compile できなかった。原因は 2 つ: (1) method の parameter は入れ子の closure が捕捉するなら cell へ移す (`BoxCapturedParameters`) が、lambda の parameter は移していなかった。(2) closure の捕捉集合を本体の直接の参照だけから作っていたので、さらに内側の closure だけが使う外側の変数 (`self`、2 段外の lambda の parameter) を lifted 関数へ渡していなかった
+- lifted 関数の先頭で、入れ子の closure が捕捉する parameter を method と同じく cell へ移す。捕捉集合は入れ子の closure の本体も (その parameter と local を除いて) 見る
+- 検証: tcs2c.Tests に `DifferentialTests.NestedClosures.cs` の 2 本 (main 形: Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。外側の parameter の読み書き、3 段の curry、`self` の field、static field の initializer、LINQ の中の LINQ。lib 形: 外側の parameter を捕捉した closure を static の List に残し、フレーム境界の GC (stress 含む) をまたいで呼ぶ)。修正前は 2 本とも C compile error (`v_x_0` / `c_v_self` / `v_a_0` undeclared)、修正後 pass。#140 本文の program も C が CoreCLR と同じ `2`。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1041 / tcs2c.Tests 85 が pass。変更は C backend だけで、生成 Lua は変わらない
+- 判断: 捕捉の判定は名前単位のまま (過剰な box は意味を変えない)
+- 残課題: なし
+
+### record class の継承と S? field の == を C# に揃える (#135) ✓ (2026-10-11)
+- Lua backend の record class が基底 record を無視していた。基底と `__index` で繋ぎ (class と同じ遅延 link)、ctor は基底の `new` に primary ctor 引数 (`Root(P.Next())`) を渡してから自分の field を足す。従来は基底の ctor 引数を評価せず、継承した method も引けなかった
+- `__eq` は実行時型の一致に続けて、基底から順に各 record が宣言した field を比べる (C# の合成 Equals が基底の Equals を呼ぶのと同じ)。Lua は metamethod を rawget で引くので、parameter の無い record にも `__eq` を出す (`new E() == new E()` は C# で true)
+- struct の `T?` field (record / record struct / struct の値等価) は値の有無が同じで中の値が等しいとき等しい。従来は struct の table を参照比較していた
+- 基底から同名 member を継承している positional parameter (`record Pass(int tag) : Root(tag * 2)`) には C# も property を合成しない。Lua と C (IL の positional ctor) が派生の ctor でこの parameter を field に代入して基底の値を上書きしていたので、合成される parameter だけを代入する (`IsSynthesizedPositional`。IlExport の field 収集と共有)
+- 検証: tcs2c.Tests に `DifferentialTests.RecordInheritance.cs` の 2 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は Lua が `record:0:...` (S? を参照比較) と `Nullable object must have a value` (基底の ctor が走らない) で fail、C は `pass-through:3` / `inherited:1:101` で CoreCLR (`6` / `2:102`) と不一致。修正後 pass。#135 本文の program も 3 backend が CoreCLR と同じ `1 0 2`。`bash run-tests.sh` で Analyzers.Tests 56 / Transpiler.Tests 1019 / tcs2c.Tests 77 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: C# は派生の field 初期化を基底 ctor の呼び出しより先に行うが、Lua は基底の `new` が self を作るので後になる。record の本体は positional property だけなので (他の member は TCS1001)、順序の差は観測できない
+- 残課題: なし (record の明示 ctor は従来どおり TCS1001)
+
+### Dictionary<float, V> の NaN key を .NET に揃える (#132) ✓ (2026-10-11)
+- Lua backend で `Dictionary<float, V>` に NaN の key を入れると `table index is NaN` で止まり、読み出し (`d[NaN]` / `ContainsKey`) は常に不在になっていた。.NET の `EqualityComparer<float>.Default` と同じく NaN 同士を 1 つの key として扱う
+- float key の dict だけ、key を runtime の `Dict.FloatKey` (NaN を sentinel の文字列 `"NaN"` に替える) に通してから引く: indexer の get / set、`Add`、`Remove`、`ContainsKey`、`TryGetValue`、collection / index initializer、`?.` 経由。`Keys` は `Dict.FloatKeys`、foreach の `KeyValuePair.Key` は `Dict.FloatKeyOut` で NaN に戻す。`List.ToDictionary` は float key のときだけ `Dict.FloatKey` を末尾の引数で受けて key を置き換える (他の key 型は従来どおり)。key が読み直しても変わらない式 (変数・field・定数) なら Lua の描画で `(k ~= k and "NaN" or k)` に inline し、呼び出しを省く。NaN でない定数の key は素通し
+- C backend は float の key を従来どおり対応外とし、生成前に `Dictionary key type not supported: f32` で止まる (変更なし。test で固定)
+- 検証: tcs2c.Tests に `DifferentialTests.DictFloatKey.cs` の 4 本 (Lua が CoreCLR で実行した stdout と一致 / C が `Dictionary key type not supported` で止まる / ToDictionary の置換は float key だけ / object の key の NaN を文字列 "NaN" の key と取り違えない)。修正前は Lua が `table index is NaN` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime に足した関数を除いて master とバイト一致 (float key の dict を使うサンプルは無い)。lua32 の micro bench (float key の get + set を 500 万回): raw 0.45 s、inline 0.61 s、`Dict.FloatKey` 呼び出し 0.93 s
+- 判断: float 以外の key の dict は生成コードも runtime の経路も変えない (int / string key のコストは不変)。sentinel は hot reload で runtime を読み直しても同じ値になる文字列にした (float key の dict は他に文字列の key を持たない)。host が raw table を読むと `"NaN"` の key が見える (support-matrix に記載)。`Dict.Keys` 本体に NaN 戻しを足すと全 dict の列挙が遅くなるので別関数にした
+- 残課題: 判定は呼び出し地点の静的な key 型なので、`Dictionary<object, V>` など float 以外の key や、key 型が型 parameter の dict (generic method に K = float で渡したもの) に入れた NaN は対象外 (従来どおり `table index is NaN`)
+
 ### struct 型の pattern を struct / `T?` の入力に当てる (#130) ✓ (2026-10-11)
 - 型を書いた property pattern の入力が `T?` (`Pt? p; p is Pt { X: 2 }`) のとき、型を書かない `{ X: 2 }` と同じく値の有無を判定して member は中の値から読む。従来 Lua は struct の table に `__tcs_is` (metatable 判定) を当てて常に不一致、C は `IlIsType target is not a class: Pt` で止まっていた
 - 同じ原因の型 pattern / 宣言 pattern (`p is Pt`、`p is Pt v`、switch の `Pt v =>` / `case Pt:`) も直した。型照合 (`BuildTypeCheck`) が pattern の入力型を受け取り、struct `S` の入力を `S` で照合するのは常に true (入力は 1 回評価)、`S?` の入力は値の有無にする。宣言 pattern は入力 (`S?` は中の値) の copy を arm ごとに照合の中で束縛する (従来 Lua は元の struct と alias、C は `Pt?` を `Pt` に代入できず停止)。`and` の右辺は左辺が絞った型を入力にするので、`S?` の入力を左辺が `S` に絞ったら右辺は中の値を照合する (`p is Pt and { X: 2 }`)
