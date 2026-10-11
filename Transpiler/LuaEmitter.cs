@@ -228,9 +228,11 @@ public partial class LuaEmitter
 
         if (_sb.Length > preZeroStart) AppendLine();
 
+        // 型も形の一部: 既存 instance の値は旧い型のまま (default が同じ nil でも)
         info.InstanceShape = string.Join("\n", fieldInits.Select(f =>
-            f.Name + "=" + (ReloadRules.InitializerHash(model, f.Init)
-                ?? GetDefaultValueForType(f.Type))));
+            f.Name + ":" + f.Type?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                + "=" + (ReloadRules.InitializerHash(model, f.Init)
+                    ?? GetDefaultValueForType(f.Type))));
         EmitConstructor(model, name, ctor, fieldInits, baseClass);
         info.DefinitionKeys.Add("new");
 

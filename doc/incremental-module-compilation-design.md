@@ -385,7 +385,7 @@ method-body edit では同じ file の static state をリセットしない。�
 - 既存 static field の型の変更
 - enum member の削除・値の変更 (保存済みの整数が別の member を指す)
 
-規則の実装は native の reload chunk と共有する (hot-reload-design.md §11 の規則表)。initializer の変更は trivia を除いた token 列 (定数は値と型) で比べ、空白・comment だけの編集は restart にしない。
+規則の実装は native の reload chunk と共有する (hot-reload-design.md §11 の規則表)。initializer の変更は trivia を除いた token 列 (整数・bool・char・string の定数は値と型) で比べ、空白・comment だけの編集は restart にしない。const と static の入れ替えは initializer の変更として扱う。instance shape は field の名前・型・initializer、record は positional member の名前と型で比べる。
 
 browser host は successful compile 後に player restart へ fallback できる。restart-required edit は主 500 ms SLO の対象外だが、理由を診断として明示する。
 

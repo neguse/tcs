@@ -329,22 +329,27 @@ index で既に解決しており、chunk backend (UC1) の driver も同じ方�
   | base class の変更 | restart | restart |
   | 既存 static (const を含む) の initializer の変更 | restart | restart |
   | 既存 static の型の変更 | restart | restart |
-  | 同名・同じ型・同じ値のままの const と static の入れ替え | live | live |
+  | const と static の入れ替え (同名・同じ型・同じ値でも) | restart | restart |
   | enum member の削除・値の変更 | restart | restart |
   | enum member・型の追加、static の削除 | live | live |
   | 副作用の無い (定数・default の) static の追加 | live | live |
   | 副作用のありうる static の追加 | live | restart |
-  | instance field / auto-property の追加・削除・型・initializer の変更 | live | restart |
+  | instance field / auto-property の追加・削除・型・initializer の変更、record の positional member の変更 | live | restart |
 
   下 2 行は意図した差。chunk は生存 instance を registry 経由で移行し
   (§5.2)、新しい static の initializer を chunk の中で評価する。module は既存
   instance を移行せず、transaction の中で副作用のある initializer を実行しない
   (incremental-module-compilation-design §11.3)。
 
-  initializer の比較は書き方に依らない形で行う: 定数は値と型で、それ以外は
-  trivia (空白・comment) を除いた token 列で比べる。`1+2`、`1 + 2`、`3` は同じ
-  initializer で、`new()` と `new List<int>()` のように token が違う書き換えは
-  意味が同じでも restart になる
+  const と static の入れ替えが restart なのは、const は使う側に埋め込まれ、static
+  に戻しても table の値 (実行中に変えた値) が初期値に戻らないため。
+
+  initializer の比較は書き方に依らない形で行う: 整数・bool・char・string の
+  定数は値と型で、それ以外は trivia (空白・comment) を除いた token 列で比べる。
+  `1+2`、`1 + 2`、`3` は同じ initializer になる。float の定数は token で比べる
+  (Roslyn は f32 で畳むが emitter は式のまま書くので、`1f / 3f` と
+  `0.333333343f` は 64-bit の Lua で別の値になる)。`new()` と `new List<int>()`
+  のように token が違う書き換えは、意味が同じでも restart になる
 - 型の削除は registry で生存 instance を見ずに常に restart (§5.2 は生存 instance
   ゼロなら live)
 - static field の追加は initializer の副作用を見ずに live (§5.2 は証明不能なら

@@ -14,8 +14,11 @@ public class ReloadRulesAlignmentTests
             public static int Y = 1 + 2;
             public static int Z = G.Make( 1 );
             public static int Make(int v) { return v; }
+            public static float F = 1f / 3f;
             public int A = 1 + 2;
+            public string S;
         }
+        public record R(int X);
         """;
 
     // 両方で restart にする編集と、その理由
@@ -30,6 +33,12 @@ public class ReloadRulesAlignmentTests
         "enum member removed or renumbered: E.TWO")]
     [InlineData("enum E { One, Two }", "enum E { One, Two = 5 }",
         "enum member removed or renumbered: E.TWO")]
+    [InlineData("F = 1f / 3f;", "F = 0.333333343f;", "static initializer changed: G.f")]
+    // const は使う側に埋め込まれ、static の table の値は戻らない (実行中に変えた値が残る)
+    [InlineData("public const int K = 1;", "public static int K = 1;",
+        "static initializer changed: G.k")]
+    [InlineData("public static int X = 1;", "public const int X = 1;",
+        "static initializer changed: G.x")]
     public void RestartEdit_RestartsInBoth(string from, string to, string reason)
     {
         var edited = Edit(from, to);
@@ -45,8 +54,7 @@ public class ReloadRulesAlignmentTests
     [InlineData("G.Make( 1 )", "G.Make(1 /* seed */)")]
     [InlineData("public int A = 1 + 2;", "public int A = 1+2;")]
     [InlineData("enum E { One, Two }", "enum E { One, Two, Three }")]
-    [InlineData("public const int K = 1;", "public static int K = 1;")]
-    [InlineData("public static int X = 1;", "public const int X = 1;")]
+    [InlineData("F = 1f / 3f;", "F = 1f/3f;")]
     public void LiveEdit_IsLiveInBoth(string from, string to)
     {
         var edited = Edit(from, to);
@@ -60,6 +68,9 @@ public class ReloadRulesAlignmentTests
     [Theory]
     [InlineData("public int A = 1 + 2;", "public int A = 1 + 2;\n    public int B = 4;",
         "instance shape changed: G")]
+    [InlineData("public int A = 1 + 2;", "public float A = 1 + 2;", "instance shape changed: G")]
+    [InlineData("public string S;", "public int[] S;", "instance shape changed: G")]
+    [InlineData("record R(int X)", "record R(float X)", "instance shape changed: R")]
     [InlineData("public static int X = 1;",
         "public static int X = 1;\n    public static int W = G.Make(2);",
         "impure new static: G.w")]
