@@ -463,16 +463,18 @@ local function enumSpec(spec)
   info = { flags = string.sub(spec, 1, 1) == "*", names = {}, values = {} }
   for name, value in string.gmatch(spec, "([^*,:]+):(-?%d+)") do
     info.names[#info.names + 1] = name
-    info.values[#info.values + 1] = math.tointeger(tonumber(value))
+    info.values[#info.values + 1] = math.tointeger(tonumber(value)) or tonumber(value)
   end
   enumSpecs[spec] = info
   return info
 end
 
 -- 定義された値は名前、Flags は上位の member から含まれる bit を取った名前を
--- 昇順に ", " で繋ぐ。どちらでも表せない値は数値。T? の null は空文字列
+-- 昇順に ", " で繋ぐ。どちらでも表せない値は数値。T? の null は空文字列。
+-- host の enum が Lua の値を数でなく持つとき ([LubLuaString] 等) はその値
 function String.FormatEnum(v, spec)
   if v == nil then return "" end
+  if type(v) ~= "number" then return tostring(v) end
   local info = enumSpec(spec)
   local names, values = info.names, info.values
   if not info.flags then

@@ -279,7 +279,6 @@ internal sealed partial class CEmitter
             return tcs_string_join_items(sep, (TcsString **)array->data, array->length);
         }
 
-        /* tonumber: 10 進 (前後空白可)。失敗は Lua の nil → 後続で fault */
         /* enum の文字列化 (Enum.ToString)。names / values は .NET と同じ並び
            (Flags は全 member を値の符号なし昇順、それ以外は値ごとに 1 つ)。
            Flags は上位の member から含まれる bit を取り、名前を昇順に ", " で
@@ -322,6 +321,7 @@ internal sealed partial class CEmitter
             return result;
         }
 
+        /* tonumber: 10 進 (前後空白可)。失敗は Lua の nil → 後続で fault */
         static bool
         tcs_parse_i32(TcsString *s, int32_t *out)
         {

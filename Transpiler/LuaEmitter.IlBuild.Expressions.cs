@@ -559,8 +559,15 @@ public partial class LuaEmitter
             if (methodName == "ToString")
             {
                 var recvAny = BuildExpr(model, ma.Expression);
-                return recvAny == null
-                    ? null : WrapFloatToString(model, ma.Expression, recvAny);
+                if (recvAny == null) return null;
+                // enum の書式 ("G" / "F" / "D")。それ以外の書式は TCS1002
+                if (invocation.ArgumentList.Arguments.Count > 0)
+                    return model.GetTypeInfo(ma.Expression).Type is
+                            { TypeKind: TypeKind.Enum } enumType
+                        && model.GetConstantValue(invocation.ArgumentList
+                            .Arguments[0].Expression).Value is string format
+                        ? WrapEnumFormat(enumType, recvAny, format) : null;
+                return WrapFloatToString(model, ma.Expression, recvAny);
             }
 
             if (symbol is IMethodSymbol { ReducedFrom: { } reduced })
