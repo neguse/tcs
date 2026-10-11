@@ -2063,3 +2063,9 @@
 - `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
 - 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
 - 残課題: 概念の単位で分割して除外を外す (#167)
+
+### tcs2c で Dictionary への store の key を値より先に評価する (#152) ✓ (2026-10-11)
+- 文の位置の Dictionary への代入 / 複合代入 (`D[I] += Right()`、`D[I] = Right()`、Lua では代入形の `Add`) が `*(int32_t *)tcs_dict_put(d, key, NULL) = (値);` で、C の `=` の左右の評価順が決まっていないため key を右辺の後に評価していた (`Right` が `I = 1` にすると CoreCLR `17,20`、C `10,17`)。key を temp に取ってから値を評価する。collection initializer (`{ [K()] = V() }`) も値の temp を key より先に取っていたので、key → 値の順にした
+- 検証: tcs2c.Tests に `DictStore_EvaluatesKeyBeforeValue` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。int / string key の代入・複合代入・Add・initializer)。修正前は C が `10,17` / `vkvk...` で fail、修正後 pass。Lua の生成物は変わらない
+- 判断: List / 配列の store は既に受け手と添字を temp に取っていたので、dict だけ同じ形にした
+- 残課題: なし
