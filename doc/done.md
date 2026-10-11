@@ -2167,3 +2167,9 @@
 - hot-reload-design.md から struct の static field を前提にした記述 (§5.1 の root の行、§11 の「struct table の static merge なし」) を消した
 - 判断: struct の static method と本体を持つ static property は従来どおり warning の TCS1001 (`StructMember(...)`)。呼ぶと Lua は nil 呼び出しで止まり、黙って別の値を読む static field とは違う
 - 残課題: C で基底の static field を派生型の名前で読む (`B.Y`、Y は基底 A の static) と `unbound IL variable: B` で止まる (record に限らず class も同じ。Lua は動く)
+
+### delegate の `f?.Invoke(...)` と `f.Invoke(...)` を delegate 値の呼び出しにする (#185) ✓ (2026-10-11)
+- `Action` / `Func` の `f?.Invoke(...)` と明示の `f.Invoke(...)` を、delegate 値そのものの呼び出し (`f(...)`) にした。従来は `Invoke` を method として `f:Invoke()` (IlInvoke) にしていたので、Lua は `attempt to index a function value`、C は IL の `IlInvoke receiver is not a class reference` で止まっていた。IL builder は両 backend 共通なので、`?.` の側 (BuildConditionalInvocation) と member access の呼び出しの側の 2 か所で `MethodKind.DelegateInvoke` を IlDynCall にする。`?.` の null 判定と戻り値の `T?` への wrap は従来の `?.` と同じ
+- 検証: tcs2c.Tests に `DifferentialTests.ConditionalInvoke.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。local / parameter / field / auto property / static field の delegate、null と非 null、戻り値なし・`int?` / struct の `V?` に wrap する戻り値・`??` の式、`?.` の連鎖 `c?.F?.Invoke(3)`、明示の `f.Invoke(...)`)。修正前は Lua が `attempt to index a function value`、C が `IlInvoke receiver is not a class reference` で fail、修正後 pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: Lua の delegate は function 値で、C の delegate も closure 値なので、`Invoke` を特別な member として runtime に持たせず IL の呼び出しノードに寄せる
+- 残課題: なし
