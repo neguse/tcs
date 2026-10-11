@@ -2058,3 +2058,9 @@
 - 検証: tcs2c.Tests に `DifferentialTests.ExtensionCalls.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。static の形・既定値の省略・struct receiver の copy・`?.` の null / 非 null・`V?` receiver・LINQ の static の形)。修正前は Lua が `attempt to perform arithmetic on a table value`、C が `Ext.twice: expected 1 arguments, got 2` で fail、修正後 pass。#139 本文の 2 program も 3 backend が CoreCLR と同じ `10` / `6`。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1025 / tcs2c.Tests 78 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: static の形の判定は `ReducedFrom` の有無で行う (`IsExtensionMethod` は両方の形で true)
 - 残課題: なし
+
+### 補間の D0 で値 0 を "0" にする (#153) ✓ (2026-10-11)
+- `$"{0:D0}"` が Lua / C で空文字になっていた。書式 `D` の精度を `%.Nd` に写すと、精度 0 では printf が値 0 の数字を出さない。C# の精度 0 (`D0` / `D00`) は精度なしと同じで最低 1 桁を出すので、0 だけの精度は `%d` にする (C backend は同じ `string.format` の IL を受けるので両方直る)
+- 検証: tcs2c.Tests に `DifferentialTests.FormatDZero.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。値 0 / 負数 / int.MinValue の D0、D00、D1、alignment 付き、小文字 d0、定数の 0)。修正前は Lua / C が `|0||00|...` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: 1 以上の精度は従来どおり `%.Nd` (符号を除いた桁数で C# と同じ)
+- 残課題: なし
