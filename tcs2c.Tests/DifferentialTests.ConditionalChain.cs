@@ -80,3 +80,51 @@ public partial class DifferentialTests
             """.ReplaceLineEndings("\n"), output);
     }
 }
+
+public partial class DifferentialTests
+{
+    // 連鎖の一番内側が変数 (参照型の receiver の field / 配列要素) なら、
+    // struct method の変異はその変数に残る。`T?` receiver の値は copy なので残らない
+    [CFact]
+    public void ConditionalAccess_ChainStructVariableReceiver()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            public struct C
+            {
+                public int N;
+                public void Bump() { N++; }
+                public C Next() { N += 10; return this; }
+            }
+            public struct W { public C In; }
+            public class HS
+            {
+                public C v = new C { N = 1 };
+                public W? mw = new W { In = new C { N = 7 } };
+                public HS Self;
+            }
+            public static class P
+            {
+                public static void Main()
+                {
+                    var arr = new C[] { new C { N = 5 } };
+                    var hs = new HS();
+                    hs.Self = hs;
+                    hs.Self?.v.Bump();
+                    Console.WriteLine(hs.v.N);
+                    arr?[0].Bump();
+                    Console.WriteLine(arr[0].N);
+                    Console.WriteLine((arr?[0].Next().N ?? -1) + ":" + arr[0].N);
+                    hs.Self?.mw?.In.Bump();
+                    Console.WriteLine(hs.mw.Value.In.N);
+                }
+            }
+            """, "P");
+        Assert.Equal("""
+            2
+            6
+            16:16
+            7
+            """.ReplaceLineEndings("\n"), output);
+    }
+}
