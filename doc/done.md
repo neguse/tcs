@@ -2058,3 +2058,10 @@
 - 検証: tcs2c.Tests に `DifferentialTests.ExtensionCalls.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。static の形・既定値の省略・struct receiver の copy・`?.` の null / 非 null・`V?` receiver・LINQ の static の形)。修正前は Lua が `attempt to perform arithmetic on a table value`、C が `Ext.twice: expected 1 arguments, got 2` で fail、修正後 pass。#139 本文の 2 program も 3 backend が CoreCLR と同じ `10` / `6`。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1025 / tcs2c.Tests 78 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: static の形の判定は `ReducedFrom` の有無で行う (`IsExtensionMethod` は両方の形で true)
 - 残課題: なし
+
+### tcs2c: closure が foreach の反復変数を捕捉できるようにする (#164) ✓ (2026-10-11)
+- closure (直接でも入れ子でも) が `foreach` の反復変数を捕捉すると、C が `v_v_N undeclared` で compile できなかった。反復変数を捕捉 cell にしていなかったので、lifted 関数へ渡せていなかった。List / 配列 / `EnumerateRunes()` の反復変数は、closure が捕捉するとき local と同じく反復ごとに新しい heap cell にする (C# 5 以降の意味)。Dictionary の反復の KeyValuePair は、捕捉するとき node の copy (`tcs_dict_node_copy`) を作り、closure はその pointer を捕捉する (反復の後の Dictionary の変更を映さない)。`EnumerateRunes()` の本体は捕捉の走査が見ていなかったので足した
+- 捕捉 cell を作る変数を、関数 (method / closure) ごとに、その関数の直下の closure が捕捉する名前に絞った。従来は method 全体の捕捉名の集合で判断していて、`l.Count(x => x > 1)` の `x` が、同じ method の別の lambda (`x => l.Count(y => y == x)`) のせいで要素ごとに `tcs_new_cell` していた
+- 検証: tcs2c.Tests に `DifferentialTests.ForeachCapture.cs` の 4 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。List / 配列 / string / `EnumerateRunes()` / struct 要素 / lambda の中の foreach / instance method / 入れ子の closure / KeyValuePair、--lib 形でフレーム境界の GC をまたぐもの、cell を作る数)。修正前は 3 本が C の `undeclared`、cell の数の 1 本が 5 (期待 3) で fail、修正後 pass。`bash run-tests.sh` 全通過。Transpiler (Lua 生成) は変えていないので lub の C# サンプルの生成 Lua は変わらない
+- 判断: 捕捉の判断は名前単位のまま (同じ関数の中の同名の別変数は過剰に box しうるが意味は同じ)
+- 残課題: なし
