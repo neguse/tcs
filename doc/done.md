@@ -2167,3 +2167,9 @@
 - hot-reload-design.md から struct の static field を前提にした記述 (§5.1 の root の行、§11 の「struct table の static merge なし」) を消した
 - 判断: struct の static method と本体を持つ static property は従来どおり warning の TCS1001 (`StructMember(...)`)。呼ぶと Lua は nil 呼び出しで止まり、黙って別の値を読む static field とは違う
 - 残課題: C で基底の static field を派生型の名前で読む (`B.Y`、Y は基底 A の static) と `unbound IL variable: B` で止まる (record に限らず class も同じ。Lua は動く)
+
+### 値で比べる key の Dictionary を build を止める TCS1001 にする (#185) ✓ (2026-10-11)
+- struct / record struct / struct の `T?` / record class を key にした Dictionary を、作る地点 (`new Dictionary<K, V>()`、target-typed `new()`、`ToDictionary`) で TCS1001 `ValueEqualityDictionaryKey(K)` にし、transpiler は build を止める (Lua を出さず、check は exit 1)。.NET は等しい値の key を同じ key とみなすが、Lua table は table の同一性で引くので、`ContainsKey(等しい値)` が false、同じ値の record の key が 2 つになる、を診断なしで起こしていた。C backend は従来 `Dictionary key type not supported` で止まっていて、今は同じ shared facts の診断で IL を作る前に止まる。analyzer は他の build を止める診断と同じく warning (syntax node action を足した)
+- 検証: Transpiler.Tests に `DictValueKeyTests.cs` (error と位置 / check の exit 1 / class・enum・int・string の key と struct の値は診断なし)、Analyzers.Tests に `TinyCsComplianceAnalyzerTests.DictValueKey.cs`、tcs2c.Tests に `DifferentialTests.DictValueKey.cs` (#185 の program で Lua / C の両方が同じ TCS1001 で止まる。CoreCLR は `rs:1:1` / `s:1` / `r:1` / `todict:1`、修正前の Lua は `rs:0:1` / `s:0` / `r:2` / `todict:0`)。修正前は診断の 4 本が fail、修正後 pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: 値の等価で引く key は、Lua table の key を値から作る正規形 (文字列化など) と、Keys / foreach で元の値に戻す表が要り、Dictionary を素の Lua table とする wire format 契約 (support-matrix §18) と両立しないので、対応せずに止める。同一性で比べる class の key は .NET と一致するので従来どおり
+- 残課題: key 型が型 parameter の dict (generic method の中で `new Dictionary<K, V>()` を作り K = struct で呼ぶもの) は診断できず、Lua は同一性で引く
