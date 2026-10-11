@@ -2167,3 +2167,9 @@
 - hot-reload-design.md から struct の static field を前提にした記述 (§5.1 の root の行、§11 の「struct table の static merge なし」) を消した
 - 判断: struct の static method と本体を持つ static property は従来どおり warning の TCS1001 (`StructMember(...)`)。呼ぶと Lua は nil 呼び出しで止まり、黙って別の値を読む static field とは違う
 - 残課題: C で基底の static field を派生型の名前で読む (`B.Y`、Y は基底 A の static) と `unbound IL variable: B` で止まる (record に限らず class も同じ。Lua は動く)
+
+### generic な record の型 parameter の field を NaN 同士も等しく比べる (#185) ✓ (2026-10-11)
+- `record Box<T>(T V)` / `record struct RBox<T>(T V)` の合成 Equals (Lua の `__eq` / `op_Equality`) で、型 parameter の field (と `T?` の field) を float field と同じ `(a == b or a ~= a and b ~= b)` で比べる。従来は `MemberEqualityParts` が SpecialType しか見ず、型 parameter の field は `==` に落ちて、T = float の NaN を CoreCLR (EqualityComparer<T>.Default、float.Equals) と違って不等にしていた。NaN でない値では `==` と同じ (record class の値は従来どおり `__eq`)
+- 検証: tcs2c.Tests に `DifferentialTests.GenericRecordEquality.cs`。C backend は generic な record を受け付けない (`unsupported IL type: T`、変更なし) ので、Lua の出力を同じ program を CoreCLR で実行した stdout と比べ、C が生成前に止まることを別に見る。record class / record struct の T = float の NaN・±0、型 parameter 2 つの record、`T?` (where T : struct) の field、generic method の中で作る record、T = int / string / null / record class、record の入れ子。修正前は `box:0:1:...` / `pair:0:0:0` などで fail、修正後 pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: Lua は型消去で、実体化した T を実行時に知らない。NaN の判定 (`a ~= a`) は NaN 以外のどの値でも偽なので、型 parameter の field を全て float と同じ式で比べても他の型の結果は変わらない
+- 残課題: 型 parameter に struct / record struct を入れた field (`Box<S>`、`RBox<RBox<float>>`) は master と同じく table の同一性で比べる (CoreCLR は値で等しい。Lua の struct は metatable を持たないので、型消去した field からは値で比べる関数を引けない)
