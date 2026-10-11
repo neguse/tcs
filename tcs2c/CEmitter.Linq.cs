@@ -172,20 +172,29 @@ internal sealed partial class CEmitter
         $"(({ClosureFnPtrType(closureType)}){closure}->fn)(" +
         string.Join(", ", new[] { $"{closure}->cells" }.Concat(args)) + ")";
 
+    // List の検索の等価 (EqualityComparer<T>.Default: float は NaN 同士も等しい)
     private string EqualExpr(CType type, string left, string right) => type.Kind switch
     {
-        CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool => $"({left} == {right})",
+        CTypeKind.I32 or CTypeKind.Bool => $"({left} == {right})",
+        CTypeKind.F32 => $"tcs_float_equals({left}, {right})",
         CTypeKind.String => $"tcs_string_equal({left}, {right})",
         CTypeKind.Ref when IsRecordClass(type.Name!) =>
             $"{Names.RecordEq(type.Name!)}({left}, {right})",
         CTypeKind.Ref or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
             or CTypeKind.Closure or CTypeKind.Random => $"({left} == {right})",
-        CTypeKind.Nullable => NullableEqualExpr(type, left, right),
+        CTypeKind.Nullable => NullableEqualExpr(type, left, right, equals: true),
         // struct 値は memberwise (C# の ValueType.Equals / record struct の ==)
         CTypeKind.StructVal => $"({{ {type.CName} eq_l = {left}; {type.CName} eq_r = {right}; " +
             $"{Names.StructEq(type.Name!)}(&eq_l, &eq_r); }})",
         _ => throw new Tcs2cException($"equality is not supported for {type}"),
     };
+
+    // sort 用の 3 方向比較。float は Single.CompareTo と同じく NaN を最小にする
+    private static string CompareExpr(CType type, string left, string right) =>
+        type.Kind == CTypeKind.F32
+            ? $"({left} < {right} ? -1 : {left} > {right} ? 1 : {left} == {right} ? 0 : " +
+              $"{left} != {left} ? ({right} != {right} ? 0 : -1) : 1)"
+            : $"({LessExpr(type, left, right)} ? -1 : {LessExpr(type, right, left)} ? 1 : 0)";
 
     private static string LessExpr(CType type, string left, string right) => type.Kind switch
     {
@@ -485,11 +494,7 @@ internal sealed partial class CEmitter
                 var target = Temp("target");
                 var r = Temp("index");
                 sb.Append($"{elem.CName} {target} = {RenderCoerced(args[1], elem)}; int32_t {r} = -1; ");
-                // List の等価は EqualityComparer<T>.Default: float は NaN 同士も等しい
-                var equal = elem.Kind == CTypeKind.F32
-                    ? $"({v} == {target} || ({target} != {target} && {v} != {v}))"
-                    : EqualExpr(elem, v, target);
-                sb.Append(Loop($"if ({equal}) {{ {r} = {i}; break; }}"));
+                sb.Append(Loop($"if ({EqualExpr(elem, v, target)}) {{ {r} = {i}; break; }}"));
                 return name switch
                 {
                     "Contains" => $"({{ {sb}{r} >= 0; }})",
@@ -528,7 +533,7 @@ internal sealed partial class CEmitter
         switch (mode)
         {
             case "natural":
-                body.Append($"    return {LessExpr(elem, "x", "y")} ? -1 : {LessExpr(elem, "y", "x")} ? 1 : 0;\n");
+                body.Append($"    return {CompareExpr(elem, "x", "y")};\n");
                 break;
             case "comparison":
                 body.Append($"    int32_t r = {CallClosure("f", closureType!, "x", "y")};\n");
@@ -539,7 +544,7 @@ internal sealed partial class CEmitter
                 body.Append($"    {key!.CName} kx = {CallClosure("f", closureType!, "x")};\n");
                 body.Append($"    {key.CName} ky = {CallClosure("f", closureType!, "y")};\n");
                 var (lo, hi) = mode == "key" ? ("kx", "ky") : ("ky", "kx");
-                body.Append($"    return {LessExpr(key, lo, hi)} ? -1 : {LessExpr(key, hi, lo)} ? 1 : 0;\n");
+                body.Append($"    return {CompareExpr(key, lo, hi)};\n");
                 break;
             }
         }

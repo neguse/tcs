@@ -151,8 +151,8 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 |----|:----:|--------------|------|
 | `class` | **Y** | table + metatable | |
 | `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。ToList と LINQ の lambda parameter も値 copy。static member / operator / override はサブセット外 |
-| `record` / `record class` | **Y** | table + metatable (`__eq`)。IL 契約に IsRecord で収載、C backend は型ごとの構造等価関数と実行時 layout の with copy | positional record。基底 record の継承 (基底の primary ctor 引数の評価、継承した positional property と method) に対応。==/!= は実行時型の一致と、基底から順に各 record の positional field の値等価 (struct field は memberwise、struct の `T?` field は値の有無と中の値。C# の合成 Equals と同じ)。Equals / GetHashCode / ToString 呼びは対象外。C# の `(T)x` downcast は IlCast で C 側 fault 対象 |
-| `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= と with 式。readonly (record) struct は copy 全省略。IL 契約 (IlStructInfo) と C backend、hot reload の migration も struct と同じ |
+| `record` / `record class` | **Y** | table + metatable (`__eq`)。IL 契約に IsRecord で収載、C backend は型ごとの構造等価関数と実行時 layout の with copy | positional record。基底 record の継承 (基底の primary ctor 引数の評価、継承した positional property と method) に対応。==/!= は実行時型の一致と、基底から順に各 record の positional field の値等価 (struct field は memberwise、struct の `T?` field は値の有無と中の値、float / `float?` field は float.Equals で NaN 同士も等しい。C# の合成 Equals と同じ)。Equals / GetHashCode / ToString 呼びは対象外。C# の `(T)x` downcast は IlCast で C 側 fault 対象 |
+| `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= (field ごとの比較は record class と同じく EqualityComparer\<T\>.Default、struct の List 検索の ValueType.Equals も同じ) と with 式。readonly (record) struct は copy 全省略。IL 契約 (IlStructInfo) と C backend、hot reload の migration も struct と同じ |
 | `interface` | **P** | 出力なし | Roslyn 型チェックのみ |
 | `enum` | **Y** | 定数テーブル | initializer 無しの field / auto property / `default(E)` の既定値は member 値に依らず 0。文字列化 (`ToString()`・文字列連結・補間・`Console.WriteLine`、`E?` も) は Enum.ToString と同じく member 名、`[Flags]` は名前の `", "` 連結、表せない値は数値 (`String.FormatEnum`、名前の表は文字列化する地点にだけ出す。`--ref` の enum は stub の名前)。静的型が enum でない値 (`object` に入れた enum、generic の `T`、`string.Join` に渡した enum の List) は数値のまま |
 | `delegate` 型定義 | **N/A** | | Action/Func で代替 |
@@ -300,7 +300,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | **Y** | 展開 `x = x op y` | bool への `&=` `\|=` `^=` は未対応 |
 | `? :` (三項) | **Y** | temp local + if 文 (式の途中・入れ子・条件・lambda 本体も。前置文を置けない IIFE 内 / field initializer のみ IIFE) | falsy 安全、C# の評価順を保つ |
 | `??` (null 合体) | **Y** | `or` (bool? のみ nil 判定 IIFE — `or` だと false が fallback するため)。右辺が呼び出しを含むときは temp + `if nil` | 右辺は nil のときだけ評価 |
-| `?.` (null 条件アクセス, C# 6) | **Y** | IIFE nil チェック | String/List/Dict mapping 対応 |
+| `?.` (null 条件アクセス, C# 6) | **Y** | IIFE nil チェック | String/List/Dict mapping 対応。連鎖 (`x?.M().N()` / `x?.P.Q` / `x?[i].M()`) は一番内側を receiver に対する呼び出し / member にする |
 | `(T)x` (キャスト) | **Y** | 数値変換は il-spec §5 / §6 の契約: `(int)f` は `__tcs_trunc` で 0 方向 truncation、整数 (int / uint / short / byte / char など) → float は `(x * 1.0)` で f32 へ丸める (暗黙変換の代入・引数・return・比較の昇格も同じ。定数は float literal に畳み、組み込みの float 算術の operand は Lua / C の演算自体が変換するので省く。この前提のため float の既定値と runtime が返す float は Lua でも float)。参照型・bool・`T?` への cast は透過 (型消去) | C は `(float)` / `tcs_trunc_f32` |
 | `is null` / `is not null` | **Y** | `== nil` / `~= nil` | |
 | `is Type` | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定。designation なしの binary 形も対応 | |
@@ -665,7 +665,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `Math.Tau` | **-** | | |
 | `Math.Pow(x, y)` | **Y** | `Math.Pow(x, y)` | R |
 | `Math.Exp(x)` | **Y** | `Math.Exp(x)` (`math.exp`) | R |
-| `Math.Log(x)` / `Math.Log(x, base)` | **Y** | `Math.Log(x[, base])` (`math.log`) | R |
+| `Math.Log(x)` / `Math.Log(x, base)` | **Y** | `math.log(x)` / `Math.Log(x, base)` | R。base が 1、または x が 1 でなく base が 0 / +∞ なら NaN (MathF.Log と同じ) |
 | `Math.Log10(x)` / `Math.Log2(x)` | **-** | | `Math.Log(x, base)` で代替 |
 | `Math.Round(x)` / `Math.Round(x, digits)` | **Y** | `Math.Round(x[, digits])` | R。C# と同じ偶数丸め (banker's rounding)。0 に丸めた結果は x の符号を持つ (`Round(-0.25)` は -0) |
 | `Math.Truncate(x)` | **-** | | |
@@ -735,7 +735,7 @@ Lua sequence table は `nil` 要素を保持できないため、`null` 要素�
 | `list[i]` (get/set) | **Y** | `list[i+1]` | T |
 | `.Count` | **Y** | `#list` | T |
 | `.Add(item)` | **Y** | 文位置は `list[#list + 1] = item` (受け手が変数/field 連鎖の場合。引数が呼び出しを含むときは `local __tcs_v = item` に先に束縛)。受け手が式 (`Get().Add(x)` 等) のときは `table.insert(list, item)` | T |
-| `.Remove(item)` | **Y** | `List.Remove(list, item)` | T+R。等価は EqualityComparer\<T\>.Default (float の NaN 同士は等しい)。Contains / IndexOf も同じ |
+| `.Remove(item)` | **Y** | `List.Remove(list, item)` | T+R。等価は EqualityComparer\<T\>.Default (float と `float?` の NaN 同士、float field が NaN の struct 同士は等しい)。Contains / IndexOf も同じ |
 | `.RemoveAt(index)` | **Y** | `table.remove(list, idx+1)` | T |
 | `.Clear()` | **Y** | | T |
 | `.Contains(item)` | **Y** | `List.Contains(list, item)` | T+R |
@@ -747,7 +747,7 @@ Lua sequence table は `nil` 要素を保持できないため、`null` 要素�
 | `.RemoveAll(predicate)` | **-** | | |
 | `.Find(predicate)` / `.FindLast()` / `.FindAll()` | **-** | | |
 | `.FindIndex(predicate)` / `.FindLastIndex()` | **-** | | |
-| `.Sort()` / `.Sort(comparison)` | **Y** | `List.Sort(list, comparison)` | T+R |
+| `.Sort()` / `.Sort(comparison)` | **Y** | `List.Sort(list, comparison)` | T+R。比較なしの順序は .NET の既定の comparer と同じく NaN が最小 |
 | `.Reverse()` | **-** | | |
 | `.BinarySearch(item)` | **-** | | |
 | `.Exists(predicate)` | **-** | | |
@@ -817,8 +817,8 @@ LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in
 | `.All(predicate)` | **Y** | `List.All(list, fn)` | T+R |
 | `.First()` / `.First(predicate)` | **Y** | `List.First(list, fn)` | T+R |
 | `.FirstOrDefault()` / `.FirstOrDefault(pred)` | **Y** | `List.FirstOrDefault(list, fn, default)` | T+R。miss 時は要素型別 default (int=0/bool=false/ref=nil) |
-| `.OrderBy(keySelector)` | **Y** | `List.OrderBy(list, fn)` (安定 sort) | T+R |
-| `.OrderByDescending(keySelector)` | **Y** | `List.OrderByDescending(list, fn)` (安定 sort) | T+R |
+| `.OrderBy(keySelector)` | **Y** | `List.OrderBy(list, fn)` (安定 sort) | T+R。NaN の key は最小 |
+| `.OrderByDescending(keySelector)` | **Y** | `List.OrderByDescending(list, fn)` (安定 sort) | T+R。NaN の key は最小 (降順では末尾) |
 | `.Take(count)` | **Y** | `List.Take(list, count)` | T+R |
 | `.Skip(count)` | **Y** | `List.Skip(list, count)` | T+R |
 | `.Last()` / `.LastOrDefault()` | **Y** | `List.Last/LastOrDefault(list, fn, default)` | T+R。First/Last/Min/Max の empty は明示 error |

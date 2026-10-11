@@ -2081,6 +2081,59 @@
 - 判断: 出力の書き込みが例外で失敗したときは chunk も書かず build も進めない (従来は chunk を書いて build を進めた後に失敗しえた)。次の rebuild の chunk は VM の build から作る
 - 残課題: なし
 
+### tcs2c: closure が foreach の反復変数を捕捉できるようにする (#164) ✓ (2026-10-11)
+- closure (直接でも入れ子でも) が `foreach` の反復変数を捕捉すると、C が `v_v_N undeclared` で compile できなかった。反復変数を捕捉 cell にしていなかったので、lifted 関数へ渡せていなかった。List / 配列 / `EnumerateRunes()` の反復変数は、closure が捕捉するとき local と同じく反復ごとに新しい heap cell にする (C# 5 以降の意味)。Dictionary の反復の KeyValuePair は、捕捉するとき node の copy (`tcs_dict_node_copy`) を作り、closure はその pointer を捕捉する (反復の後の Dictionary の変更を映さない)。`EnumerateRunes()` の本体は捕捉の走査が見ていなかったので足した
+- 捕捉 cell を作る変数を、関数 (method / closure) ごとに、その関数の直下の closure が捕捉する名前に絞った。従来は method 全体の捕捉名の集合で判断していて、`l.Count(x => x > 1)` の `x` が、同じ method の別の lambda (`x => l.Count(y => y == x)`) のせいで要素ごとに `tcs_new_cell` していた
+- 検証: tcs2c.Tests に `DifferentialTests.ForeachCapture.cs` の 4 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。List / 配列 / string / `EnumerateRunes()` / struct 要素 / lambda の中の foreach / instance method / 入れ子の closure / KeyValuePair、--lib 形でフレーム境界の GC をまたぐもの、cell を作る数)。修正前は 3 本が C の `undeclared`、cell の数の 1 本が 5 (期待 3) で fail、修正後 pass。`bash run-tests.sh` 全通過。Transpiler (Lua 生成) は変えていないので lub の C# サンプルの生成 Lua は変わらない
+- 判断: 捕捉の判断は名前単位のまま (同じ関数の中の同名の別変数は過剰に box しうるが意味は同じ)
+- 残課題: なし
+
+### record の等価で float field を float.Equals で比べる (#163) ✓ (2026-10-11)
+- record / record struct の ==/!= は C# の合成 Equals と同じく field を EqualityComparer\<T\>.Default で比べる。float / double (と `float?`) の field は float.Equals で、NaN 同士は等しく +0 と -0 も等しい。従来は両 backend とも IEEE の == で、`new F(float.NaN) == new F(float.NaN)` が false だった
+- Lua は field ごとの等価式 (`MemberEqualityParts`) が float に `(a == b or a ~= a and b ~= b)` を出す。struct の値等価 (record struct の op_Equality と、struct の List 検索が使う ValueType.Equals) も同じ式を通る。C は field の等価式 (`FieldEqualExpr`) が float を runtime の `tcs_float_equals` にする。`T?` の field は Nullable\<T\>.Equals (中の float も NaN 同士は等しい) にし、`float? == float?` の lifted == は IEEE のまま残した。C の List 検索 (#122) も同じ `tcs_float_equals` を使い、`List<float?>.Contains(NaN)` が false だったのも直した
+- 検証: tcs2c.Tests に `DifferentialTests.RecordFloatEquality.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。record / 派生 record / record struct / `float?` field / struct field / 入れ子 / struct と record の List 検索 / `List<float?>`)。修正前は Lua と C がともに `record-nan:0:1:0:0` 等で CoreCLR と違い、C は `List<float?>` の Contains も 0 だった。修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: struct の ValueType.Equals も CoreCLR では float field を float.Equals で比べる (NaN の struct 同士で `List<S>.Contains` が true) ので、record struct と分けずに同じ式にした
+- 残課題: record struct の `T?` 同士の lifted == (`RS? a, b; a == b`) は float に限らず C# と違う (CoreCLR は値が等しければ true。Lua は値が等しくても false、C は `invalid operands to binary ==` で C コンパイルに失敗する)
+
+### hot reload の restart 判定を native (watch) と web (増分 session) で揃え、initializer を書き方に依らずに比べる (#155) ✓ (2026-10-11)
+- restart の規則を `ReloadRules` の 1 つにした。reload chunk (`ReloadClassifier`、IlExport の metadata) と増分 session (`IncrementalCompilationSession.ClassifyRestart`、emitter の記録) はそれぞれの metadata を `ReloadType` に写して同じ規則で判定する。session は enum member の削除・値の変更を restart にし (従来 live で、保存済みの整数が別の member を指した)、native は既存 static の型の変更を restart にする (従来 live で新しい初期値に置き換えた。session は initializer の文字列が同じ `int X = 1` → `float X = 1` を live にしていた)。session の emitter 記録に enum member の値と static の型を足した
+- initializer の hash は `Sha256(init.ToString())` (trivia 込みの構文の文字列) をやめ、整数・bool・char・string の定数は値と型、それ以外は trivia を除いた token 列にした (IlExport の InitHash、session の static と instance shape で共通)。`1+2` → `1 + 2` / `3`、空白・comment だけの編集は restart にならない。const と static の入れ替えは initializer の変更 (restart) にした
+- session の instance shape に field の型 (class) と positional member の型 (record) を入れた。従来は `int A = 1` → `float A = 1`、`string S` → `int[] S` (どちらも default は nil)、`record R(int X)` → `record R(float X)` を live にしていた
+- 意図した差 (native は instance shape の変更と副作用のありうる static の追加を live に移行、session は restart) は残し、規則表を hot-reload-design.md §11 に書いた
+- 検証: `Transpiler.Tests/ReloadRulesAlignmentTests.cs` (同じ編集を両方に通す。restart 10 件 / live 6 件 / 意図した差 5 件)。修正前は 15 件が fail (enum 3 件が session で live、static の型の変更 2 件が native で live、空白・comment・定数の書き方 5 件が両方で restart、const と static の入れ替え 2 件が両方で live、instance field / record の型の変更 3 件が session で live)、修正後 pass。HotReloadRestartTests の live 側から static の型の変更を外して restart 側に入れた。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: const と static の入れ替えは同名・同じ型・同じ値でも restart。const は使う側に埋め込まれ、static に戻しても table の値 (実行中に変えた値) が初期値に戻らない。float / double の定数は Roslyn が f32 で畳むが emitter は式のまま書くので、値ではなく token で比べる。`new()` と `new List<int>()` は token が違うので restart のまま。IOperation や IL で意味を比べる hash は、比べ漏れた要素 (型 test の型など) が live の誤判定になるので入れなかった
+
+### Lua32 の Skip(int.MaxValue) を要素数で打ち切る (#126) ✓ (2026-10-11)
+- `l.Skip(int.MaxValue)` が Lua32 で戻らなかった。runtime の `List.Skip` が開始位置を `count + 1` で作り、LUA_32BITS では int.MaxValue + 1 が -2^31 に wrap して約 2^31 回の反復になっていた。要素数以上の count は先に空列を返し、要素数未満の count だけ `+ 1` する
+- 同じ wrap を runtime の他の helper で確認した: `List.Take` は `math.min(count, #list)` で加算なし。`List.RemoveAt` (`index + 1`) と `String.Substring` (`start + 1` / `start + length`) は有効な入力では要素数・長さを超えないので wrap しない。C backend の Skip / Take は添字と count の比較だけで加算を持たない
+- 検証: tcs2c.Tests に `DifferentialTests.SkipTakeExtremes.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。1 / 3 / 0 要素の Skip(int.MaxValue)、Skip(int.MaxValue - 1)、Skip の 0 / 負 / int.MinValue / 要素数ちょうど、Take(int.MaxValue) / Take(-1)、Skip と Take の連鎖)。修正前は lua32 が 60 秒の timeout で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の `List.Skip` を除いて master とバイト一致
+- 残課題: `String.Substring` の範囲外 (`"abc".Substring(10)` 等) は wrap と別に fault しない (il-spec §13 では fault)
+
+### tcs2c で Dictionary への store の key を値より先に評価する (#152) ✓ (2026-10-11)
+- 文の位置の Dictionary への代入 / 複合代入 (`D[I] += Right()`、`D[I] = Right()`、Lua では代入形の `Add`) が `*(int32_t *)tcs_dict_put(d, key, NULL) = (値);` で、C の `=` の左右の評価順が決まっていないため key を右辺の後に評価していた (`Right` が `I = 1` にすると CoreCLR `17,20`、C `10,17`)。key を temp に取ってから値を評価する。collection initializer (`{ [K()] = V() }`) も値の temp を key より先に取っていたので、key → 値の順にした
+- 検証: tcs2c.Tests に `DictStore_EvaluatesKeyBeforeValue` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。int / string key の代入・複合代入・Add・initializer)。修正前は C が `10,17` / `vkvk...` で fail、修正後 pass。Lua の生成物は変わらない
+- 判断: List / 配列の store は既に受け手と添字を temp に取っていたので、dict だけ同じ形にした
+- 残課題: なし
+
+### ?. の when-not-null の連鎖 (#162) ✓ (2026-10-11)
+- `h.S?.Len().Twice()` / `h.Q?.Next().Next()` / `h.T?.ToUpper().Length` のように when-not-null が呼び出し / member の連鎖のとき、連鎖全体を通常の式として作り、一番内側の binding (`.Len()` / `.Next()`) は receiver の local の field を返すだけだった。Lua は `Ext.twice(__tcs_ca.len(1))` (`string.len` に解決して 2) や `self` の無い `__tcs_ca.next()` を出し、`h.S?.Length.ToString()` は `__tcs_ca.Length` (nil)、`h.L?[1].Twice()` は `unsupported ElementBindingExpression` で止まっていた。C も同じ IL を受けていた
+- 連鎖の一番内側の binding (`.M()` / `.P` / `[i]`) を、連鎖が単独の when-not-null のときと同じ builder (拡張 method の静的呼び出し、string / List / Dict の写像、struct の静的ディスパッチ) で `?.` の receiver に対して作り、外側の連鎖はその IL を receiver にして作る。binding を receiver の local の field にする汎用の経路は無くした
+- 検証: tcs2c.Tests に `DifferentialTests.ConditionalChain.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。拡張 method / instance method / string / List / `V?` の連鎖、null の receiver、`?.` の入れ子、`!`)。修正前は Lua が `bad argument #1 to 'len'` / `unsupported ElementBindingExpression`、C が `method has no IL body: P.main` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+
+### Math.Log(x, base) の特殊値を MathF.Log に揃える (#147) ✓ (2026-10-11)
+- `Math.Log(2f, 1f)` / `Math.Log(2f, 0f)` / `Math.Log(2f, +∞)` が Lua / C で +∞ / -0 / +0 になっていた (`log(x) / log(base)` をそのまま返す)。MathF.Log と同じく、base が 1、または x が 1 でなく base が 0 / +∞ のとき NaN にする。x が 1 なら base 0 / +∞ は従来どおり -0 / +0
+- Lua: 底付きの `Math.Log` は生成 Lua が `math.log` を直接呼ぶのをやめ、runtime の `Math.Log` (判定を足した wrapper) を呼ぶ。1 引数の `Math.Log` は従来どおり `math.log` を直接呼ぶ。C: runtime の `tcs_math_log` に同じ判定を足した
+- 検証: tcs2c.Tests に `DifferentialTests.MathLogBase.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。x と base を 1 / ±0 / ±∞ / NaN / 有限値で総当たり)。修正前は Lua / C が base=1 で +∞ を出して fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の `Math.Log` を除いて master とバイト一致 (底付きの Log を使うサンプルは無い)
+- 判断: 底 2 / 10 は従来どおり log2 / log10 を使う (Lua の `math.log` と同じ。MathF.Log は底によらず `Log(x) / Log(base)`)。精度の差は特殊値の分類と別の問題なので変えない
+- 残課題: なし
+
+### 既定の順序で NaN を最小にする (#145) ✓ (2026-10-11)
+- `List<float>.Sort()` と float key の `OrderBy` / `OrderByDescending` の NaN の位置が CoreCLR と異なっていた (Lua は比較関数なしの `table.sort` と `<` / `>`、C は `<` だけの比較で NaN と有限値が「等しい」)。.NET の既定の comparer (Single.CompareTo) と同じく NaN を他のどの値より小さくする
+- Lua: runtime の比較なしの `List.Sort` と `List.OrderBy` / `List.OrderByDescending` が、列 (key) を 1 回走査して NaN を含むときだけ NaN を最小にする比較を使う。含まなければ従来と同じ比較 (`table.sort(list)`、`<` / `>`)。要素型で呼び分けないので、型 parameter の generic method (T = float)、TinySystem.List の facade、`float?` の key も同じ順序になる。C: 既定の sort の比較関数 (natural / key / keydesc) を、float だけ Single.CompareTo と同じ 3 方向比較にする (generic は特殊化後の型で選ばれる)
+- 検証: tcs2c.Tests に `DifferentialTests.SortNaN.cs`。Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致で、NaN / ±∞ 混在の Sort、40 要素の Sort、NaN だけの Sort、float key の OrderBy / OrderByDescending (NaN key の安定性、定数 key)、generic method の Sort / OrderBy / OrderByDescending、facade の `TinySystem.List.Sort` / `OrderBy` / `OrderByDescending`、int / string の Sort と int key の OrderBy を見る。`float?` の key は C が順序を持たない (`ordering is not supported for f32?` で生成前に止まる、変更なし) ので Lua だけ CoreCLR と比べる。修正前は Lua と C が食い違い、generic / facade の Sort は Lua が `1,N,2` (CoreCLR は `N,1,2`)、`float?` の key も Lua が従来の順で fail、修正後 pass。#145 本文と追記の program の入力を含む。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の Sort / OrderBy を除いて master とバイト一致。lua32 で 20 万要素 ×5 回 (同じコードを抜き出した計測、2 回目): `Sort` の int 0.302 → 0.321 s、string 0.585 → 0.622 s、float 0.328 → 0.325 s、int key の OrderBy 1.594 → 1.590 s (1 回目は 1.442 → 1.583 s で、揺れの幅に収まる)
+- 判断: NaN は数値の列・key にしか現れず、.NET の既定の comparer はどれも NaN を最小にするので、要素型を見ずに runtime で 1 回走査する (静的な型で float 専用の関数に分けると generic / facade / `float?` で Lua だけ旧順序のまま残る)。NaN の無い列は比較関数を足さない (比較関数ありの table.sort は無しより遅い)
+- 残課題: ±0 は従来どおり等しい値として扱う。C の安定 merge sort と Lua / CoreCLR の不安定 sort では、-0 と +0 の相対順が入力によって異なる (今回の変更による差ではない)
+
 ### enum の ToString / 文字列連結 / 補間 / Console.WriteLine を member 名にする (#133) ✓ (2026-10-11)
 - enum 値の文字列化 (`ToString()`、文字列連結と `+=`、補間、`Console.WriteLine`、`E?` も) を .NET の Enum.ToString と同じにした: 定義された値は member 名、`[Flags]` は上位の member から含まれる bit を取った名前の `", "` 連結、どちらでも表せない値は数値。従来は両 backend とも数値を出していた
 - IL は `String.FormatEnum(v, spec)`。spec は文字列化する地点ごとの string literal (`名前:値` の列、Flags は先頭が `*`) で、名前の表は文字列化される enum の分だけ、その地点にだけ出る。Lua は runtime の `String.FormatEnum` が spec ごとに 1 度だけ表へ展開して cache し、C は spec ごとに file-scope の名前 (string literal) と値の表を作って runtime の `tcs_enum_format` で引く。`--ref` の host enum も stub の member 名を出す
