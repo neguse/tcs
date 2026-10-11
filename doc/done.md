@@ -1920,6 +1920,14 @@
 - 判断: callee 冒頭の補完は host など C# 以外からの呼び出しのために残した (明示 null と省略を区別しない既知差もそのまま)。既定値は宣言側の syntax tree の model で IL にするので、別ファイルの interface の const / enum / float の既定値も呼び出し側で同じ値になる。既定値を IL にできないときは埋めずに callee に任せる。`--ref` の host method は対象外 (host 側が既定値を持つ)。`Next(max)` の負の上限など .NET が例外にする入力は従来どおり fault
 - 残課題: なし
 
+### 補間の D 精度・raw 補間の brace・int.TryParse の書式を C# に揃える (#90 #91 #77) ✓ (2026-10-11)
+- 補間の `D<n>` を `%0<n>d` から `%.<n>d` にした。D の精度は符号を除いた最小桁数で、`%0<n>d` は符号込みの幅なので負数で 1 桁足りなかった (`-12:D4` が `-012`) (#90)
+- raw 補間 (`$$"""..."""`) の text には `{{` / `}}` の unescape を掛けない。Roslyn の ValueText が既に literal の内容 ($ の個数より短い brace の連続は文字のまま) で、通常の補間と同じ置換で brace が減っていた (#91)
+- `int.TryParse` を NumberStyles.Integer (前後の空白、先頭の符号、1 桁以上の 10 進数字) にした。Lua は書式を pattern で絞ってから integer に限って読む (`tonumber` は `1.0` / `1e3` / `0x10` も読み、LUA_32BITS では i32 を超える数字列が float に丸まって範囲内に見えた)。C は strtoll をやめて自前で読む (空白だけの文字列を成功にしていた) (#77)
+- 検証: `tcs2c.Tests/DifferentialTests.FormatParse.cs` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が変更前は fail、変更後 pass。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: C の `int.Parse` も同じ parser を使うので、空白だけの文字列は fault になる (.NET の FormatException と同じ)
+- 残課題: Lua の `int.Parse` は従来どおり `math.tointeger(tonumber(s))` (不正な文字列は nil の既知差異)。`float.TryParse` の書式は .NET と照合していない。.NET が末尾の NUL を無視する挙動は合わせていない
+
 ### Lua backend の struct copy 抜けを専用 lowering の各経路で埋める (#75 #78 #84 #85 #99 #112 #113 #115 #116 #117) ✓ (2026-10-11)
 - il-spec §10 の copy 地点のうち、汎用の代入 / 引数 / return を通らない lowering に `WrapStructCopy` (構文のない値は型だけで決める `CopyIfMutableStruct`) を入れた: object initializer の field / property 値と入れ子の collection initializer の要素 (#112)、foreach (List / 配列) の反復変数 (#113)、分解の成分 (#115)、`with` の上書き値 (#116)、custom setter の `value` (instance / static、#117)、static / instance の field・auto-property initializer と struct の member initializer (#99)、配列 / List / Dictionary の initializer の要素 (#84)、Dictionary.Add と TryGetValue の out (#78)
 - lambda の struct parameter は入口で copy する (#75)。LINQ 等の runtime は要素を copy せずに callback へ渡すので、呼び出し側では copy できない。式本体の lambda は copy 文と合わせて block 本体にする (void は呼び出し文、値を返すなら return)
