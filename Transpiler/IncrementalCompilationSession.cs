@@ -355,12 +355,6 @@ public sealed partial class IncrementalCompilationSession
             errors.AddRange(collisions);
             _diagBuckets[p].AddRange(collisions);
         }
-        foreach (var (tree, error) in TinyCsComplianceFacts
-            .AnalyzeLuaTypeNameCollisions(comp, [.. _moduleOrder.Select(p => _trees[p])]))
-        {
-            errors.Add(error);
-            _diagBuckets[tree.FilePath].Add(error);
-        }
         if (errors.Count > 0)
             return errors;
 

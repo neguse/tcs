@@ -33,15 +33,16 @@ public partial class TinyCsComplianceAnalyzerTests
         var diagnostics = await AnalyzeAsync("""
             public class Repro
             {
+                public int end_;
+                public void end() { end_ = 1; }
                 public int flash;
                 public void Flash() { flash = 1; }
-                public int flashCount;
             }
             """);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal(TinyCsDiagnosticIds.UnsupportedSyntax, diagnostic.Id);
-        Assert.Contains("LuaNameCollision(flash/Flash)", diagnostic.GetMessage());
+        Assert.Contains("LuaNameCollision(end_/end)", diagnostic.GetMessage());
         Assert.Equal(3, diagnostic.Location.GetLineSpan().StartLinePosition.Line);
     }
 

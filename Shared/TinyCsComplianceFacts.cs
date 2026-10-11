@@ -52,6 +52,8 @@ public static partial class TinyCsComplianceFacts
         SyntaxKind.IndexerDeclaration,
         SyntaxKind.BaseExpression,
         SyntaxKind.BaseConstructorInitializer,
+        SyntaxKind.NamespaceDeclaration,
+        SyntaxKind.FileScopedNamespaceDeclaration,
     ];
 
     // Lua 5.5 reserved words (deps/lua llex.c luaX_tokens). C# identifiers
@@ -86,13 +88,15 @@ public static partial class TinyCsComplianceFacts
         // 値で比べる key は Lua table の同一性で引かれ、等しい key が外れる (#185)
         || syntaxName.StartsWith(ValueEqualityDictionaryKeyPrefix, StringComparison.Ordinal)
         // class / record の継承は対象外 (q.md Q15)
-        || IsInheritanceSyntax(syntaxName);
+        || IsInheritanceSyntax(syntaxName)
+        // Lua / 生成コードの予約と重なる識別子 (q.md Q16)
+        || IsIdentifierSyntax(syntaxName);
 
     // runtime が _G に置く名前。runtime/tinysystem.lua の module table
     // (`TinySystem.List = List` 等) を LuaRuntime.CreateEmbeddedPrelude と
     // ModuleLinker.LinkSnapshot が `_G.<name> = TinySystem.<name>` で alias する。
     // alias の emit もこの配列から行うので、runtime と診断の集合はここで一致する
-    // (`__tcs_*` の alias は IsUnsafeLuaIdentifier の prefix 規則が受け持つ)
+    // (`__tcs_*` の alias は `__` で始まる識別子の規則が受け持つ)
     public const string RuntimeRootGlobal = "TinySystem";
 
     public static readonly string[] RuntimeGlobalAliases =
@@ -115,7 +119,9 @@ public static partial class TinyCsComplianceFacts
     public static bool TryGetUnsupportedSyntax(SyntaxNode node,
         out string syntaxName)
     {
-        // 継承 (q.md Q15) は build を止めるので、警告の種類より先に見る
+        // 予約と重なる識別子 (q.md Q16) と継承 (q.md Q15) は build を止めるので、
+        // 警告の種類より先に見る
+        if (TryGetIdentifierSyntax(node, out syntaxName)) return true;
         if (TryGetInheritanceSyntax(node, out syntaxName)) return true;
 
         syntaxName = node switch
@@ -573,18 +579,17 @@ public static partial class TinyCsComplianceFacts
         return false;
     }
 
-    // Lua 予約語に加え、`self` (Lua method receiver) と `__tcs_` prefix
-    // (generated temp) を emit 側の予約名として宣言サイトで拒否する。
+    // Lua 予約語に加え、`self` (Lua method receiver) を emit 側の予約名として
+    // 宣言サイトで拒否する (generated temp の `__tcs_*` は `__` で始まる識別子の
+    // 規則が受け持つ)。
     private static bool IsUnsafeLuaIdentifier(SyntaxToken identifier) =>
         LuaKeywords.Contains(identifier.ValueText)
-        || identifier.ValueText == "self"
-        || identifier.ValueText.StartsWith("__tcs_", StringComparison.Ordinal);
+        || identifier.ValueText == "self";
 
-    // `self` / `__tcs_` は予約語でなく emit 側の予約名。ローカル束縛でも
-    // 写さず拒否する (keyword は LuaLocalRenamer が写す)。
+    // `self` は予約語でなく emit 側の予約名。ローカル束縛でも写さず拒否する
+    // (keyword は LuaLocalRenamer が写す)。
     private static bool IsReservedIdentifier(SyntaxToken identifier) =>
-        identifier.ValueText == "self"
-        || identifier.ValueText.StartsWith("__tcs_", StringComparison.Ordinal);
+        identifier.ValueText == "self";
 
     private static string UnsafeLuaIdentifierName(SyntaxToken identifier) =>
         LuaKeywords.Contains(identifier.ValueText)
