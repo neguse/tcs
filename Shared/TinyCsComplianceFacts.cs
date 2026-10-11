@@ -116,11 +116,18 @@ public static partial class TinyCsComplianceFacts
             StructDeclarationSyntax nestedStruct
                 when nestedStruct.Parent is TypeDeclarationSyntax
                     => "NestedTypeDeclaration",
-            // struct / record struct の static field は型の table に値を持たず
-            // (Lua は nil を読む)、build を止める。const は使用箇所で値に畳まれる
-            FieldDeclarationSyntax structField
-                when IsStructBody(structField.Parent)
-                    && structField.Modifiers.Any(SyntaxKind.StaticKeyword)
+            // struct / record struct の static field と static auto property は
+            // 型の table に値を持たず (Lua は nil を読む)、build を止める。const は
+            // 使用箇所で値に畳まれる
+            MemberDeclarationSyntax structStatic
+                when IsStructBody(structStatic.Parent)
+                    && structStatic.Modifiers.Any(SyntaxKind.StaticKeyword)
+                    && (structStatic is FieldDeclarationSyntax
+                        || structStatic is PropertyDeclarationSyntax
+                        {
+                            AccessorList: { } accessors,
+                        } && accessors.Accessors.All(a =>
+                            a.Body == null && a.ExpressionBody == null))
                     => "StructStaticField",
             // instance method / property / 単一のパラメータ付き
             // ctor は対応 (静的自由関数へ emit)。record struct 本体の member も

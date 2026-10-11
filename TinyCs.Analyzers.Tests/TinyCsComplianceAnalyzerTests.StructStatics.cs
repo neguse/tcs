@@ -13,9 +13,10 @@ public partial class TinyCsComplianceAnalyzerTests
         var diagnostics = await AnalyzeAsync("""
             public struct S { public int V; public static int X = 1; public const int K = 5; }
             public record struct RS(int a) { public static readonly int Y = 2; }
+            public struct T { public int V; public static int Count { get; set; } }
             """);
 
-        Assert.Equal(2, diagnostics.Count);
+        Assert.Equal(3, diagnostics.Count);
         Assert.All(diagnostics, d =>
         {
             Assert.Equal(TinyCsDiagnosticIds.UnsupportedSyntax, d.Id);
