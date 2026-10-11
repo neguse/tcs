@@ -1897,6 +1897,59 @@
 - 判断: Floor / Ceil / Round の Lua の結果が integer から float になる (C# の型どおり)。print で直接見ると `3` ではなく `3.0` (MathSemanticTests の期待値を合わせた)。生成コードの文字列化は `__tcs_fstr` を通るので `3` のまま。int の Math.Min / Max も `__tcs_min/max` を通る (IL に型が無いため。bench では math.min より速い)
 - 残課題: float field を持つ struct 要素の List 検索と Dictionary\<float, _\> の NaN key は .NET との一致を確認していない
 
+### record class の == を C# の合成 Equals に揃える (#119 #120) ✓ (2026-10-11)
+- Lua backend の record class の `__eq` が、struct の positional field を field ごとの値等価に展開する (record struct の `op_Equality` と同じ `ValueEqualityParts`)。従来は struct の table を参照比較し、同じ値でも false だった (#119)
+- `__eq` の先頭で両辺の metatable (実行時型) の一致を見る。従来は左辺の型の field だけを比べ、基底と派生・兄弟の派生型が等価になり、左右を入れ替えると結果が変わった (#120)。C backend は従来どおり type_id で同じ判定をしている
+- 検証: tcs2c.Tests に `DifferentialTests.RecordEquality.cs` の 2 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 2 本とも Lua と C が不一致 (`value:0:1:0:1:0` / `base-derived:1:0`、siblings `1:1`)、修正後 pass。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: 実行時型は metatable の比較で見る (record の instance は型 table を metatable に持つ)。Lua は両辺が table のときだけ `__eq` を呼ぶので null 比較は従来どおり
+- 残課題: `S?` (Nullable の struct) の field は Lua で参照比較のまま (C は値等価)。基底 record の positional field のうち派生の parameter に無いもの (`record D(int v) : Root(P.Next())` の tag) は派生の `__eq` が比べない (Lua `1`、C と CoreCLR `0`)
+
+### tcs2c: struct の receiver を 1 回だけ評価し、rvalue の field は copy で呼ぶ (#95 #74) ✓ (2026-10-11)
+- struct method の receiver と struct place への field store は、place の lvalue と GC の owner (ライトバリアの対象) を別々に描いていたため、owner 側で receiver の式 (`Get().Data.Add(7)` の `Get()`、`GetA()[i]` の `GetA()`) をもう一度評価していた (#95)。place を所有する heap object (class 参照 / 配列・List) を temp に 1 回評価し、lvalue と owner の両方がその temp を指す `RenderOwnedStructPlace` にまとめた (旧 `RenderStructOwner` は削除)
+- field store で receiver に heap object を含む場合は、slot のアドレスを先に取ってから値を書く。C の `=` は左右の評価順を決めないので、C# と同じく receiver・添字を値より先に評価させる
+- property / 呼び出し結果 (rvalue) の struct の field を receiver にした method 呼び出し (`h.Prop.Inner.Bump()`) は place として `&` を取り、C compile error になっていた (#74)。`IsStructPlace` は struct field の親も place かを見るようにし、rvalue の場合は既存の copy 経路 (temp に値を置いてそのアドレスを渡す。変異は捨てる) に流す
+- 検証: tcs2c.Tests に `DifferentialTests.StructReceiver.cs` の 2 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は C の呼び出し回数が `17,2` 等、store の評価順が `via` (C# は `aiv`) で不一致、#74 の program は `lvalue required as unary '&' operand` で C compile 失敗。修正後 pass。`bash run-tests.sh` 全通過
+- 判断: receiver が local / static / 捕捉 cell / self だけの place は副作用が無いので temp を挟まず従来の形のまま出す
+
+### BCL / 言語の .NET 意味論ずれ 4 件を直す (#67 / #69 / #72 / #86) ✓ (2026-10-11)
+- #67 `Random.Next(0)` / `Next(n, n)` (instance / `Shared`): 排他上限から 1 を引いて `low > up` の空区間にしていたため、Lua / C とも `interval is empty` で止まっていた。空の範囲は .NET と同じく下限を返す (Lua `lastof`、C `tcs_rand_below`)。下限 == 上限の区間を 1 回引くので、乱数列の消費は Lua / C で揃ったまま
+- #69 Lua の `OrderBy` / `OrderByDescending` が `table.sort` (不安定) で同じ key の順を崩していた。key を要素ごとに 1 回求め、元の位置を同値時の比較に使う安定 sort にした (C は既に安定 merge sort)
+- #72 C の `string.Replace` が置換後文字列 null で fault していた。runtime は null を長さ 0 として削除し、emitter は置換後の `null` literal を受ける
+- #86 Lua で interface / 基底の virtual 経由の省略引数に実装側の既定値が入っていた (callee 冒頭の補完 (T207) が実行時の型の method で走るため)。IL builder が、ユーザー source の method 呼び出しの末尾の省略引数を、呼び出しが静的に束縛した宣言の既定値で埋める (`WithOmittedDefaults`)。IL を共有する C backend は従来どおり同じ宣言の既定値になる
+- 検証: tcs2c.Tests に `DifferentialTests.BclBehavior.cs` (4 本、C 通常 + GC stress と Lua の一致に加え、CoreCLR (net10.0) で実測した stdout との一致を見る)。修正前は 4 本とも fail (Random は Lua が `interval is empty`、OrderBy は Lua が `1,3,2,4`、Replace は C の emit が null を拒否、省略引数は Lua が `7:7:11`)、修正後は pass。`bash run-tests.sh` で Analyzers.Tests 56 / Transpiler.Tests 1005 / tcs2c.Tests 60 が全て pass
+- 判断: callee 冒頭の補完は host など C# 以外からの呼び出しのために残した (明示 null と省略を区別しない既知差もそのまま)。既定値は宣言側の syntax tree の model で IL にするので、別ファイルの interface の const / enum / float の既定値も呼び出し側で同じ値になる。既定値を IL にできないときは埋めずに callee に任せる。`--ref` の host method は対象外 (host 側が既定値を持つ)。`Next(max)` の負の上限など .NET が例外にする入力は従来どおり fault
+- 残課題: なし
+
+### 補間の D 精度・raw 補間の brace・int.TryParse の書式を C# に揃える (#90 #91 #77) ✓ (2026-10-11)
+- 補間の `D<n>` を `%0<n>d` から `%.<n>d` にした。D の精度は符号を除いた最小桁数で、`%0<n>d` は符号込みの幅なので負数で 1 桁足りなかった (`-12:D4` が `-012`) (#90)
+- raw 補間 (`$$"""..."""`) の text には `{{` / `}}` の unescape を掛けない。Roslyn の ValueText が既に literal の内容 ($ の個数より短い brace の連続は文字のまま) で、通常の補間と同じ置換で brace が減っていた (#91)
+- `int.TryParse` を NumberStyles.Integer (前後の空白、先頭の符号、1 桁以上の 10 進数字) にした。Lua は書式を pattern で絞ってから integer に限って読む (`tonumber` は `1.0` / `1e3` / `0x10` も読み、LUA_32BITS では i32 を超える数字列が float に丸まって範囲内に見えた)。C は strtoll をやめて自前で読む (空白だけの文字列を成功にしていた) (#77)
+- 検証: `tcs2c.Tests/DifferentialTests.FormatParse.cs` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が変更前は fail、変更後 pass。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: C の `int.Parse` も同じ parser を使うので、空白だけの文字列は fault になる (.NET の FormatException と同じ)
+- 残課題: Lua の `int.Parse` は従来どおり `math.tointeger(tonumber(s))` (不正な文字列は nil の既知差異)。`float.TryParse` の書式は .NET と照合していない。.NET が末尾の NUL を無視する挙動は合わせていない
+
+### Lua backend の struct copy 抜けを専用 lowering の各経路で埋める (#75 #78 #84 #85 #99 #112 #113 #115 #116 #117) ✓ (2026-10-11)
+- il-spec §10 の copy 地点のうち、汎用の代入 / 引数 / return を通らない lowering に `WrapStructCopy` (構文のない値は型だけで決める `CopyIfMutableStruct`) を入れた: object initializer の field / property 値と入れ子の collection initializer の要素 (#112)、foreach (List / 配列) の反復変数 (#113)、分解の成分 (#115)、`with` の上書き値 (#116)、custom setter の `value` (instance / static、#117)、static / instance の field・auto-property initializer と struct の member initializer (#99)、配列 / List / Dictionary の initializer の要素 (#84)、Dictionary.Add と TryGetValue の out (#78)
+- lambda の struct parameter は入口で copy する (#75)。LINQ 等の runtime は要素を copy せずに callback へ渡すので、呼び出し側では copy できない。式本体の lambda は copy 文と合わせて block 本体にする (void は呼び出し文、値を返すなら return)
+- `ToList` は変更可能な struct 要素のとき末尾引数に `S.__copy` を渡し、runtime の `List.ToList` が要素を copy する (#85)。C backend は要素を値で写すので引数を読まない (2 番目が要素型の `__copy` のときだけ 2 引数を許す)。拡張 method は `System.Linq.Enumerable` のものだけ runtime の `List.*` へ写し、LINQ と同名の user 拡張 method (`ToList(this S[], int)` 等) は通常の拡張呼び出しにした (名前だけで写していたので Lua は runtime に誤った引数を渡し、C は型検査で落ちていた)
+- 検証: 新規 `StructCopyPointTests` 13 本 (dotnet differential 込み) は修正前に全て失敗 (例: foreach `3:3:3:3`、ToList `9:9:9`)、修正後に通過。tcs2c.Tests の `StructCopy_LoweredPathsKeepValueSemantics` (C / GC stress / Lua の一致) も修正前は失敗、修正後に通過。各 issue の最小再現を lua32 と tcs2c→gcc で実行し、全て C と一致
+- 実測 (lua32、int + float の 2 field struct、3 回): foreach で 1000 要素の配列を 2000 周読むだけのループ 0.055 → 0.30 s、1000 要素の List.Sort (比較 lambda) + Count (述語 lambda) を 200 回 0.25 → 0.90 s。`var x = a[i]` や引数渡しと同じく copy 地点ごとに table を作る費用で、readonly struct なら copy しない
+- 判断: lambda は parameter が書かれるかどうかの解析で copy を省く案を採らなかった (predicate の中で元の配列を書き換えると、copy しない parameter から変化が見える)。readonly struct は従来どおり copy しない
+- 残課題: static method group を runtime に渡す経路 (`xs.Any(IsGood)`) は copy されない (wrapper closure にすると delegate の同一性が変わるので判断が要る)。`base(...)` 引数、`?.` 経由の List 呼び出し (`list?.Add(s)`)、式本体の lambda の戻り値 (`xs.Select(x => holder.F)`)、ToDictionary の値、式位置の setter 代入の値 (`var y = (h.Item = s)` で setter の変更が y に見える) も同じ種類の copy 抜けとして残る
+
+### tcs2c: field と auto-property の初期化子を宣言順に実行する (#79) ✓ (2026-10-11)
+- IL の型情報 (`IlExport.CollectFields`) が全 field の後に全 auto-property を並べていたため、C backend は field と auto-property を交互に宣言した型で field の初期化子を先にまとめて実行していた (CoreCLR / Lua `APB`、C `ABP`)。instance (constructor 冒頭) と static (型の初期化) の両方。member の宣言順に並べるようにした (C# §15.5.6)
+- 検証: tcs2c.Tests の `DifferentialTests.InitializerOrder.cs` (instance と static の両方で field / auto-property を交互に宣言。Lua / C / C GC stress の一致 + CoreCLR で同じ program を実行した stdout `APBQ 0n` / `xyz 123` との一致)。修正前は C が `ABPQ 0n` / `xzy 132` で fail、修正後 pass。`IlExportTests.Export_ClassMetadataAndIlBodies` の field 列の期待を宣言順に直した。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: positional record の parameter は従来どおり先頭 (Lua の VisitRecord と同順)。struct の C layout と `LayoutHash` も宣言順になる (hot reload の比較は同じ規則で作った v1 / v2 の間なので影響しない)
+- 残課題: 基底と派生の初期化子の順 (T150 の既知差異) は対象外
+
+### 後に文が続く return を do ... end に閉じ、loop 末尾の return と continue を正しい Lua にする (#106) ✓ (2026-10-11)
+- Lua の `return` は block の最後の文に限られる。loop 本体の最後が `return` で本体に `continue` があると、`return` の後ろに continue label (`::_continue_N::`) が出て構文エラーになっていた (`while (true)` / `for` / `foreach` / `do-while`)。同じ形で、for の増分 (`i = i + 1`) が `return` の後ろに続く場合 (continue が無くても) と、`return` の後の到達不能文も構文エラーだった
+- `EmitIlBlock` が、後に文が続く `return` を `do return ... end` の block に閉じる。loop 本体は `EmitLoopBody` で出し、末尾の `return` の後に continue label (使うときだけ) か同じ block の増分が続くなら閉じる
+- 検証: 追加した `DifferentialTests.Loop_TrailingReturnFollowedByLabelOrStep_MatchesCSharp` (while / for の continue、for の増分、do-while、foreach、到達不能文。Lua / C / C GC stress の一致と C# の期待値 `3 7 30 4 2 7`) が修正前は Lua の `'end' expected ... near '::'` で失敗、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: label を `return` の前に置く案は、`continue` の飛び先で `return` を実行してしまうので採らない。閉じるかどうかは末尾の文を出す時点で決める (continue label を使うかは本体を出し終えるまで分からないが、末尾の `return` より前の `continue` は出し終えている)
+- 残課題: constructor の `return;` は `return` (nil) を出すので、`new C()` が nil になり、末尾の `return;` は後ろの `return self` と合わせて構文エラーになる (この修正の対象外)
+
 ### int → float の変換・int の Sum の overflow・enum の int 最小値・float → int の下限を C# に揃える (#92 #93 #118 #76) ✓ (2026-10-11)
 - int / char → float の暗黙変換 (代入・引数・return・比較の昇格、`float?` への wrap の手前) を IL builder の入口 (`BuildExpr`) で `IlNumericConvert` にした。Lua は `(x * 1.0)` で描き、LUA_32BITS の integer を f32 へ丸める。従来は Lua の integer のまま残り、`float f = 16777217` が 16777217 のまま、`16777217 == 16777216f` が偽だった (#92)。定数は float literal に畳む (`float big = 100000` は `100000.0`。integer のままだと `big * big` が i32 wrap した)。明示 `(float)x` も同じ描画で、変換元が既に float なら IL に node を置かない
 - uint / short / byte / long などの整数 → float も同じ変換にした

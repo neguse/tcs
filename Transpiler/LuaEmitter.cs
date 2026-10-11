@@ -275,7 +275,7 @@ public partial class LuaEmitter
         {
             var initStart = _sb.Length;
             if (init != null)
-                AppendLine($"{name}.{fieldName} = {RenderExprViaIl(model, init)}");
+                AppendLine($"{name}.{fieldName} = {RenderExprViaIl(model, init, copyStruct: true)}");
             else
                 AppendLine($"{name}.{fieldName} = {GetDefaultValueForType(type!)}");
             // 定数/default だけを副作用なし (pure) とし、hot apply での新規
@@ -348,7 +348,7 @@ public partial class LuaEmitter
             foreach (var (fieldName, init, type) in fieldInits)
             {
                 if (init != null)
-                    AppendLine($"self.{fieldName} = {RenderExprViaIl(model, init)}");
+                    AppendLine($"self.{fieldName} = {RenderExprViaIl(model, init, copyStruct: true)}");
                 else
                     AppendLine($"self.{fieldName} = {GetDefaultValueForType(type!)}");
             }
@@ -469,11 +469,16 @@ public partial class LuaEmitter
         AppendLine("end");
         AppendLine();
 
-        // __eq: value-based equality for record types
+        // __eq: C# の合成 Equals と同じく実行時型 (EqualityContract) の一致を
+        // 先に見て、positional field を値等価で比べる
         if (paramNames.Count > 0)
         {
             info.DefinitionKeys.Add("__eq");
-            var eqParts = fieldNames.Select(p => $"a.{p} == b.{p}");
+            var paramTypes = rec.ParameterList!.Parameters
+                .Select(p => model.GetDeclaredSymbol(p)!.Type).ToList();
+            var eqParts = fieldNames
+                .SelectMany((f, i) => MemberEqualityParts(paramTypes[i], $"a.{f}", $"b.{f}"))
+                .Prepend("getmetatable(a) == getmetatable(b)");
             AppendLine($"function {name}.__eq(a, b)");
             _indent++;
             AppendLine($"return {string.Join(" and ", eqParts)}");
@@ -612,10 +617,10 @@ public partial class LuaEmitter
         MethodRanges.Add((MethodKey(className, method), rangeStart, _sb.Length - rangeStart));
     }
 
-    // C# の optional parameter は省略時に default 値が入るが、Lua 側は nil で
-    // 届く。関数冒頭で補完する。省略と明示 null は Lua では区別できない
-    // (どちらも nil) — 明示 null を渡して default と違う挙動を期待する呼び出し
-    // は既知の意味論差。
+    // C# からの呼び出しは省略引数を呼び出し側で埋める (WithOmittedDefaults)。
+    // host など C# 以外から nil で届く呼び出しのため関数冒頭でも補完する。
+    // 省略と明示 null は Lua では区別できない (どちらも nil) — 明示 null を
+    // 渡して default と違う挙動を期待する呼び出しは既知の意味論差。
     private void EmitParameterDefaults(SemanticModel model,
         ParameterListSyntax parameterList)
     {
