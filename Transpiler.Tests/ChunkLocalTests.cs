@@ -172,7 +172,7 @@ public class ChunkLocalTests
             """;
         const string V2 = """
             using System;
-            public enum Kind { Z, A, B }
+            public enum Kind { A, B, C }
             public class Picker
             {
                 public static Func<Kind> Pick = () => Kind.A;
@@ -182,8 +182,8 @@ public class ChunkLocalTests
         var script = TestHelper.ComposeReload(V1, "local kind = Kind", V2,
             """
             assert(Kind == kind, "enum table identity")
-            assert(Kind.A == 1 and Kind.Z == 0, "v2 values")
-            assert(Picker.same(), "v1 closure reads v2 enum value")
+            assert(kind.C == 2, "v2 member through the v1 table")
+            assert(Picker.same(), "v1 closure reads the enum table")
             print("ok")
             """);
         Assert.Equal("ok", TestHelper.RunLua(script).Trim());

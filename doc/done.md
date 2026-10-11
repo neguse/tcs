@@ -1919,3 +1919,12 @@
 - 検証: tcs2c.Tests に `DifferentialTests.BclBehavior.cs` (4 本、C 通常 + GC stress と Lua の一致に加え、CoreCLR (net10.0) で実測した stdout との一致を見る)。修正前は 4 本とも fail (Random は Lua が `interval is empty`、OrderBy は Lua が `1,3,2,4`、Replace は C の emit が null を拒否、省略引数は Lua が `7:7:11`)、修正後は pass。`bash run-tests.sh` で Analyzers.Tests 56 / Transpiler.Tests 1005 / tcs2c.Tests 60 が全て pass
 - 判断: callee 冒頭の補完は host など C# 以外からの呼び出しのために残した (明示 null と省略を区別しない既知差もそのまま)。既定値は宣言側の syntax tree の model で IL にするので、別ファイルの interface の const / enum / float の既定値も呼び出し側で同じ値になる。既定値を IL にできないときは埋めずに callee に任せる。`--ref` の host method は対象外 (host 側が既定値を持つ)。`Next(max)` の負の上限など .NET が例外にする入力は従来どおり fault
 - 残課題: なし
+
+### watch の reload chunk が移行できない変更を restart として知らせる (#107) ✓ (2026-10-11)
+- `--watch --reload-chunks` は、chunk で移行できない変更 (既存 static の initializer、base class、型の削除・種類の変更、enum member の削除・値の変更) では chunk を書かず、`-o` の出力を書いた後に標準出力へ `@@tcs_restart_required <UTF-8 の byte 数>` の行と理由の行 (`static initializer changed: Game.x` など、1 行 1 理由) を書き、標準エラーにも理由を出す。ホストが出力を読み直して VM を起動し直す前提で、以後の chunk はその build からの差分にする。従来は chunk に `G.x = 2` を含めながら既存の static は旧い値のまま残し、ログは `Sent reload chunk` だけだった
+- 判定は `ReloadClassifier` (IlExport の v1 / v2 の差分)。`HotReload.PlanReload` が chunk か restart の理由を返し、`EmitReloadChunk` は restart なら理由付きで例外にする。IlFieldInfo に initializer の構文 hash (`InitHash`) と `IsConst` を足した。const は使う側に埋め込まれ実行中に変わらないので live のままにし、type table 上の値も v2 にする (従来は旧い値が残っていた)
+- base の変更は restart にしたので、chunk の親の付け替え (setmetatable) は消した
+- `doc/hot-reload-design.md` §9 に stream の形式、§5.2 に const、§11 を現状に合わせた (record class は移行される、struct は static member を持てない)
+- 検証: 追加した `HotReloadRestartTests` (restart 8 例 / live 5 例 / const の値) と `WatchRestartTests` (実際に `tcs --watch --entry Game --reload-chunks` を起動し、static の initializer を変えると `restart_required` が届き、読み直した出力の VM に次の編集の chunk が当たること) が修正前は 10 件失敗、修正後は通る。`TCS_FUZZ=1 TCS_FUZZ_COUNT=200` の reload fuzz sweep も通る。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: instance field の追加・削除・型変更は registry で移行できるので restart にしない (module registry の `ClassifyRestart` との違い)。static の追加は #15 の通り initializer の副作用を見ずに live のまま。restart 時に基準の build を進めるのは、§9 の通りホストが出力で起動し直すため (進めないと、起動し直した VM に次の chunk が当たらない)。知らない kind の行を読み飛ばすホスト (現在の lub) は従来どおり動き、理由の行をログに出す。`ChunkLocalTests.Reload_V1CachedChunk_SeesV2EnumValues` は enum の renumber (restart になった) を member の追加に替えた
+- 残課題: 型の削除は生存 instance を見ずに常に restart (§5.2 は生存ゼロなら live)。top-level statement の再実行、§6 の struct detector、ReloadPlanner の一本化は §11 のまま。lub 側の再起動導線 (`restart_required` を受けて VM を起動し直す) は lub で対応する
