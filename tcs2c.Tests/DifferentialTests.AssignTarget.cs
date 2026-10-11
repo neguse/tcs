@@ -70,6 +70,59 @@ public partial class DifferentialTests
             """.ReplaceLineEndings("\n"), output);
     }
 
+    // 式位置の custom property 代入の受け手、collection の method が変える
+    // 添字 (`A[L.Count] = L.Remove(5) ? ..`) も右辺より先に固定する
+    [CFact]
+    public void AssignmentExpression_PropertyReceiverAndCollectionIndex_FixedBeforeRhs()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            public class Box
+            {
+                int _p;
+                public int Prop { get { P.Log += "g"; return _p; } set { P.Log += "s"; _p = value; } }
+                public int Raw() => _p;
+            }
+            public struct S { public int N; }
+            public class Holder { public S[] Arr = new S[4]; }
+            public class P
+            {
+                public static string Log = "";
+                static Box B = new Box();
+                static int[] A = new int[4];
+                static List<int> L = new List<int>();
+                static Dictionary<int, int> D = new Dictionary<int, int>();
+                static Holder H = new Holder();
+                static int Right() { Log += "R"; B = new Box(); return 7; }
+                static void Reset() { Log = ""; B = new Box(); A = new int[4]; L = new List<int> { 1, 5, 9 }; D = new Dictionary<int, int> { { 1, 1 }, { 2, 2 } }; H = new Holder(); }
+                public static void Main()
+                {
+                    Reset(); var o = B; int r1 = (B.Prop = Right());
+                    Console.WriteLine("prop=:" + r1 + "," + Log + "," + o.Raw() + "," + B.Raw());
+                    Reset(); o = B; int r2 = (B.Prop += Right());
+                    Console.WriteLine("prop+=:" + r2 + "," + Log + "," + o.Raw() + "," + B.Raw());
+                    Reset(); int r3 = (A[L.Count] = L.Remove(5) ? 70 : 80);
+                    Console.WriteLine("list-index:" + r3 + "," + A[3] + "," + A[2]);
+                    Reset(); int r4 = (A[D.Count] = D.Remove(1) ? 90 : 0);
+                    Console.WriteLine("dict-index:" + r4 + "," + A[2] + "," + A[1]);
+                    Reset(); int r5 = (H.Arr[L.Count].N = L.Remove(5) ? 70 : 80);
+                    Console.WriteLine("struct-index:" + r5 + "," + H.Arr[3].N + "," + H.Arr[2].N);
+                    Reset(); H.Arr[L.Count].N += L.Remove(5) ? 70 : 80;
+                    Console.WriteLine("struct-index-stmt:" + H.Arr[3].N + "," + H.Arr[2].N);
+                }
+            }
+            """, "P");
+        Assert.Equal("""
+            prop=:7,Rs,7,0
+            prop+=:7,gRs,7,0
+            list-index:70,70,0
+            dict-index:90,90,0
+            struct-index:70,70,0
+            struct-index-stmt:70,0
+            """.ReplaceLineEndings("\n"), output);
+    }
+
     // 右辺が struct の格納先 (class の field / 配列要素 / static field / this の
     // field / 捕捉 local の field) を差し替えても、書き込みは今の格納先に届く
     [CFact]

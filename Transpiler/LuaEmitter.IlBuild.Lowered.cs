@@ -142,10 +142,13 @@ public partial class LuaEmitter
     }
 
     // custom property の (receiver ノード, 名前, 副作用有無, static か,
-    // struct 所有型名 — struct accessor は自由関数呼びになる)
+    // struct 所有型名 — struct accessor は自由関数呼びになる)。fixUnstable は
+    // 読み直すと変わり得る参照型 receiver も temp に固定する (式位置は setter
+    // を右辺の後に呼ぶ)
     private (List<IlStat> Setup, IlExpr Recv, string Name, bool IsStatic,
         string? StructOwner)?
-        BuildPropTarget(SemanticModel model, ExpressionSyntax left)
+        BuildPropTarget(SemanticModel model, ExpressionSyntax left,
+            bool fixUnstable = false)
     {
         switch (left)
         {
@@ -167,7 +170,10 @@ public partial class LuaEmitter
                         N(prop), true, null);
                 var owner = IsUserStruct(model.GetTypeInfo(ma.Expression).Type)
                     ? TypeRef(prop.ContainingType) : null;
-                if (HasLvalueSideEffect(model, ma.Expression, ma.Expression))
+                if (HasLvalueSideEffect(model, ma.Expression, ma.Expression)
+                    || (fixUnstable && !IsStableRead(model, ma.Expression)
+                        && model.GetTypeInfo(ma.Expression).Type
+                            is { IsReferenceType: true }))
                     return BuildFixedReceiver(model, ma.Expression) is { } fixedRecv
                         ? (fixedRecv.Setup, fixedRecv.Access, N(prop), false, owner)
                         : null;
@@ -262,7 +268,8 @@ public partial class LuaEmitter
     private IlIife? BuildPropAssignExpr(SemanticModel model,
         AssignmentExpressionSyntax assign)
     {
-        if (BuildPropTarget(model, assign.Left) is not { } prop) return null;
+        if (BuildPropTarget(model, assign.Left, fixUnstable: true)
+            is not { } prop) return null;
         var right = BuildExpr(model, assign.Right);
         if (right == null) return null;
         List<IlStat> stats = [.. prop.Setup];

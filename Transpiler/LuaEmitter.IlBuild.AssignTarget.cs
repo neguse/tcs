@@ -155,8 +155,9 @@ public partial class LuaEmitter
     }
 
     // 式位置の代入 (参照型の受け手) の値を、代入後に左辺を読み直して得ると
-    // 受け手 / 添字を再評価するか: 評価に副作用がある、または右辺が書き換え
-    // 得る状態 (field 等) を読む。true なら受け手 / 添字を temp に固定する
+    // 受け手 / 添字を再評価するか: 評価に副作用がある、または local /
+    // parameter / this / 型名 / 定数以外 (右辺が変え得る field 等) を読む。
+    // true なら受け手 / 添字を temp に固定する
     private static bool NeedsFixedAssignTarget(SemanticModel model,
         AssignmentExpressionSyntax assign)
     {
@@ -171,7 +172,6 @@ public partial class LuaEmitter
         return recv != null
             && model.GetTypeInfo(recv).Type is { IsReferenceType: true }
             && model.GetSymbolInfo(recv).Symbol is not ITypeSymbol
-            && MayWriteStorage(model, assign.Right)
             && !(IsStableRead(model, recv)
                 && (index == null || IsStableRead(model, index)));
     }
@@ -229,17 +229,22 @@ public partial class LuaEmitter
             _ => false,
         });
 
-    // source に無い method / 構築子は、delegate・ref 引数を受けず、user の
-    // override に dispatch し得ないなら user code を走らせない (Math.Max、
-    // List.Contains 等)。struct の暗黙の構築子は field を zero にするだけ
+    // 呼び出し / 構築が状態を書き換え得るか。書き換えないとみなすのは、
+    // delegate・ref 引数を受けない Math / MathF・数値 / bool / char / string の
+    // method と source に無い構築子 (自身の外の状態を変えない)、struct の暗黙の
+    // 構築子 (field を zero にするだけ)。collection の method は中身を変え得る
+    // (`List.Remove` が `Count` を変える)
     private static bool RunsUserCode(ISymbol? symbol) =>
         symbol is not IMethodSymbol m
-        || m.MethodKind == MethodKind.DelegateInvoke
-        || (m.Locations.Any(l => l.IsInSource)
-            && !(m is { MethodKind: MethodKind.Constructor, IsImplicitlyDeclared: true }
-                && m.ContainingType.IsValueType))
-        || ((m.IsVirtual || m.IsAbstract || m.IsOverride)
-            && !m.ContainingType.IsSealed && !m.ContainingType.IsValueType)
         || m.Parameters.Any(p => p.RefKind != RefKind.None
-            || p.Type.TypeKind == TypeKind.Delegate);
+            || p.Type.TypeKind == TypeKind.Delegate)
+        || !(m.MethodKind == MethodKind.Constructor
+            ? !m.Locations.Any(l => l.IsInSource)
+                || (m.IsImplicitlyDeclared && m.ContainingType.IsValueType)
+            : !m.Locations.Any(l => l.IsInSource)
+                && (m.ContainingType.ToDisplayString() is "System.Math"
+                        or "System.MathF"
+                    || m.ContainingType.SpecialType == SpecialType.System_String
+                    || (m.ContainingType.SpecialType != SpecialType.None
+                        && m.ContainingType.IsValueType)));
 }
