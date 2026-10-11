@@ -561,6 +561,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `Console` | **Y** | `WriteLine` → `print` | |
 | `int` / `double` / `float` の `Parse(string)` | **Y** | `math.tointeger(tonumber(s))` / `tonumber(s)` | 不正な文字列は例外でなく nil |
 | `int` / `double` / `float` の `TryParse(string, out v)` | **Y** | `Math.TryParseInt` / `Math.TryParseFloat` の (found, value) multi-return (TryGetValue と同形の IIFE) | 失敗時の out は 0。int は NumberStyles.Integer (前後の空白、先頭の符号、10 進数字だけ。小数・指数・16 進・空白だけは失敗) |
+| `int` / `long` / `float` / `double` の `CompareTo(同じ型)` | **Y** | `Math.CompareTo(a, b)` | -1 / 0 / 1。float の NaN は他のどの値より小さく、NaN 同士は 0 (Single.CompareTo と同じ)。`char.CompareTo` (差を返す) と `string.CompareTo` は TCS1002 |
 | `Convert` | **-** | | |
 | `Environment` | **P** | `GetEnvironmentVariable(s)` → `os.getenv(s)` | 他メンバーは未対応 |
 | `Array` | **-** | | List で代替 |
