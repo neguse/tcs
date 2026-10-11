@@ -75,6 +75,22 @@ function List.Sort(list, comparison)
   end
 end
 
+-- float の既定の順序 (Single.CompareTo): NaN は他のどの値より小さい
+local function floatBefore(a, b) return a < b or (a ~= a and b == b) end
+local function floatAfter(a, b) return a > b or (b ~= b and a == a) end
+
+-- List<float>.Sort(): NaN を含むときだけ比較関数を渡す
+function List.SortFloat(list)
+  for i = 1, #list do
+    local v = list[i]
+    if v ~= v then
+      table.sort(list, floatBefore)
+      return
+    end
+  end
+  table.sort(list)
+end
+
 -- LINQ-style methods
 function List.Where(list, predicate)
   local result = {}
@@ -134,13 +150,23 @@ function List.FirstOrDefault(list, predicate, default)
 end
 
 -- OrderBy は安定 sort (同じ key の要素は元の順)。table.sort は不安定なので
--- 元の位置を同値時の比較に使う
-local function orderby(list, keySelector, before)
+-- 元の位置を同値時の比較に使う。nanBefore (float key) は key に NaN が
+-- あるときだけ before の代わりに使う
+local function orderby(list, keySelector, before, nanBefore)
   local n = #list
   local keys, index = {}, {}
   for i = 1, n do
     keys[i] = keySelector(list[i])
     index[i] = i
+  end
+  if nanBefore then
+    for i = 1, n do
+      local k = keys[i]
+      if k ~= k then
+        before = nanBefore
+        break
+      end
+    end
   end
   table.sort(index, function(a, b)
     local ka, kb = keys[a], keys[b]
@@ -153,12 +179,23 @@ local function orderby(list, keySelector, before)
   return result
 end
 
+local function less(a, b) return a < b end
+local function greater(a, b) return a > b end
+
 function List.OrderBy(list, keySelector)
-  return orderby(list, keySelector, function(a, b) return a < b end)
+  return orderby(list, keySelector, less)
 end
 
 function List.OrderByDescending(list, keySelector)
-  return orderby(list, keySelector, function(a, b) return a > b end)
+  return orderby(list, keySelector, greater)
+end
+
+function List.OrderByFloat(list, keySelector)
+  return orderby(list, keySelector, less, floatBefore)
+end
+
+function List.OrderByDescendingFloat(list, keySelector)
+  return orderby(list, keySelector, greater, floatAfter)
 end
 
 function List.Take(list, count)

@@ -187,6 +187,22 @@ internal sealed partial class CEmitter
         _ => throw new Tcs2cException($"equality is not supported for {type}"),
     };
 
+    // Lua 向けの float 専用 runtime 関数 (List.SortFloat / OrderByFloat 等) は
+    // C では要素型・key 型から同じ順序を選ぶので、元の名前で扱う
+    private static string ListOpName(IlCall call)
+    {
+        var name = call.Callee["List.".Length..];
+        return name is "SortFloat" or "OrderByFloat" or "OrderByDescendingFloat"
+            ? name[..^"Float".Length] : name;
+    }
+
+    // sort 用の 3 方向比較。float は Single.CompareTo と同じく NaN を最小にする
+    private static string CompareExpr(CType type, string left, string right) =>
+        type.Kind == CTypeKind.F32
+            ? $"({left} < {right} ? -1 : {left} > {right} ? 1 : {left} == {right} ? 0 : " +
+              $"{left} != {left} ? ({right} != {right} ? 0 : -1) : 1)"
+            : $"({LessExpr(type, left, right)} ? -1 : {LessExpr(type, right, left)} ? 1 : 0)";
+
     private static string LessExpr(CType type, string left, string right) => type.Kind switch
     {
         CTypeKind.I32 or CTypeKind.F32 => $"({left} < {right})",
@@ -203,7 +219,7 @@ internal sealed partial class CEmitter
 
     private CType TypeOfListOp(IlCall call)
     {
-        var name = call.Callee["List.".Length..];
+        var name = ListOpName(call);
         var args = call.Args;
         var seq = RequireSeq(args[0], call.Callee);
         var elem = seq.Element!;
@@ -304,7 +320,7 @@ internal sealed partial class CEmitter
 
     private string RenderListOp(IlCall call)
     {
-        var name = call.Callee["List.".Length..];
+        var name = ListOpName(call);
         var args = call.Args;
         var resultType = TypeOfListOp(call);
         var seq = RequireSeq(args[0], call.Callee);
@@ -528,7 +544,7 @@ internal sealed partial class CEmitter
         switch (mode)
         {
             case "natural":
-                body.Append($"    return {LessExpr(elem, "x", "y")} ? -1 : {LessExpr(elem, "y", "x")} ? 1 : 0;\n");
+                body.Append($"    return {CompareExpr(elem, "x", "y")};\n");
                 break;
             case "comparison":
                 body.Append($"    int32_t r = {CallClosure("f", closureType!, "x", "y")};\n");
@@ -539,7 +555,7 @@ internal sealed partial class CEmitter
                 body.Append($"    {key!.CName} kx = {CallClosure("f", closureType!, "x")};\n");
                 body.Append($"    {key.CName} ky = {CallClosure("f", closureType!, "y")};\n");
                 var (lo, hi) = mode == "key" ? ("kx", "ky") : ("ky", "kx");
-                body.Append($"    return {LessExpr(key, lo, hi)} ? -1 : {LessExpr(key, hi, lo)} ? 1 : 0;\n");
+                body.Append($"    return {CompareExpr(key, lo, hi)};\n");
                 break;
             }
         }

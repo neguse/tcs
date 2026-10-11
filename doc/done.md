@@ -2063,3 +2063,10 @@
 - `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
 - 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
 - 残課題: 概念の単位で分割して除外を外す (#167)
+
+### float の既定の順序で NaN を最小にする (#145) ✓ (2026-10-11)
+- `List<float>.Sort()` と float key の `OrderBy` / `OrderByDescending` の NaN の位置が CoreCLR と異なっていた (Lua は比較関数なしの `table.sort` と `<` / `>`、C は `<` だけの比較で NaN と有限値が「等しい」)。.NET の既定の comparer (Single.CompareTo) と同じく NaN を他のどの値より小さくする
+- Lua: 静的な要素型が float の `Sort()` は runtime の `List.SortFloat`、key 型が float の OrderBy / OrderByDescending は `List.OrderByFloat` / `List.OrderByDescendingFloat` を呼ぶ。どちらも NaN を含むときだけ NaN を最小にする比較関数を使い、含まなければ従来と同じ比較 (`table.sort(list)` と `<` / `>`) にする。C: 既定の sort の比較関数 (natural / key / keydesc) を、float だけ Single.CompareTo と同じ 3 方向比較にする。IL の callee 名 `List.SortFloat` 等は C では元の名前として扱う
+- 検証: tcs2c.Tests に `DifferentialTests.FloatSortNaN.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。NaN / ±∞ 混在の Sort、40 要素の Sort、NaN だけの Sort、float key の OrderBy / OrderByDescending と NaN key の安定性、int / string の Sort と int key の OrderBy)。修正前は Lua と C の出力が食い違って fail、修正後 pass。#145 本文と追記の program の入力を含む。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime に足した関数を除いて master とバイト一致。lua32 で 20 万要素 ×5 回: `table.sort` 0.51 s / NaN なしの `List.SortFloat` 0.49 s
+- 判断: int / string の Sort と OrderBy は生成コードも runtime の経路も変えない。float でも NaN が無い列は比較関数を足さない (Lua の比較関数ありの table.sort は無しより遅い。NaN の判定は 1 回の走査)
+- 残課題: 判定は静的な型なので、要素型・key 型が型 parameter の場合 (generic method に T = float で渡したもの) は従来どおり。±0 は従来どおり等しい値として扱う (Lua の Sort は不安定なので -0 と +0 の相対順は CoreCLR と一致する保証が無い)
