@@ -150,7 +150,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 型 | 状態 | Lua マッピング | 備考 |
 |----|:----:|--------------|------|
 | `class` | **Y** | table + metatable | |
-| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。static member / operator / override はサブセット外 |
+| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。ToList と LINQ の lambda parameter も値 copy。static member / operator / override はサブセット外 |
 | `record` / `record class` | **Y** | table + metatable (`__eq`)。IL 契約に IsRecord で収載、C backend は型ごとの構造等価関数と実行時 layout の with copy | positional record。==/!= は実行時型の一致と positional field の値等価 (struct field は memberwise、C# の合成 Equals と同じ)。Equals / GetHashCode / ToString 呼びは対象外。C# の `(T)x` downcast は IlCast で C 側 fault 対象 |
 | `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= と with 式。readonly (record) struct は copy 全省略。IL 契約 (IlStructInfo) と C backend、hot reload の migration も struct と同じ |
 | `interface` | **P** | 出力なし | Roslyn 型チェックのみ |
@@ -213,7 +213,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 拡張メソッド (C# 3) | **P** | static method 呼び出しへ展開 | LINQ は専用処理 |
 | 拡張メンバー (C# 14) | **-** | | |
 | primary constructor (C# 12) | **-** | | |
-| デフォルト引数値 | **P** | Roslyn パース | |
+| デフォルト引数値 | **P** | Roslyn パース | 省略した末尾の引数は、呼び出しが静的に束縛した宣言 (interface / 基底の virtual) の既定値を呼び出し側で渡す。callee 冒頭でも nil を既定値で補うので、明示 null と省略は区別しない |
 
 ### 2.4 ローカル宣言
 
@@ -273,7 +273,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `bool` (`true`/`false`) | **Y** | そのまま | |
 | `null` | **Y** | `nil` | |
 | 文字列 (`"hello"`) | **Y** | そのまま | |
-| 補間文字列 (`$"...{x}..."`) | **Y** | `tostring` + `..` | |
+| 補間文字列 (`$"...{x}..."`) | **Y** | `tostring` + `..` | 書式 `D` の精度は符号を除いた桁数 (`%.Nd`)。raw 補間 (`$$"""..."""`) の `$` の個数より短い brace の連続は文字のまま |
 | 文字 (`'A'`) | **Y** | 1文字 string | |
 | 2進数 (`0b1010`, C# 7) | **Y** | 10進数へ変換 | |
 | 16進数 (`0xFF`) | **Y** | `_` 除去して出力 | |
@@ -560,7 +560,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `MathF` | **-** | | float 版 Math |
 | `Console` | **Y** | `WriteLine` → `print` | |
 | `int` / `double` / `float` の `Parse(string)` | **Y** | `math.tointeger(tonumber(s))` / `tonumber(s)` | 不正な文字列は例外でなく nil |
-| `int` / `double` / `float` の `TryParse(string, out v)` | **Y** | `Math.TryParseInt` / `Math.TryParseFloat` の (found, value) multi-return (TryGetValue と同形の IIFE) | 失敗時の out は 0 |
+| `int` / `double` / `float` の `TryParse(string, out v)` | **Y** | `Math.TryParseInt` / `Math.TryParseFloat` の (found, value) multi-return (TryGetValue と同形の IIFE) | 失敗時の out は 0。int は NumberStyles.Integer (前後の空白、先頭の符号、10 進数字だけ。小数・指数・16 進・空白だけは失敗) |
 | `Convert` | **-** | | |
 | `Environment` | **P** | `GetEnvironmentVariable(s)` → `os.getenv(s)` | 他メンバーは未対応 |
 | `Array` | **-** | | List で代替 |
@@ -593,7 +593,7 @@ using(宣言)  virtual(部分)  volatile  yield
 |---------|:----:|--------------|:----:|
 | `.Length` | **Y** | `#str` | T |
 | `.Contains(s)` | **Y** | `String.Contains(str, s)` | T+R |
-| `.Replace(old, new)` | **Y** | `String.Replace(str, old, new)` (`old == ""`は即時error) | T+R |
+| `.Replace(old, new)` | **Y** | `String.Replace(str, old, new)` (`old == ""`は即時error、`new == null` は削除) | T+R |
 | `.StartsWith(s)` | **Y** | `String.StartsWith(str, s)` | T+R |
 | `.EndsWith(s)` | **Y** | `String.EndsWith(str, s)` (空suffixはtrue) | T+R |
 | `.Trim()` | **Y** | `String.Trim(str)` | T+R |
@@ -690,7 +690,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `new Random()` / `new Random(seed)` | **Y** | `Random.new(seed)` (pure-Lua xoshiro256**) | System.Random と同じ形。seed 固定時は Lua / C で列が bit 一致し、`Random.Seed(seed)` 後の `Shared` とも一致 (il-spec §13)。C backend は GC object |
 | `Random.Shared` (static) | **Y** | `Random.Shared` (VM の `math.random` 状態) | |
 | `Random.Seed(seed)` | **Y** | `math.randomseed(seed)` | `Shared` の列の固定 (tcs 独自。System.Random に無い) |
-| `r.Next()` / `r.Next(max)` / `r.Next(min, max)` | **Y** | `r:Next(...)` | .NET 標準 API (上限は exclusive) |
+| `r.Next()` / `r.Next(max)` / `r.Next(min, max)` | **Y** | `r:Next(...)` | .NET 標準 API (上限は exclusive。空の範囲 `Next(0)` / `Next(n, n)` は下限を返す) |
 | `r.NextFloat()` / `r.NextSingle()` | **Y** | `r:NextFloat()` | [0, 1) の float |
 | `r.Range(min, max)` | **Y** | `r:Range(min, max)` | 両端含む整数 (Lua の `math.random(m, n)`。tcs 独自) |
 | `Random.NextDouble()` | **-** | | double はサブセット外 |
@@ -806,8 +806,8 @@ LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in
 | `.All(predicate)` | **Y** | `List.All(list, fn)` | T+R |
 | `.First()` / `.First(predicate)` | **Y** | `List.First(list, fn)` | T+R |
 | `.FirstOrDefault()` / `.FirstOrDefault(pred)` | **Y** | `List.FirstOrDefault(list, fn, default)` | T+R。miss 時は要素型別 default (int=0/bool=false/ref=nil) |
-| `.OrderBy(keySelector)` | **Y** | `List.OrderBy(list, fn)` | T+R |
-| `.OrderByDescending(keySelector)` | **Y** | `List.OrderByDescending(list, fn)` | T+R |
+| `.OrderBy(keySelector)` | **Y** | `List.OrderBy(list, fn)` (安定 sort) | T+R |
+| `.OrderByDescending(keySelector)` | **Y** | `List.OrderByDescending(list, fn)` (安定 sort) | T+R |
 | `.Take(count)` | **Y** | `List.Take(list, count)` | T+R |
 | `.Skip(count)` | **Y** | `List.Skip(list, count)` | T+R |
 | `.Last()` / `.LastOrDefault()` | **Y** | `List.Last/LastOrDefault(list, fn, default)` | T+R。First/Last/Min/Max の empty は明示 error |
@@ -930,7 +930,7 @@ LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in
 | Lua CMake platform 分岐 | **Y** | Linux/Windows/macOS/iOS-family/Emscripten/BSD/generic Unix |
 | 依存 lock / publish runtime 同梱 | **Y** | package pin + packages.lock.json + runtime/tinysystem.lua |
 | 命名規約チェック | **Y** | PascalCase/camelCase 警告。`--no-naming-check` で抑制 |
-| Lua 側の名前の衝突検出 | **Y** | 同じ型の `Foo` と `foo` が同じ Lua 名に落ちると error (§28)。analyzer / `tcs check` は TCS1001 `LuaNameCollision(Foo/foo)` |
+| Lua 側の名前の衝突検出 | **Y** | 同じ型の `Foo` と `foo`、型の `A_B.C` と `A.B.C` が同じ Lua 名に落ちると error (§28)。analyzer / `tcs check` は TCS1001 `LuaNameCollision(Foo/foo)` |
 
 ## 25. 許容される C# エラー (TinyC# 固有)
 
@@ -993,4 +993,10 @@ LuaNameCollision(Value/value): 'Value' and 'value' both map to Lua 'value'`) に
 overload は衝突ではなく MethodOverload (TCS1001) の領分。analyzer / `tcs check`
 は同じ判定を TCS1001 `LuaNameCollision(Value/value)` として 2 個目以降の宣言に
 報告する。
+
+型も同じく、namespace 修飾名を `_` で結合した Lua global 名が別の型と同じになる
+もの (`A_B.C` と `A.B.C` は共に `A_B_C`) は、宣言順 (入力ファイルの順と位置) で
+2 個目以降の型を error (`LuaNameCollision(A_B.C/A.B.C): 'A_B.C' and 'A.B.C' both
+map to Lua 'A_B_C'`) にする。C backend (tcs2c) も同じ error で止まる。interface /
+delegate は Lua の global を持たず、`--ref` の型は小文字パスで呼ぶので対象外。
 
