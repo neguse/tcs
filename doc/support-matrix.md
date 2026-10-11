@@ -150,7 +150,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 型 | 状態 | Lua マッピング | 備考 |
 |----|:----:|--------------|------|
 | `class` | **Y** | table + metatable | |
-| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。static member / operator / override はサブセット外 |
+| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。ToList と LINQ の lambda parameter も値 copy。static member / operator / override はサブセット外 |
 | `record` / `record class` | **Y** | table + metatable (`__eq`)。IL 契約に IsRecord で収載、C backend は型ごとの構造等価関数と実行時 layout の with copy | positional record。==/!= は実行時型の一致と positional field の値等価 (struct field は memberwise、C# の合成 Equals と同じ)。Equals / GetHashCode / ToString 呼びは対象外。C# の `(T)x` downcast は IlCast で C 側 fault 対象 |
 | `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= と with 式。readonly (record) struct は copy 全省略。IL 契約 (IlStructInfo) と C backend、hot reload の migration も struct と同じ |
 | `interface` | **P** | 出力なし | Roslyn 型チェックのみ |
@@ -273,7 +273,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `bool` (`true`/`false`) | **Y** | そのまま | |
 | `null` | **Y** | `nil` | |
 | 文字列 (`"hello"`) | **Y** | そのまま | |
-| 補間文字列 (`$"...{x}..."`) | **Y** | `tostring` + `..` | |
+| 補間文字列 (`$"...{x}..."`) | **Y** | `tostring` + `..` | 書式 `D` の精度は符号を除いた桁数 (`%.Nd`)。raw 補間 (`$$"""..."""`) の `$` の個数より短い brace の連続は文字のまま |
 | 文字 (`'A'`) | **Y** | 1文字 string | |
 | 2進数 (`0b1010`, C# 7) | **Y** | 10進数へ変換 | |
 | 16進数 (`0xFF`) | **Y** | `_` 除去して出力 | |
@@ -560,7 +560,7 @@ using(宣言)  virtual(部分)  volatile  yield
 | `MathF` | **-** | | float 版 Math |
 | `Console` | **Y** | `WriteLine` → `print` | |
 | `int` / `double` / `float` の `Parse(string)` | **Y** | `math.tointeger(tonumber(s))` / `tonumber(s)` | 不正な文字列は例外でなく nil |
-| `int` / `double` / `float` の `TryParse(string, out v)` | **Y** | `Math.TryParseInt` / `Math.TryParseFloat` の (found, value) multi-return (TryGetValue と同形の IIFE) | 失敗時の out は 0 |
+| `int` / `double` / `float` の `TryParse(string, out v)` | **Y** | `Math.TryParseInt` / `Math.TryParseFloat` の (found, value) multi-return (TryGetValue と同形の IIFE) | 失敗時の out は 0。int は NumberStyles.Integer (前後の空白、先頭の符号、10 進数字だけ。小数・指数・16 進・空白だけは失敗) |
 | `Convert` | **-** | | |
 | `Environment` | **P** | `GetEnvironmentVariable(s)` → `os.getenv(s)` | 他メンバーは未対応 |
 | `Array` | **-** | | List で代替 |
