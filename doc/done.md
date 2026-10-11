@@ -2167,3 +2167,10 @@
 - hot-reload-design.md から struct の static field を前提にした記述 (§5.1 の root の行、§11 の「struct table の static merge なし」) を消した
 - 判断: struct の static method と本体を持つ static property は従来どおり warning の TCS1001 (`StructMember(...)`)。呼ぶと Lua は nil 呼び出しで止まり、黙って別の値を読む static field とは違う
 - 残課題: C で基底の static field を派生型の名前で読む (`B.Y`、Y は基底 A の static) と `unbound IL variable: B` で止まる (record に限らず class も同じ。Lua は動く)
+
+### tcs2c の OrderBy の key を要素ごとに 1 回だけ計算する (#187) ✓ (2026-10-11)
+- C backend の `OrderBy` / `OrderByDescending` は sort の比較関数の中で key の selector を呼んでいて、比較のたびに 2 回呼んでいた (12 要素で 62 回)。CoreCLR と Lua (#125) は要素ごとに 1 回、要素の順に呼ぶ。selector に副作用 (回数の記録、呼ぶたびに変わる key) があると出力が違っていた
+- 生成側が copy した列の要素の順に selector を 1 回ずつ呼んで key の List を作り、runtime の `tcs_list_sort_by_keys` が添字の列を key で安定 merge sort (既存の `tcs_list_sort`) して、その順に要素を並べ替える。比較関数は添字を受けて key の List を引く (`index` / `indexdesc`)。比較から selector を呼ぶ `key` / `keydesc` の mode は無くした。ThenBy 等は tcs に無い
+- 検証: tcs2c.Tests に `DifferentialTests.OrderByKeyOnce.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。selector の呼び出し回数と呼ばれた順、呼ぶたびに増える key (OrderBy は元の順、OrderByDescending は逆順)、block の lambda、`.First()`、配列、空と 2 要素、string / float (NaN) / struct 要素の key、lib 形で毎フレーム作る string の key を並べた結果をフレームをまたいで読む)。修正前は 2 本とも C が Lua / CoreCLR と食い違い (`62 3,9,...`、lib 形は 1 フレーム 234 回)、修正後 pass。`bash run-tests.sh` 全通過。Lua の emitter / runtime は変えていないので samples/*.cs と lub の C# サンプルの生成 Lua は変わらない
+- 判断: key と要素を組にした列を並べるのではなく添字の列を並べる (要素型・key 型ごとの組の型を作らずに既存の安定 merge sort をそのまま使える)。作業領域は GC の List (フレーム中は GC しないので root の追加は要らない)
+- 残課題: CoreCLR は 1 要素の List / 配列の `OrderBy(...).ToList()` で selector を呼ばない (`foreach` や `.First()` では 1 回呼ぶ)。Lua も C も 1 回呼ぶ (#125 から。今回の変更による差ではない)
