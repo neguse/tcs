@@ -219,7 +219,7 @@ OnReload hook は apply 完了後。hook の error は commit を巻き戻さず
 
 | hook | 対象 | 契約 |
 |---|---|---|
-| `void OnReload()` (instance method) | migration された各 instance に 1 回 | field diff 適用後。順序は不定。派生で継承可 |
+| `void OnReload()` (instance method) | migration された各 instance に 1 回 | field diff 適用後。順序は不定 |
 | entry type の `OnReload()` (§11 既存) | reload commit 後に 1 回 | derived data (mesh 等) の再構築用。instance hook の後 |
 
 ## 9. アーキテクチャとホスト統合契約
