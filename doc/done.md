@@ -1920,6 +1920,59 @@
 - 判断: callee 冒頭の補完は host など C# 以外からの呼び出しのために残した (明示 null と省略を区別しない既知差もそのまま)。既定値は宣言側の syntax tree の model で IL にするので、別ファイルの interface の const / enum / float の既定値も呼び出し側で同じ値になる。既定値を IL にできないときは埋めずに callee に任せる。`--ref` の host method は対象外 (host 側が既定値を持つ)。`Next(max)` の負の上限など .NET が例外にする入力は従来どおり fault
 - 残課題: なし
 
+### 補間の D 精度・raw 補間の brace・int.TryParse の書式を C# に揃える (#90 #91 #77) ✓ (2026-10-11)
+- 補間の `D<n>` を `%0<n>d` から `%.<n>d` にした。D の精度は符号を除いた最小桁数で、`%0<n>d` は符号込みの幅なので負数で 1 桁足りなかった (`-12:D4` が `-012`) (#90)
+- raw 補間 (`$$"""..."""`) の text には `{{` / `}}` の unescape を掛けない。Roslyn の ValueText が既に literal の内容 ($ の個数より短い brace の連続は文字のまま) で、通常の補間と同じ置換で brace が減っていた (#91)
+- `int.TryParse` を NumberStyles.Integer (前後の空白、先頭の符号、1 桁以上の 10 進数字) にした。Lua は書式を pattern で絞ってから integer に限って読む (`tonumber` は `1.0` / `1e3` / `0x10` も読み、LUA_32BITS では i32 を超える数字列が float に丸まって範囲内に見えた)。C は strtoll をやめて自前で読む (空白だけの文字列を成功にしていた) (#77)
+- 検証: `tcs2c.Tests/DifferentialTests.FormatParse.cs` (Lua と C の parity + CoreCLR で同じ program を実行した stdout との一致) が変更前は fail、変更後 pass。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: C の `int.Parse` も同じ parser を使うので、空白だけの文字列は fault になる (.NET の FormatException と同じ)
+- 残課題: Lua の `int.Parse` は従来どおり `math.tointeger(tonumber(s))` (不正な文字列は nil の既知差異)。`float.TryParse` の書式は .NET と照合していない。.NET が末尾の NUL を無視する挙動は合わせていない
+
+### Lua backend の struct copy 抜けを専用 lowering の各経路で埋める (#75 #78 #84 #85 #99 #112 #113 #115 #116 #117) ✓ (2026-10-11)
+- il-spec §10 の copy 地点のうち、汎用の代入 / 引数 / return を通らない lowering に `WrapStructCopy` (構文のない値は型だけで決める `CopyIfMutableStruct`) を入れた: object initializer の field / property 値と入れ子の collection initializer の要素 (#112)、foreach (List / 配列) の反復変数 (#113)、分解の成分 (#115)、`with` の上書き値 (#116)、custom setter の `value` (instance / static、#117)、static / instance の field・auto-property initializer と struct の member initializer (#99)、配列 / List / Dictionary の initializer の要素 (#84)、Dictionary.Add と TryGetValue の out (#78)
+- lambda の struct parameter は入口で copy する (#75)。LINQ 等の runtime は要素を copy せずに callback へ渡すので、呼び出し側では copy できない。式本体の lambda は copy 文と合わせて block 本体にする (void は呼び出し文、値を返すなら return)
+- `ToList` は変更可能な struct 要素のとき末尾引数に `S.__copy` を渡し、runtime の `List.ToList` が要素を copy する (#85)。C backend は要素を値で写すので引数を読まない (2 番目が要素型の `__copy` のときだけ 2 引数を許す)。拡張 method は `System.Linq.Enumerable` のものだけ runtime の `List.*` へ写し、LINQ と同名の user 拡張 method (`ToList(this S[], int)` 等) は通常の拡張呼び出しにした (名前だけで写していたので Lua は runtime に誤った引数を渡し、C は型検査で落ちていた)
+- 検証: 新規 `StructCopyPointTests` 13 本 (dotnet differential 込み) は修正前に全て失敗 (例: foreach `3:3:3:3`、ToList `9:9:9`)、修正後に通過。tcs2c.Tests の `StructCopy_LoweredPathsKeepValueSemantics` (C / GC stress / Lua の一致) も修正前は失敗、修正後に通過。各 issue の最小再現を lua32 と tcs2c→gcc で実行し、全て C と一致
+- 実測 (lua32、int + float の 2 field struct、3 回): foreach で 1000 要素の配列を 2000 周読むだけのループ 0.055 → 0.30 s、1000 要素の List.Sort (比較 lambda) + Count (述語 lambda) を 200 回 0.25 → 0.90 s。`var x = a[i]` や引数渡しと同じく copy 地点ごとに table を作る費用で、readonly struct なら copy しない
+- 判断: lambda は parameter が書かれるかどうかの解析で copy を省く案を採らなかった (predicate の中で元の配列を書き換えると、copy しない parameter から変化が見える)。readonly struct は従来どおり copy しない
+- 残課題: static method group を runtime に渡す経路 (`xs.Any(IsGood)`) は copy されない (wrapper closure にすると delegate の同一性が変わるので判断が要る)。`base(...)` 引数、`?.` 経由の List 呼び出し (`list?.Add(s)`)、式本体の lambda の戻り値 (`xs.Select(x => holder.F)`)、ToDictionary の値、式位置の setter 代入の値 (`var y = (h.Item = s)` で setter の変更が y に見える) も同じ種類の copy 抜けとして残る
+
+### tcs2c: field と auto-property の初期化子を宣言順に実行する (#79) ✓ (2026-10-11)
+- IL の型情報 (`IlExport.CollectFields`) が全 field の後に全 auto-property を並べていたため、C backend は field と auto-property を交互に宣言した型で field の初期化子を先にまとめて実行していた (CoreCLR / Lua `APB`、C `ABP`)。instance (constructor 冒頭) と static (型の初期化) の両方。member の宣言順に並べるようにした (C# §15.5.6)
+- 検証: tcs2c.Tests の `DifferentialTests.InitializerOrder.cs` (instance と static の両方で field / auto-property を交互に宣言。Lua / C / C GC stress の一致 + CoreCLR で同じ program を実行した stdout `APBQ 0n` / `xyz 123` との一致)。修正前は C が `ABPQ 0n` / `xzy 132` で fail、修正後 pass。`IlExportTests.Export_ClassMetadataAndIlBodies` の field 列の期待を宣言順に直した。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: positional record の parameter は従来どおり先頭 (Lua の VisitRecord と同順)。struct の C layout と `LayoutHash` も宣言順になる (hot reload の比較は同じ規則で作った v1 / v2 の間なので影響しない)
+- 残課題: 基底と派生の初期化子の順 (T150 の既知差異) は対象外
+
+### 後に文が続く return を do ... end に閉じ、loop 末尾の return と continue を正しい Lua にする (#106) ✓ (2026-10-11)
+- Lua の `return` は block の最後の文に限られる。loop 本体の最後が `return` で本体に `continue` があると、`return` の後ろに continue label (`::_continue_N::`) が出て構文エラーになっていた (`while (true)` / `for` / `foreach` / `do-while`)。同じ形で、for の増分 (`i = i + 1`) が `return` の後ろに続く場合 (continue が無くても) と、`return` の後の到達不能文も構文エラーだった
+- `EmitIlBlock` が、後に文が続く `return` を `do return ... end` の block に閉じる。loop 本体は `EmitLoopBody` で出し、末尾の `return` の後に continue label (使うときだけ) か同じ block の増分が続くなら閉じる
+- 検証: 追加した `DifferentialTests.Loop_TrailingReturnFollowedByLabelOrStep_MatchesCSharp` (while / for の continue、for の増分、do-while、foreach、到達不能文。Lua / C / C GC stress の一致と C# の期待値 `3 7 30 4 2 7`) が修正前は Lua の `'end' expected ... near '::'` で失敗、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: label を `return` の前に置く案は、`continue` の飛び先で `return` を実行してしまうので採らない。閉じるかどうかは末尾の文を出す時点で決める (continue label を使うかは本体を出し終えるまで分からないが、末尾の `return` より前の `continue` は出し終えている)
+- 残課題: constructor の `return;` は `return` (nil) を出すので、`new C()` が nil になり、末尾の `return;` は後ろの `return self` と合わせて構文エラーになる (この修正の対象外)
+
+### 別 namespace の同名 --ref 型を両方出し、型の Lua global 名の衝突を診断する (#104 #105) ✓ (2026-10-11)
+- tcs2c: `--ref` の外部 class を辿る訪問済み集合の key を simple 名から型 symbol (generic は定義) にした。`A.Opts` と `B.Opts` の片方が外部 class として出ず `unsupported IL type: B.Opts` で止まっていた (#104)
+- 型の Lua global 名 (namespace 修飾名を `_` で結合) が先に宣言された別の型と同じになるもの (`A_B.C` と `A.B.C` は共に `A_B_C`) を、member の LuaNameCollision と同じ書式の TCS1001 `LuaNameCollision(A_B.C/A.B.C)` にした。transpiler / `tcs check` / 増分 session は error で Lua を出さず、IlExport も同じ error を Diagnostics に返すので tcs2c も止まる。analyzer は 2 個目以降の型に warning。従来 Lua は黙って後勝ちの `2 2`、C は `duplicate class: A_B_C` だった (#105)
+- 型の global 名の規則を `LuaNaming.TypeGlobalName` (Shared) に移し、emit (`LuaEmitter.TypeName`) と診断が同じ関数を使う
+- 検証: 追加した `RefNamespaceTests` (IlExport の外部 class が `A_Opts` だけ → 両方、生成 C を host 付きで compile / 実行して `37`)、`LuaTypeNameCollisionTests` 6 本 (transpile / 複数ファイル / 非衝突 / check / 増分 session / IlExport) と analyzer の 1 本は修正前に red、修正後 green。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1011 / tcs2c.Tests 64 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: 「別名にする」案は q.md Q2 の flat な修飾名を変えるので採らず、診断にした。宣言順は入力ファイルの順と位置で、最初の型は報告しない (member と同じ)。interface / delegate は Lua の global を持たず、入れ子の型は NestedTypeDeclaration の領分、`--ref` の型は小文字パスで呼ぶので対象外。generic と非 generic の同名型 (`Queue` と `Queue<T>`) も Lua では同じ global なので同じ error になり、conformance baseline の types.md:ConstructedTypes1 が InCompile → Diag。IlExport は単相化で書き換える前の tree で判定する (Lua 経路と同じ規則、位置も入力のまま)
+- 残課題: なし
+
+### Lua: 初期化子のない static field を initializer の段で default に戻さない (#89) ✓ (2026-10-11)
+- 先に宣言した static の初期化子 (から呼んだ method) が後ろの初期化子なし field / auto-property に書いた値を、Lua だけ後から型別 default で上書きしていた (`State.First = State.initialize()` の後の `State.later = 0`)。C# §15.5.6 どおり、全 static を default にするのは pre-zero (型宣言の直後) だけにし、initializer の段では初期化子のある field だけを宣言順に代入する
+- 検証: tcs2c.Tests の `DifferentialTests.StaticDefaults.cs` (Lua / C / C GC stress の一致 + CoreCLR で同じ program を実行した stdout `3/7/4/5/1/0` との一致)。修正前は Lua が `attempt to index a nil value (field 'ref')` で fail、修正後 pass。`ModuleDescriptorTests.DefineChunkExcludesDeclarationAndStaticInit` は初期化子なし field の initializer thunk が空であることを見る形に直した。`bash run-tests.sh` (pre-commit) 全通過
+- 判断: 初期化子なし field の StaticFieldMeta は残す (長さ 0 の範囲)。registry の declare が `default` で pre-zero し、hot apply の新規 field も pure 扱いのまま。reload chunk (`HotReload.EmitReloadChunk`、`--watch --reload-chunks`) は v2 の pre-zero 済み fresh table から新規 field を写すので、どちらの経路でも追加した初期化子なし static は型別 default になり、既存 static は live 値のまま (`HotReloadTests` / `ModuleDescriptorTests` の `*AddedStaticWithoutInitializerGetsDefault`)
+- 残課題: なし
+
+### 代入先を右辺より先に確定させ、式位置の代入の値を代入した値にする (#87 #97) ✓ (2026-10-11)
+- 式位置の代入 (`=` / op= / `??=`) は、代入後に左辺を組み直して読んだ値を式の値にしていた。右辺が受け手を差し替える (`(Receiver()[1] = Right())` で Right が static field を新しい Dictionary にする) と、受け手を再評価して別の格納先を読んでいた (#97。Dictionary / class の field / List / 配列の添字)。受け手 / 添字に副作用があるとき、または受け手 / 添字が local / parameter / this / 型名 / 定数だけで組まれていないときは、受け手 / 添字を temp に固定した place を読む。式位置の custom property 代入も、読み直すと変わり得る参照型の受け手を temp に固定してから setter を呼ぶ (従来は右辺の後に受け手を評価していた)
+- struct の member への代入 (`h.Data.N += Right()`、`=` / `??=`、custom property も) は、Lua で右辺より先に左辺の table (`h.data`) を評価するため、右辺が途中の struct を差し替えると古い table に書いていた (#87。class の field / 配列要素 / static field / this の field / 捕捉された local の field を起点にした place)。右辺が格納先を書き換え得るときは、参照型 prefix と配列添字を temp に固定し、値を `__tcs_v` に置いてから格納先を辿り直して書く (式位置の値は `__tcs_v`)。参照型 prefix 自体を右辺が差し替える形 (`H.Data.N += F()` で F が `H` を作り直す) は C も右辺の後に `H` を読んでいたので、temp で両 backend とも直る
+- 「右辺が状態を書き換え得る」は代入 / ++ / -- と、呼び出し・構築・custom property の getter・user 定義演算子。delegate も ref 引数も受けない Math / MathF・数値 / bool / char / string の method、source に無い構築子、struct の暗黙の構築子は含めない。collection の method は中身を変える (`A[L.Count] = L.Remove(5) ? 70 : 80` は `Count` を変える) ので含める
+- C backend: struct の field を括弧付きの式から読む形 (`(s = t).N`) を struct place として描画する。done.md の残課題 `s.X = (s = t).X` は Lua では local が register なので元から C# どおりで、C は C compile 前に `unsupported struct place: IlParen` で失敗していた
+- 検証: tcs2c.Tests に `DifferentialTests.AssignTarget.cs` の 5 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は 5 本とも fail (#97 の 4 例は Lua / C とも `100,2,7,100`、#87 の例は Lua `100:100,8`、struct の custom property / ??= は Lua の文位置で古い table に書く、`(s = t).N` は C で例外、式位置の custom property 代入は Lua / C とも差し替え後の受け手に書き、collection の method が変える添字は Lua / C とも別の要素を読む)、修正後 pass。`bash run-tests.sh` で Analyzers.Tests 56 / Transpiler.Tests 1005 / tcs2c.Tests 70 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: 文位置の参照型受け手への代入 (`Receiver()[1] = Right()`) は Lua も C も受け手を先に評価しているので変えない。struct の place は temp に struct 自体を置かない (C では copy になり書き込みが消える)。経路を右辺の後に辿り直すのは、C# の格納場所が「親の slot」であり、Lua でその slot の今の table を引けば同じ場所になるため。右辺が書き換え得ない代入は従来の出力のまま
+- 残課題: 右辺が書き換え得るかの判定は user 定義の暗黙変換と、文字列化で呼ばれる user の ToString を見ない
+
 ### watch の reload chunk が移行できない変更を restart として知らせる (#107) ✓ (2026-10-11)
 - `--watch --reload-chunks` は、chunk で移行できない変更 (既存 static の initializer と const の値、base class、型の削除・種類の変更、enum member の削除・値の変更) では chunk を書かず、`-o` の出力を書いた後に標準出力へ `@@tcs_restart_required <UTF-8 の byte 数>` の行と理由の行 (`static initializer changed: Game.x` など、1 行 1 理由) を書き、標準エラーにも理由を出す。ホストが出力を読み直して VM を起動し直す前提で、以後の chunk はその build からの差分にする。従来は chunk に `G.x = 2` を含めながら既存の static は旧い値のまま残し、ログは `Sent reload chunk` だけだった
 - 判定は `ReloadClassifier` (IlExport の v1 / v2 の差分)。`HotReload.PlanReload` が chunk か restart の理由を返し、`EmitReloadChunk` は restart なら理由付きで例外にする。IlFieldInfo に initializer の構文 hash (`InitHash`) を足した

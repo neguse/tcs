@@ -142,10 +142,13 @@ public partial class LuaEmitter
     }
 
     // custom property の (receiver ノード, 名前, 副作用有無, static か,
-    // struct 所有型名 — struct accessor は自由関数呼びになる)
+    // struct 所有型名 — struct accessor は自由関数呼びになる)。fixUnstable は
+    // 読み直すと変わり得る参照型 receiver も temp に固定する (式位置は setter
+    // を右辺の後に呼ぶ)
     private (List<IlStat> Setup, IlExpr Recv, string Name, bool IsStatic,
         string? StructOwner)?
-        BuildPropTarget(SemanticModel model, ExpressionSyntax left)
+        BuildPropTarget(SemanticModel model, ExpressionSyntax left,
+            bool fixUnstable = false)
     {
         switch (left)
         {
@@ -167,7 +170,10 @@ public partial class LuaEmitter
                         N(prop), true, null);
                 var owner = IsUserStruct(model.GetTypeInfo(ma.Expression).Type)
                     ? TypeRef(prop.ContainingType) : null;
-                if (HasLvalueSideEffect(model, ma.Expression, ma.Expression))
+                if (HasLvalueSideEffect(model, ma.Expression, ma.Expression)
+                    || (fixUnstable && !IsStableRead(model, ma.Expression)
+                        && model.GetTypeInfo(ma.Expression).Type
+                            is { IsReferenceType: true }))
                     return BuildFixedReceiver(model, ma.Expression) is { } fixedRecv
                         ? (fixedRecv.Setup, fixedRecv.Access, N(prop), false, owner)
                         : null;
@@ -211,9 +217,10 @@ public partial class LuaEmitter
         var needsWrap = prop.Setup.Count > 0;
         if (assign.IsKind(SyntaxKind.SimpleAssignmentExpression))
         {
+            // setter の value は値渡しの引数 (il-spec §10)
             body = new IlCallStat(
-                BuildPropSet(target, prop.Name, prop.IsStatic, right,
-                    prop.StructOwner));
+                BuildPropSet(target, prop.Name, prop.IsStatic,
+                    WrapStructCopy(model, assign.Right, right), prop.StructOwner));
         }
         else if (assign.IsKind(SyntaxKind.CoalesceAssignmentExpression))
         {
@@ -262,7 +269,8 @@ public partial class LuaEmitter
     private IlIife? BuildPropAssignExpr(SemanticModel model,
         AssignmentExpressionSyntax assign)
     {
-        if (BuildPropTarget(model, assign.Left) is not { } prop) return null;
+        if (BuildPropTarget(model, assign.Left, fixUnstable: true)
+            is not { } prop) return null;
         var right = BuildExpr(model, assign.Right);
         if (right == null) return null;
         List<IlStat> stats = [.. prop.Setup];
@@ -363,8 +371,8 @@ public partial class LuaEmitter
             ? new IlUn(IlUnOp.Not, new IlNullableHasValue(e))
             : new IlBin(IlBinOp.Eq, e, new IlLit("nil"));
 
-    // lowered lvalue への代入 (simple / compound)。受け手 / 添字を temp に
-    // 固定してから右辺を評価し、代入後の place を値として返す IIFE
+    // lowered lvalue への代入 (simple / compound / 式位置の ??=)。受け手 /
+    // 添字を temp に固定してから右辺を評価し、代入後の place を値として返す IIFE
     private IlIife? BuildLoweredAssign(SemanticModel model,
         AssignmentExpressionSyntax assign)
     {
@@ -374,6 +382,12 @@ public partial class LuaEmitter
         var right = BuildExpr(model, assign.Right);
         if (right == null) return null;
         IlExpr? applied;
+        if (assign.IsKind(SyntaxKind.CoalesceAssignmentExpression))
+            return new IlIife([.. lowered.Setup,
+                new IlIf([(IsNullIl(lowered.Access,
+                        model.GetTypeInfo(assign.Left).Type),
+                    new IlBlock([new IlAssign(lowered.Access, right)]))], null),
+                new IlReturn(lowered.Access)]);
         if (assign.IsKind(SyntaxKind.SimpleAssignmentExpression))
             applied = WrapStructCopy(model, assign.Right, right);
         else
@@ -405,10 +419,11 @@ public partial class LuaEmitter
         var rhsBuilt = BuildExpr(model, rhs);
         if (rhsBuilt == null) return false;
         var typeSymbol = model.GetTypeInfo(rhs).Type;
-        var propNames = GetDeconstructPropertyNames(typeSymbol, targets.Count);
-        var values = propNames != null
-            ? propNames.Select(IlExpr (p) =>
-                new IlField(new IlVar("__tcs_dec"), p)).ToImmutableArray()
+        // 分解先の変数への代入は copy 地点 (il-spec §10)
+        var props = GetDeconstructProperties(typeSymbol, targets.Count);
+        var values = props != null
+            ? props.Select(p => CopyIfMutableStruct(p.Type,
+                new IlField(new IlVar("__tcs_dec"), N(p)))).ToImmutableArray()
             : [new IlVar("__tcs_dec")];
         acc.Add(new IlLocal("__tcs_dec", rhsBuilt) { Origin = origin });
         acc.Add(new IlMultiAssign([.. targets], values, declare)
@@ -544,12 +559,14 @@ public partial class LuaEmitter
                 {
                     var built = BuildExpr(model, item);
                     if (built == null) return false;
-                    stats.Add(new IlCallStat(new IlCall("table.insert", [member, built])));
+                    stats.Add(new IlCallStat(new IlCall("table.insert",
+                        [member, WrapStructCopy(model, item, built)])));
                 }
                 continue;
             }
-            var value = BuildExpr(model, assign.Right);
-            if (value == null) return false;
+            var rhs = BuildExpr(model, assign.Right);
+            if (rhs == null) return false;
+            var value = WrapStructCopy(model, assign.Right, rhs);
             stats.Add(customProp != null
                 ? new IlCallStat(BuildPropSet(target, initName, isStatic: false, value,
                     structOwner))
@@ -573,7 +590,7 @@ public partial class LuaEmitter
                 return null;
             var value = BuildExpr(model, assign.Right);
             if (value == null) return null;
-            entries.Add(new IlTableEntry(null, value,
+            entries.Add(new IlTableEntry(null, WrapStructCopy(model, assign.Right, value),
                 model.GetSymbolInfo(name).Symbol is { } entrySym
                     ? N(entrySym) : N(name.Identifier.ValueText)));
         }

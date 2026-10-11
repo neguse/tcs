@@ -265,6 +265,8 @@ public partial class LuaEmitter
     // static field の initializer は constructor / method / property /
     // operator の後に宣言順で実行する。C# の static constructor 相当で、
     // initializer から自クラスの `new` や static method を呼べる (#15)。
+    // initializer のない field は pre-zero の default だけで、ここでは代入
+    // しない (先の initializer が書いた値を default に戻さない。C# §15.5.6)。
     // 各初期化行の範囲は StaticFields に記録し、hot apply では define
     // チャンクから除いて type 単位の initializer thunk にする。
     private void EmitStaticFieldInitializers(SemanticModel model, string name,
@@ -275,9 +277,7 @@ public partial class LuaEmitter
         {
             var initStart = _sb.Length;
             if (init != null)
-                AppendLine($"{name}.{fieldName} = {RenderExprViaIl(model, init)}");
-            else
-                AppendLine($"{name}.{fieldName} = {GetDefaultValueForType(type!)}");
+                AppendLine($"{name}.{fieldName} = {RenderExprViaIl(model, init, copyStruct: true)}");
             // 定数/default だけを副作用なし (pure) とし、hot apply での新規
             // field 初期化を許す。それ以外の initializer 変更は restart 境界。
             var pure = init == null || model.GetConstantValue(init).HasValue;
@@ -348,7 +348,7 @@ public partial class LuaEmitter
             foreach (var (fieldName, init, type) in fieldInits)
             {
                 if (init != null)
-                    AppendLine($"self.{fieldName} = {RenderExprViaIl(model, init)}");
+                    AppendLine($"self.{fieldName} = {RenderExprViaIl(model, init, copyStruct: true)}");
                 else
                     AppendLine($"self.{fieldName} = {GetDefaultValueForType(type!)}");
             }
