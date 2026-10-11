@@ -1957,3 +1957,10 @@
 - 検証: 追加した `RefNamespaceTests` (IlExport の外部 class が `A_Opts` だけ → 両方、生成 C を host 付きで compile / 実行して `37`)、`LuaTypeNameCollisionTests` 6 本 (transpile / 複数ファイル / 非衝突 / check / 増分 session / IlExport) と analyzer の 1 本は修正前に red、修正後 green。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1011 / tcs2c.Tests 64 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: 「別名にする」案は q.md Q2 の flat な修飾名を変えるので採らず、診断にした。宣言順は入力ファイルの順と位置で、最初の型は報告しない (member と同じ)。interface / delegate は Lua の global を持たず、入れ子の型は NestedTypeDeclaration の領分、`--ref` の型は小文字パスで呼ぶので対象外。generic と非 generic の同名型 (`Queue` と `Queue<T>`) も Lua では同じ global なので同じ error になり、conformance baseline の types.md:ConstructedTypes1 が InCompile → Diag。IlExport は単相化で書き換える前の tree で判定する (Lua 経路と同じ規則、位置も入力のまま)
 - 残課題: なし
+
+### 拡張メソッドの static の形と ?. 経由の呼び出しを直す (#139) ✓ (2026-10-11)
+- static の形 `Ext.Twice(sq)` は Roslyn が reduce しない拡張 method (`ReducedFrom` が null) を返すが、IL builder は拡張の形と同じく member access の左辺 (型 `Ext`) を receiver として第 1 引数に足し、`Ext.twice(Ext, sq)` を出していた (Lua は算術で落ち、C は引数の数で止まる)。reduce された呼び出しだけを拡張の形として扱い、static の形は引数をそのまま渡す。LINQ の static の形 (`Enumerable.Count(l)` 等) は第 1 引数を receiver にして拡張の形と同じ runtime 写像に流す (従来は型を第 1 引数に足した `List.Count(Enumerable, l)` だった)
+- `?.` 経由 `h.S?.Twice()` は、when-not-null 側の呼び出しを名前だけで振り分けて instance method 呼び出しにしていた (Lua は nil 呼び出し、C は `IlInvoke receiver is not a class reference`)。呼び出しの symbol が user 定義の拡張 method なら、拡張の形と同じ静的呼び出しにする (struct の `T?` receiver は値の copy を渡す)
+- 検証: tcs2c.Tests に `DifferentialTests.ExtensionCalls.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。static の形・既定値の省略・struct receiver の copy・`?.` の null / 非 null・`V?` receiver・LINQ の static の形)。修正前は Lua が `attempt to perform arithmetic on a table value`、C が `Ext.twice: expected 1 arguments, got 2` で fail、修正後 pass。#139 本文の 2 program も 3 backend が CoreCLR と同じ `10` / `6`。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1025 / tcs2c.Tests 78 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: static の形の判定は `ReducedFrom` の有無で行う (`IsExtensionMethod` は両方の形で true)
+- 残課題: なし

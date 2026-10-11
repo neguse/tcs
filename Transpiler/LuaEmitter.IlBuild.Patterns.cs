@@ -530,6 +530,13 @@ public partial class LuaEmitter
         var argArr = WithOmittedDefaults(model, inv, [.. args]);
         var typeDef = receiverType?.OriginalDefinition.ToDisplayString() ?? "";
 
+        // user 定義の拡張メソッドは `x.M()` と同じく静的呼び出し
+        if (model.GetSymbolInfo(inv).Symbol is IMethodSymbol { ReducedFrom: { } ext }
+            && ext.Locations.Any(l => l.IsInSource))
+            return new IlCall($"{TypeRef(ext.ContainingType)}.{N(ext)}",
+                [IsUserStruct(receiverType)
+                    ? ConditionalStructReceiver(obj, receiverType!) : obj, .. argArr]);
+
         if (receiverType?.SpecialType == SpecialType.System_String)
             return TryBuildStringCall(obj, methodName,
                     WrapCharArgs(model, inv.ArgumentList, argArr))
