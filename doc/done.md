@@ -2079,6 +2079,21 @@
 - `--watch --reload-chunks` の rebuild は `@@tcs_reload_chunk` の frame を標準出力へ書いてから `-o` の出力 (と source map) を書いていた。その間に接続して出力を読んだホスト (lub --serve の page) は古い build の出力と、もう流れた chunk の後の状態を受け取り、以後の chunk が guard で拒否される。`restart_required` と同じく、出力を書き終えてから frame を書き、その後に driver の build を進める。書き終えた出力で起動したホストには、その chunk は guard (`__tcs_build >= to`) で何もしない
 - 検証: `Transpiler.Tests/WatchChunkOrderTests.cs` (5 回の編集それぞれで、frame が届いた時点の `-o` がその build の `__tcs_build = N` で始まり、その出力に chunk を当てても何もせず、後から出力と source map が書き変わらない)。修正前は 3 回の実行すべてで 2〜4 回目の編集で古い build の出力を読んで fail、修正後は watch のテスト 8 本が 3 回とも pass。`bash run-tests.sh` 全通過。生成 Lua は変わらない (watch の書き込み順だけの変更)
 - 判断: 出力の書き込みが例外で失敗したときは chunk も書かず build も進めない (従来は chunk を書いて build を進めた後に失敗しえた)。次の rebuild の chunk は VM の build から作る
+- 残課題: なし
+
+### tcs2c: closure が foreach の反復変数を捕捉できるようにする (#164) ✓ (2026-10-11)
+- closure (直接でも入れ子でも) が `foreach` の反復変数を捕捉すると、C が `v_v_N undeclared` で compile できなかった。反復変数を捕捉 cell にしていなかったので、lifted 関数へ渡せていなかった。List / 配列 / `EnumerateRunes()` の反復変数は、closure が捕捉するとき local と同じく反復ごとに新しい heap cell にする (C# 5 以降の意味)。Dictionary の反復の KeyValuePair は、捕捉するとき node の copy (`tcs_dict_node_copy`) を作り、closure はその pointer を捕捉する (反復の後の Dictionary の変更を映さない)。`EnumerateRunes()` の本体は捕捉の走査が見ていなかったので足した
+- 捕捉 cell を作る変数を、関数 (method / closure) ごとに、その関数の直下の closure が捕捉する名前に絞った。従来は method 全体の捕捉名の集合で判断していて、`l.Count(x => x > 1)` の `x` が、同じ method の別の lambda (`x => l.Count(y => y == x)`) のせいで要素ごとに `tcs_new_cell` していた
+- 検証: tcs2c.Tests に `DifferentialTests.ForeachCapture.cs` の 4 本 (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。List / 配列 / string / `EnumerateRunes()` / struct 要素 / lambda の中の foreach / instance method / 入れ子の closure / KeyValuePair、--lib 形でフレーム境界の GC をまたぐもの、cell を作る数)。修正前は 3 本が C の `undeclared`、cell の数の 1 本が 5 (期待 3) で fail、修正後 pass。`bash run-tests.sh` 全通過。Transpiler (Lua 生成) は変えていないので lub の C# サンプルの生成 Lua は変わらない
+- 判断: 捕捉の判断は名前単位のまま (同じ関数の中の同名の別変数は過剰に box しうるが意味は同じ)
+- 残課題: なし
+
+### record の等価で float field を float.Equals で比べる (#163) ✓ (2026-10-11)
+- record / record struct の ==/!= は C# の合成 Equals と同じく field を EqualityComparer\<T\>.Default で比べる。float / double (と `float?`) の field は float.Equals で、NaN 同士は等しく +0 と -0 も等しい。従来は両 backend とも IEEE の == で、`new F(float.NaN) == new F(float.NaN)` が false だった
+- Lua は field ごとの等価式 (`MemberEqualityParts`) が float に `(a == b or a ~= a and b ~= b)` を出す。struct の値等価 (record struct の op_Equality と、struct の List 検索が使う ValueType.Equals) も同じ式を通る。C は field の等価式 (`FieldEqualExpr`) が float を runtime の `tcs_float_equals` にする。`T?` の field は Nullable\<T\>.Equals (中の float も NaN 同士は等しい) にし、`float? == float?` の lifted == は IEEE のまま残した。C の List 検索 (#122) も同じ `tcs_float_equals` を使い、`List<float?>.Contains(NaN)` が false だったのも直した
+- 検証: tcs2c.Tests に `DifferentialTests.RecordFloatEquality.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。record / 派生 record / record struct / `float?` field / struct field / 入れ子 / struct と record の List 検索 / `List<float?>`)。修正前は Lua と C がともに `record-nan:0:1:0:0` 等で CoreCLR と違い、C は `List<float?>` の Contains も 0 だった。修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: struct の ValueType.Equals も CoreCLR では float field を float.Equals で比べる (NaN の struct 同士で `List<S>.Contains` が true) ので、record struct と分けずに同じ式にした
+- 残課題: record struct の `T?` 同士の lifted == (`RS? a, b; a == b`) は float に限らず C# と違う (CoreCLR は値が等しければ true。Lua は値が等しくても false、C は `invalid operands to binary ==` で C コンパイルに失敗する)
 
 ### hot reload の restart 判定を native (watch) と web (増分 session) で揃え、initializer を書き方に依らずに比べる (#155) ✓ (2026-10-11)
 - restart の規則を `ReloadRules` の 1 つにした。reload chunk (`ReloadClassifier`、IlExport の metadata) と増分 session (`IncrementalCompilationSession.ClassifyRestart`、emitter の記録) はそれぞれの metadata を `ReloadType` に写して同じ規則で判定する。session は enum member の削除・値の変更を restart にし (従来 live で、保存済みの整数が別の member を指した)、native は既存 static の型の変更を restart にする (従来 live で新しい初期値に置き換えた。session は initializer の文字列が同じ `int X = 1` → `float X = 1` を live にしていた)。session の emitter 記録に enum member の値と static の型を足した
@@ -2087,4 +2102,3 @@
 - 意図した差 (native は instance shape の変更と副作用のありうる static の追加を live に移行、session は restart) は残し、規則表を hot-reload-design.md §11 に書いた
 - 検証: `Transpiler.Tests/ReloadRulesAlignmentTests.cs` (同じ編集を両方に通す。restart 10 件 / live 6 件 / 意図した差 5 件)。修正前は 15 件が fail (enum 3 件が session で live、static の型の変更 2 件が native で live、空白・comment・定数の書き方 5 件が両方で restart、const と static の入れ替え 2 件が両方で live、instance field / record の型の変更 3 件が session で live)、修正後 pass。HotReloadRestartTests の live 側から static の型の変更を外して restart 側に入れた。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: const と static の入れ替えは同名・同じ型・同じ値でも restart。const は使う側に埋め込まれ、static に戻しても table の値 (実行中に変えた値) が初期値に戻らない。float / double の定数は Roslyn が f32 で畳むが emitter は式のまま書くので、値ではなく token で比べる。`new()` と `new List<int>()` は token が違うので restart のまま。IOperation や IL で意味を比べる hash は、比べ漏れた要素 (型 test の型など) が live の誤判定になるので入れなかった
-- 残課題: なし
