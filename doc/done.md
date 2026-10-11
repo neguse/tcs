@@ -2058,3 +2058,10 @@
 - 検証: tcs2c.Tests に `DifferentialTests.ExtensionCalls.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。static の形・既定値の省略・struct receiver の copy・`?.` の null / 非 null・`V?` receiver・LINQ の static の形)。修正前は Lua が `attempt to perform arithmetic on a table value`、C が `Ext.twice: expected 1 arguments, got 2` で fail、修正後 pass。#139 本文の 2 program も 3 backend が CoreCLR と同じ `10` / `6`。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1025 / tcs2c.Tests 78 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: static の形の判定は `ReducedFrom` の有無で行う (`IsExtensionMethod` は両方の形で true)
 - 残課題: なし
+
+### Lua の struct copy 抜け: base 引数・?. 呼び出し・ToDictionary・代入式の値 (#128 #152) ✓ (2026-10-11)
+- Lua backend で、次の経路の struct 値を copy する (il-spec §10、readonly struct は従来どおり copy しない)。`base(...)` の引数、`?.` 経由の呼び出しの引数 (`l?.Add(t)`)、value selector の無い `ToDictionary` の値 (IL は value selector の位置に `S.__copy` 参照を置き、C backend は要素を値で写すので読まない)、`??=` の右辺
+- 式位置の代入の値を、格納した slot ではなく値の copy にする (`Mut(h.Data.I = Make())`、`Mut(d[1] = src)`、`Mut(l[0] = src)`、`Mut(loc = src)` で `Mut` の変更が格納先に残っていた)。代入式の IIFE は末尾の return を copy にし、`WrapStructCopy` が IIFE を新しい値とみなす前提を満たす。custom property への代入式は setter に `__tcs_v` の copy を渡す (setter が `value` を書き換えると `var y = (h.Item = s)` の y に見えていた)
+- 検証: Transpiler.Tests に `StructCopyValueTests` (5 本、dotnet differential 込み)、tcs2c.Tests に `StructCopy_ArgumentsAndAssignmentValues` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致)。修正前は全て fail (Lua が `5:5` / `77:77:77:77:77:77:5` など)、修正後 pass。#128 本文の program は 3 backend が CoreCLR と同じ `base 1` / `qadd 1` / `todict 1` / `setval 1`。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: 代入式の値の copy は IIFE の側で作る (受け手の側で IIFE を copy すると、新しい値を返す IIFE まで copy する)。式の型で copy を決めるので、`S?` への `??=` の値 (型は `S`) も copy になる
+- 残課題: C backend の `S?` への `??=` の式の値 (`Mut(o ??= s)`) は `cannot assign struct S? to struct S` で止まる (#152 の 3 つ目と同じ原因)
