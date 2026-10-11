@@ -66,7 +66,7 @@ public sealed class SessionUpdateResult
     public int EmittedModuleCount { get; init; }
 }
 
-public sealed class IncrementalCompilationSession
+public sealed partial class IncrementalCompilationSession
 {
     private readonly bool _checkNaming;
     private readonly SyntaxTree[] _refTrees;
@@ -115,6 +115,7 @@ public sealed class IncrementalCompilationSession
         if (!_hasErrors)
         {
             EmitAll();
+            RefreshInitDependencies();
             Revision++;
         }
     }
@@ -225,6 +226,8 @@ public sealed class IncrementalCompilationSession
         var artifact = TrySpliceMethodEmit(comp, path, tree, bodySpan)
             ?? EmitModule(comp, path, tree);
         _lastGood[path] = artifact;
+        if (EditReachesInitializers(tree, bodySpan))
+            RefreshInitDependencies();
         Revision++;
         swEmit.Stop();
         return new SessionUpdateResult
@@ -263,6 +266,7 @@ public sealed class IncrementalCompilationSession
 
         var swEmit = Stopwatch.StartNew();
         var changed = EmitAll();
+        RefreshInitDependencies();
         Revision++;
         swEmit.Stop();
 
@@ -431,12 +435,14 @@ public sealed class IncrementalCompilationSession
             emitter.ReferenceTrees.Add(rt);
         var model = comp.GetSemanticModel(tree);
         emitter.Visit(comp, model, tree);
+        // static initializer (と警告) は ToString で出る
+        var lua = emitter.ToString();
         return new SessionModuleArtifact
         {
             ModuleId = path,
             SourceHash = Sha256(_texts[path].ToString()),
             SurfaceHash = SurfaceHash(tree),
-            Lua = emitter.ToString(),
+            Lua = lua,
             Warnings = [.. emitter.Warnings],
             Types = emitter.EmittedTypes,
             RawLua = emitter.RawOutput,

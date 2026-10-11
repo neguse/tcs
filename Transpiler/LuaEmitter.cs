@@ -55,8 +55,10 @@ public partial class LuaEmitter
             var globals = root.Members.OfType<GlobalStatementSyntax>().ToList();
             if (globals.Count > 0)
             {
-                // top-level 文は実行時に派生型を触り得るため、実行前に link を張る
+                // top-level 文は実行時に派生型や static を触り得るため、実行前に
+                // link を張り、static を初期化する
                 FlushPendingBaseLinks();
+                FlushStaticInitializers();
                 foreach (var global in globals)
                     VisitGlobalStatement(model, global);
             }
@@ -258,7 +260,7 @@ public partial class LuaEmitter
         }
 
         EmitOperators(model, name, operators);
-        EmitStaticFieldInitializers(model, name, info, staticFieldInits);
+        DeferStaticFieldInitializers(model, name, info, staticFieldInits);
         _currentType = null;
     }
 
@@ -687,10 +689,19 @@ public partial class LuaEmitter
     public override string ToString()
     {
         FlushPendingBaseLinks();
+        FlushStaticInitializers();
         var text = _sb.ToString().TrimEnd() + "\n";
         return ApplyTypeLocals(text);
     }
 
     // 増分 splice 用の未 trim 出力 (MethodRanges の offset はこちらの座標)
-    public string RawOutput => _sb.ToString();
+    public string RawOutput
+    {
+        get
+        {
+            FlushPendingBaseLinks();
+            FlushStaticInitializers();
+            return _sb.ToString();
+        }
+    }
 }

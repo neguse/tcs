@@ -194,6 +194,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 |------|:----:|--------------|------|
 | フィールド | **Y** | `self.Field` | initializer なしは型別 default |
 | フィールド初期化子 | **Y** | コンストラクタ内 | |
+| static フィールド / プロパティ初期化子 | **Y** | 全型の定義の後に型単位で実行 | 初期化子 (と、そこから呼ぶ method・constructor・accessor・virtual / interface 実装の本文) が読み書きする他の型の static を先に初期化する (ファイル順・宣言順に依存しない)。循環は宣言順で先の型を先に触ったときの C# と同じく、相手は初期化中の型の default を読む。Lua は Main より前に全型を初期化するので、初期化子の副作用 (log 等) の順は初回アクセス時に初期化する C# / C backend と違い得る。delegate 値の呼び出しの先は辿らない |
 | `const` フィールド | **Y** | `ClassName.CONST` | |
 | オートプロパティ (`{ get; set; }`) | **Y** | フィールド直接 | initializer なしは型別 default |
 | プロパティ初期化子 | **Y** | | |
