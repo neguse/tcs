@@ -2058,3 +2058,9 @@
 - 検証: tcs2c.Tests に `DifferentialTests.ExtensionCalls.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。static の形・既定値の省略・struct receiver の copy・`?.` の null / 非 null・`V?` receiver・LINQ の static の形)。修正前は Lua が `attempt to perform arithmetic on a table value`、C が `Ext.twice: expected 1 arguments, got 2` で fail、修正後 pass。#139 本文の 2 program も 3 backend が CoreCLR と同じ `10` / `6`。`bash run-tests.sh` で Analyzers.Tests 57 / Transpiler.Tests 1025 / tcs2c.Tests 78 が pass。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
 - 判断: static の形の判定は `ReducedFrom` の有無で行う (`IsExtensionMethod` は両方の形で true)
 - 残課題: なし
+
+### watch の rebuild で -o の出力を書いてから reload chunk の frame を書く (#166) ✓ (2026-10-11)
+- `--watch --reload-chunks` の rebuild は `@@tcs_reload_chunk` の frame を標準出力へ書いてから `-o` の出力 (と source map) を書いていた。その間に接続して出力を読んだホスト (lub --serve の page) は古い build の出力と、もう流れた chunk の後の状態を受け取り、以後の chunk が guard で拒否される。`restart_required` と同じく、出力を書き終えてから frame を書き、その後に driver の build を進める。書き終えた出力で起動したホストには、その chunk は guard (`__tcs_build >= to`) で何もしない
+- 検証: `Transpiler.Tests/WatchChunkOrderTests.cs` (5 回の編集それぞれで、frame が届いた時点の `-o` がその build の `__tcs_build = N` で始まり、その出力に chunk を当てても何もせず、後から出力と source map が書き変わらない)。修正前は 3 回の実行すべてで 2〜4 回目の編集で古い build の出力を読んで fail、修正後は watch のテスト 8 本が 3 回とも pass。`bash run-tests.sh` 全通過。生成 Lua は変わらない (watch の書き込み順だけの変更)
+- 判断: 出力の書き込みが例外で失敗したときは chunk も書かず build も進めない (従来は chunk を書いて build を進めた後に失敗しえた)。次の rebuild の chunk は VM の build から作る
+- 残課題: なし
