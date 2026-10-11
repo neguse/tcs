@@ -2109,6 +2109,12 @@
 - 検証: tcs2c.Tests に `DifferentialTests.SkipTakeExtremes.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。1 / 3 / 0 要素の Skip(int.MaxValue)、Skip(int.MaxValue - 1)、Skip の 0 / 負 / int.MinValue / 要素数ちょうど、Take(int.MaxValue) / Take(-1)、Skip と Take の連鎖)。修正前は lua32 が 60 秒の timeout で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の `List.Skip` を除いて master とバイト一致
 - 残課題: `String.Substring` の範囲外 (`"abc".Substring(10)` 等) は wrap と別に fault しない (il-spec §13 では fault)
 
+### tcs2c で Dictionary への store の key を値より先に評価する (#152) ✓ (2026-10-11)
+- 文の位置の Dictionary への代入 / 複合代入 (`D[I] += Right()`、`D[I] = Right()`、Lua では代入形の `Add`) が `*(int32_t *)tcs_dict_put(d, key, NULL) = (値);` で、C の `=` の左右の評価順が決まっていないため key を右辺の後に評価していた (`Right` が `I = 1` にすると CoreCLR `17,20`、C `10,17`)。key を temp に取ってから値を評価する。collection initializer (`{ [K()] = V() }`) も値の temp を key より先に取っていたので、key → 値の順にした
+- 検証: tcs2c.Tests に `DictStore_EvaluatesKeyBeforeValue` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。int / string key の代入・複合代入・Add・initializer)。修正前は C が `10,17` / `vkvk...` で fail、修正後 pass。Lua の生成物は変わらない
+- 判断: List / 配列の store は既に受け手と添字を temp に取っていたので、dict だけ同じ形にした
+- 残課題: なし
+
 ### 既定の順序で NaN を最小にする (#145) ✓ (2026-10-11)
 - `List<float>.Sort()` と float key の `OrderBy` / `OrderByDescending` の NaN の位置が CoreCLR と異なっていた (Lua は比較関数なしの `table.sort` と `<` / `>`、C は `<` だけの比較で NaN と有限値が「等しい」)。.NET の既定の comparer (Single.CompareTo) と同じく NaN を他のどの値より小さくする
 - Lua: runtime の比較なしの `List.Sort` と `List.OrderBy` / `List.OrderByDescending` が、列 (key) を 1 回走査して NaN を含むときだけ NaN を最小にする比較を使う。含まなければ従来と同じ比較 (`table.sort(list)`、`<` / `>`)。要素型で呼び分けないので、型 parameter の generic method (T = float)、TinySystem.List の facade、`float?` の key も同じ順序になる。C: 既定の sort の比較関数 (natural / key / keydesc) を、float だけ Single.CompareTo と同じ 3 方向比較にする (generic は特殊化後の型で選ばれる)
