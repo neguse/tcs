@@ -363,8 +363,8 @@ public partial class LuaEmitter
             ? new IlUn(IlUnOp.Not, new IlNullableHasValue(e))
             : new IlBin(IlBinOp.Eq, e, new IlLit("nil"));
 
-    // lowered lvalue への代入 (simple / compound)。受け手 / 添字を temp に
-    // 固定してから右辺を評価し、代入後の place を値として返す IIFE
+    // lowered lvalue への代入 (simple / compound / 式位置の ??=)。受け手 /
+    // 添字を temp に固定してから右辺を評価し、代入後の place を値として返す IIFE
     private IlIife? BuildLoweredAssign(SemanticModel model,
         AssignmentExpressionSyntax assign)
     {
@@ -374,6 +374,12 @@ public partial class LuaEmitter
         var right = BuildExpr(model, assign.Right);
         if (right == null) return null;
         IlExpr? applied;
+        if (assign.IsKind(SyntaxKind.CoalesceAssignmentExpression))
+            return new IlIife([.. lowered.Setup,
+                new IlIf([(IsNullIl(lowered.Access,
+                        model.GetTypeInfo(assign.Left).Type),
+                    new IlBlock([new IlAssign(lowered.Access, right)]))], null),
+                new IlReturn(lowered.Access)]);
         if (assign.IsKind(SyntaxKind.SimpleAssignmentExpression))
             applied = WrapStructCopy(model, assign.Right, right);
         else
