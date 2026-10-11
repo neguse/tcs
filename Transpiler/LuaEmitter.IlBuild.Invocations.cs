@@ -132,12 +132,16 @@ public partial class LuaEmitter
     // struct 要素の Contains / IndexOf / Remove は値等価 (C# の
     // EqualityComparer<T>.Default)。Lua の raw == は table identity なので
     // 型別の op_Equality を末尾引数で渡す。ToList は新しい List へ要素の
-    // copy を入れるので、変更可能な struct なら型別 __copy を渡す (C backend は
-    // どちらも要素型から判るので無視)
+    // copy を入れるので、変更可能な struct なら型別 __copy を渡す。float key の
+    // ToDictionary は key の NaN 置換 (Dict.FloatKey) を渡す (C backend は
+    // いずれも要素型から判るので無視)
     private IlExpr[] WithStructElementOps(ITypeSymbol? listType,
         IMethodSymbol? methodSym, string methodName, IEnumerable<IlExpr> argList)
     {
         var args = argList.ToArray();
+        if (methodName == "ToDictionary" && HasFloatKey(methodSym?.ReturnType))
+            return [.. args, .. args.Length < 2 ? [new IlLit("nil")] : Array.Empty<IlExpr>(),
+                new IlField(new IlVar("Dict"), "FloatKey")];
         if (methodName == "ToList"
             && methodSym?.TypeArguments.FirstOrDefault() is { } item
             && IsMutableStruct(item))

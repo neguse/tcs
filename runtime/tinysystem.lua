@@ -247,10 +247,10 @@ end
 -- Dictionary<float, _> の NaN key。Lua table は NaN を key にできないので、
 -- .NET (NaN 同士は等しい key) と同じく 1 つの key として sentinel に置き、
 -- 列挙で NaN に戻す (Dict.FloatKey / FloatKeyOut / FloatKeys。生成コードは
--- float key の dict にだけ通す)
+-- float key の dict にだけ通し、ToDictionary には keyMap として渡す)
 local NAN_KEY = "NaN"
 
-function List.ToDictionary(list, keySelector, valueSelector)
+function List.ToDictionary(list, keySelector, valueSelector, keyMap)
   valueSelector = valueSelector or function(x) return x end
   local dict = {}
   for i = 1, #list do
@@ -259,7 +259,7 @@ function List.ToDictionary(list, keySelector, valueSelector)
     -- 評価順は未規定なので local で明示する)。duplicate key は C# と
     -- 異なり上書き (既知差異、support-matrix 参照)
     local key = keySelector(item)
-    if key ~= key then key = NAN_KEY end
+    if keyMap then key = keyMap(key) end
     dict[key] = valueSelector(item)
   end
   return dict
