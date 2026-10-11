@@ -68,10 +68,14 @@ public partial class LuaEmitter
             case AssignmentExpressionSyntax assignExpr:
             {
                 // 式位置の代入 (`(i = y) >= 0`、`arr[x = 1]`): 文として代入し
-                // 代入後の左辺を値にする IIFE
+                // 代入後の左辺を値にする IIFE (読み直しで受け手が変わり得る
+                // ときは受け手 / 添字を固定した place を読む)
+                if (NeedsStructSlotAssign(model, assignExpr))
+                    return BuildStructSlotAssignExpr(model, assignExpr);
                 if (IsCustomPropertyTarget(model, assignExpr.Left))
                     return BuildPropAssignExpr(model, assignExpr);
-                if (NeedsLoweredAssign(model, assignExpr))
+                if (NeedsLoweredAssign(model, assignExpr)
+                    || NeedsFixedAssignTarget(model, assignExpr))
                     return BuildLoweredAssign(model, assignExpr);
                 var assignStats = new List<IlStat>();
                 if (!BuildExprStatInto(model, assignExpr, null, assignStats))
@@ -435,7 +439,7 @@ public partial class LuaEmitter
             if (built == null) return null;
             args.Add(WrapStructCopy(model, a.Expression, built));
         }
-        var argArr = args.ToImmutableArray();
+        var argArr = WithOmittedDefaults(model, invocation, [.. args]);
 
         if (invocation.Expression is MemberAccessExpressionSyntax ma)
         {
@@ -716,7 +720,7 @@ public partial class LuaEmitter
             {
                 var built = BuildExpr(model, e);
                 if (built == null) return null;
-                items.Add(new IlTableEntry(null, built));
+                items.Add(new IlTableEntry(null, WrapStructCopy(model, e, built)));
             }
             return new IlTable([.. items], TypeArg(0));
         }
@@ -733,7 +737,8 @@ public partial class LuaEmitter
                     var key = BuildExpr(model, kvInit.Expressions[0]);
                     var value = BuildExpr(model, kvInit.Expressions[1]);
                     if (key == null || value == null) return null;
-                    entries.Add(new IlTableEntry(key, value));
+                    entries.Add(new IlTableEntry(key,
+                        WrapStructCopy(model, kvInit.Expressions[1], value)));
                 }
                 else if (e is AssignmentExpressionSyntax
                     {
@@ -746,7 +751,8 @@ public partial class LuaEmitter
                         indexInit.ArgumentList.Arguments[0].Expression);
                     var value = BuildExpr(model, indexAssign.Right);
                     if (key == null || value == null) return null;
-                    entries.Add(new IlTableEntry(key, value));
+                    entries.Add(new IlTableEntry(key,
+                        WrapStructCopy(model, indexAssign.Right, value)));
                 }
                 else
                 {
