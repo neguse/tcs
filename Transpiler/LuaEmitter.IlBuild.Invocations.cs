@@ -109,15 +109,10 @@ public partial class LuaEmitter
         return false;
     }
 
-    // int / long / float / double の CompareTo(同じ型): -1 / 0 / 1 を返す
-    // backend 非依存の intrinsic (float の NaN は他のどの値より小さい)。
-    // char.CompareTo は差を返すので含めない (TCS1002)
+    // int / float の CompareTo(同じ型): -1 / 0 / 1 を返す backend 非依存の
+    // intrinsic (float の NaN は他のどの値より小さい)。他の形は TCS1002
     private static bool IsNumericCompareTo(ISymbol? symbol) =>
-        symbol is IMethodSymbol { Name: "CompareTo", IsStatic: false, Parameters.Length: 1 } m
-        && m.ContainingType.SpecialType is SpecialType.System_Int32
-            or SpecialType.System_Int64 or SpecialType.System_Single
-            or SpecialType.System_Double
-        && SymbolEqualityComparer.Default.Equals(m.Parameters[0].Type, m.ContainingType);
+        symbol is IMethodSymbol m && TinyCsComplianceFacts.IsSupportedNumericCompareTo(m);
 
     private static IlExpr? BuildNumericCompareTo(IlExpr? recv,
         ImmutableArray<IlExpr> args) =>
