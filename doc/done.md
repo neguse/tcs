@@ -2059,6 +2059,22 @@
 - 判断: static の形の判定は `ReducedFrom` の有無で行う (`IsExtensionMethod` は両方の形で true)
 - 残課題: なし
 
+### file size の上限から LuaEmitter.IlBuild.Expressions.cs を一時的に外す ✓ (2026-10-11)
+- `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
+- 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
+- 残課題: 概念の単位で分割して除外を外す (#167)
+
+### 補間の D0 で値 0 を "0" にする (#153) ✓ (2026-10-11)
+- `$"{0:D0}"` が Lua / C で空文字になっていた。書式 `D` の精度を `%.Nd` に写すと、精度 0 では printf が値 0 の数字を出さない。C# の精度 0 (`D0` / `D00`) は精度なしと同じで最低 1 桁を出すので、0 だけの精度は `%d` にする (C backend は同じ `string.format` の IL を受けるので両方直る)
+- 検証: tcs2c.Tests に `DifferentialTests.FormatDZero.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。値 0 / 負数 / int.MinValue の D0、D00、D1、alignment 付き、小文字 d0、定数の 0)。修正前は Lua / C が `|0||00|...` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 判断: 1 以上の精度は従来どおり `%.Nd` (符号を除いた桁数で C# と同じ)
+- 残課題: なし
+
+### 型名で修飾した static method の method group (#165) ✓ (2026-10-11)
+- `Func<int, int> f = Ext.Twice;` (拡張 method かどうかによらない) は、member access の method group を写していない名前 (`Ext.Twice`) と C# の型名のまま IL にしていた。Lua は nil の呼び出しで止まり、C は `unbound IL variable: Ext` で止まっていた。修飾しない `Twice` と同じく、型の参照 (`TypeRef`、namespace は平らな名前) と Lua の名前 (`twice`) の field にする
+- 検証: tcs2c.Tests に `DifferentialTests.StaticMethodGroup.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。拡張 method・他の型の static method・namespace の中の型・修飾あり / なしの自分の型・引数に渡す・`Select` に渡す・closure に捕まえる)。修正前は Lua が `attempt to call a nil value (local 'f')`、C が `unbound IL variable: Ext` で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は master とバイト一致
+- 残課題: Lua は method group で渡した static method の struct 引数を copy しない (#129、方針を決めていない)。拡張の形の method group (`Func<int> g = s.Len;`) は receiver を束ねた closure が要り、従来どおり TCS1001
+
 ### watch の rebuild で -o の出力を書いてから reload chunk の frame を書く (#166) ✓ (2026-10-11)
 - `--watch --reload-chunks` の rebuild は `@@tcs_reload_chunk` の frame を標準出力へ書いてから `-o` の出力 (と source map) を書いていた。その間に接続して出力を読んだホスト (lub --serve の page) は古い build の出力と、もう流れた chunk の後の状態を受け取り、以後の chunk が guard で拒否される。`restart_required` と同じく、出力を書き終えてから frame を書き、その後に driver の build を進める。書き終えた出力で起動したホストには、その chunk は guard (`__tcs_build >= to`) で何もしない
 - 検証: `Transpiler.Tests/WatchChunkOrderTests.cs` (5 回の編集それぞれで、frame が届いた時点の `-o` がその build の `__tcs_build = N` で始まり、その出力に chunk を当てても何もせず、後から出力と source map が書き変わらない)。修正前は 3 回の実行すべてで 2〜4 回目の編集で古い build の出力を読んで fail、修正後は watch のテスト 8 本が 3 回とも pass。`bash run-tests.sh` 全通過。生成 Lua は変わらない (watch の書き込み順だけの変更)
