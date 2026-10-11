@@ -2063,3 +2063,9 @@
 - `FileSizeGateTests` に一時的な除外を足し、`Transpiler/LuaEmitter.IlBuild.Expressions.cs` は 800 行を越えても失敗にしない (600 行の警告は出し続ける)。並行して入る不具合の修正の多くがこの file に手を入れるため、その場しのぎの分割を避ける
 - 検証: 除外した file を 803 行にしても `TrackedCsharpSources_StayUnderErrorLimit` が通り、別の file (`LuaEmitter.IlBuild.Patterns.cs`) を 800 行越えにすると失敗する
 - 残課題: 概念の単位で分割して除外を外す (#167)
+
+### Lua32 の Skip(int.MaxValue) を要素数で打ち切る (#126) ✓ (2026-10-11)
+- `l.Skip(int.MaxValue)` が Lua32 で戻らなかった。runtime の `List.Skip` が開始位置を `count + 1` で作り、LUA_32BITS では int.MaxValue + 1 が -2^31 に wrap して約 2^31 回の反復になっていた。要素数以上の count は先に空列を返し、要素数未満の count だけ `+ 1` する
+- 同じ wrap を runtime の他の helper で確認した: `List.Take` は `math.min(count, #list)` で加算なし。`List.RemoveAt` (`index + 1`) と `String.Substring` (`start + 1` / `start + length`) は有効な入力では要素数・長さを超えないので wrap しない。C backend の Skip / Take は添字と count の比較だけで加算を持たない
+- 検証: tcs2c.Tests に `DifferentialTests.SkipTakeExtremes.cs` (Lua / C / C GC stress の一致 + CoreCLR で実行した stdout との一致。1 / 3 / 0 要素の Skip(int.MaxValue)、Skip(int.MaxValue - 1)、Skip の 0 / 負 / int.MinValue / 要素数ちょうど、Take(int.MaxValue) / Take(-1)、Skip と Take の連鎖)。修正前は lua32 が 60 秒の timeout で fail、修正後 pass。`bash run-tests.sh` 全通過。samples/*.cs と lub の C# サンプル 31 本の生成 Lua は、埋め込みの runtime の `List.Skip` を除いて master とバイト一致
+- 残課題: `String.Substring` の範囲外 (`"abc".Substring(10)` 等) は wrap と別に fault しない (il-spec §13 では fault)
