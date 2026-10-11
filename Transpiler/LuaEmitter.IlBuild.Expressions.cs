@@ -15,7 +15,7 @@ public partial class LuaEmitter
     // (代入 / 引数 / return / 比較・lifted の operand)
     private IlExpr? BuildExpr(SemanticModel model, ExpressionSyntax expr)
     {
-        var built = BuildExprCore(model, expr);
+        var built = ConditionalChainRootIl(expr) ?? BuildExprCore(model, expr);
         return built == null ? null : ApplyNullableConversion(model, expr,
             ApplyNumericConversion(model, expr, built));
     }
@@ -68,26 +68,7 @@ public partial class LuaEmitter
             case ThisExpressionSyntax:
                 return new IlVar("self");
             case AssignmentExpressionSyntax assignExpr:
-            {
-                // 式位置の代入 (`(i = y) >= 0`、`arr[x = 1]`): 文として代入し
-                // 代入後の左辺を値にする IIFE (読み直しで受け手が変わり得る
-                // ときは受け手 / 添字を固定した place を読む。`T?` への ??= は
-                // 中の値。CoalesceAssignValue)
-                if (NeedsStructSlotAssign(model, assignExpr))
-                    return BuildStructSlotAssignExpr(model, assignExpr);
-                if (IsCustomPropertyTarget(model, assignExpr.Left))
-                    return BuildPropAssignExpr(model, assignExpr);
-                if (NeedsLoweredAssign(model, assignExpr)
-                    || NeedsFixedAssignTarget(model, assignExpr))
-                    return BuildLoweredAssign(model, assignExpr);
-                var assignStats = new List<IlStat>();
-                if (!BuildExprStatInto(model, assignExpr, null, assignStats))
-                    return null;
-                var assigned = BuildExpr(model, assignExpr.Left);
-                return assigned == null
-                    ? null : new IlIife([.. assignStats,
-                        new IlReturn(CoalesceAssignValue(model, assignExpr, assigned))]);
-            }
+                return BuildAssignExpr(model, assignExpr);
             case CastExpressionSyntax cast:
             {
                 // (int)'a' 等の定数 cast は畳む
@@ -207,10 +188,6 @@ public partial class LuaEmitter
                         ?.ElementType.ToDisplayString());
             case WithExpressionSyntax withExpr:
                 return BuildWithExpr(model, withExpr);
-            case MemberBindingExpressionSyntax mb:
-                return new IlField(new IlVar(_condAccessVar),
-                    model.GetSymbolInfo(mb).Symbol is { } mbSym
-                        ? N(mbSym) : N(mb.Name.Identifier.ValueText));
             case DeclarationExpressionSyntax declaration:
                 return new IlVar(VisitDeclarationExpression(declaration));
             case PredefinedTypeSyntax predefined:
@@ -701,7 +678,7 @@ public partial class LuaEmitter
         }
 
         if (symbol is IMethodSymbol { IsStatic: true, ContainingType: not null } smg)
-            return new IlField(new IlVar(TypeName(smg.ContainingType)), smg.Name);
+            return new IlField(new IlVar(TypeRef(smg.ContainingType)), N(smg));
 
         return null;
     }
