@@ -550,9 +550,20 @@ function String.IndexOf(str, value, start)
   return found - 1
 end
 
+-- 要素は連結と同じ文字列化 (float は TinySystem.fstr、bool は tostring)
 function String.Join(sep, values, ...)
   if type(values) == "table" and select("#", ...) == 0 then
-    return table.concat(values, sep)
+    local parts = {}
+    for i = 1, #values do
+      local v = values[i]
+      if math.type(v) == "float" then
+        v = TinySystem.fstr(v)
+      elseif type(v) == "boolean" then
+        v = tostring(v)
+      end
+      parts[i] = v
+    end
+    return table.concat(parts, sep)
   end
 
   local parts = { values, ... }
@@ -648,6 +659,13 @@ function String.FormatEnum(v, spec)
     end
   end
   return tostring(v)
+end
+
+-- 補間の float の書式 G / E (il-spec §13)。spec は書式の文字と省略できる精度 ("G"、"E2" など)。
+-- tcs_rt (runtime/lua/tcs_rt_lua.c) が .NET の float.ToString(format) と同じ文字列を作る。float? の null は空文字列
+function String.FormatFloat(v, spec)
+  if v == nil then return "" end
+  return tcs_rt.ffmt(v, spec)
 end
 
 function String.Split(str, ...)

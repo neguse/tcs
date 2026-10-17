@@ -396,6 +396,69 @@ public class StructCopyPointTests
         Assert.Equal(["111"], output);
     }
 
+    // 式本体 (=>) の lambda と method も block 本体の return と同じく struct を copy して返す
+    [Fact]
+    public void ExpressionBody_ReturnIsCopy()
+    {
+        Assert.Equal("5:5:5:5:7:7:5", Run("""
+            public class T
+            {
+                static S[] arr = new S[0];
+                static S Get(int k) => arr[0];
+                static S Pick(int k) => k > 0 ? arr[0] : arr[1];
+                public static string Test()
+                {
+                    arr = new S[] { new S { N = 5 }, new S { N = 7 } };
+                    var xs = new List<int> { 1, 0 };
+                    var d1 = xs.ToDictionary(x => x, x => arr[0]);
+                    var d2 = xs.ToDictionary(x => x, x => { return arr[0]; });
+                    var d3 = xs.ToDictionary(k => k, Get);
+                    var d4 = xs.ToDictionary(k => k, Pick);
+                    Func<int, S> f = x => arr[x];
+                    var d5 = xs.ToDictionary(k => k, f);
+                    Action<int> act = x => Get(x);
+                    act(1);
+                    arr[0].N = 6;
+                    arr[1].N = 8;
+                    return d1[1].N + ":" + d2[1].N + ":" + d3[1].N + ":" + d4[1].N + ":" + d4[0].N
+                        + ":" + d5[1].N + ":" + d5[0].N;
+                }
+            }
+            """));
+    }
+
+    // class の user operator の struct parameter は通常の呼び出しと同じく copy を受ける (二項 / 複合代入)
+    [Fact]
+    public void ClassOperator_StructArgumentIsCopy()
+    {
+        Assert.Equal("2:6:4:12:5:103:5", Run("""
+            public class M
+            {
+                public int K;
+                public static S operator *(M m, S s) { s.N *= m.K; return s; }
+                public static S operator *(S s, M m) { s.N += m.K; return s; }
+                public static int operator +(M m, S s) { s.N = 100; return s.N + m.K; }
+            }
+            public class T
+            {
+                public static string Test()
+                {
+                    var m = new M { K = 3 };
+                    var x = new S { N = 2 };
+                    var z = m * x;
+                    var arr = new S[] { new S { N = 4 } };
+                    var w = m * arr[0];
+                    var y = x * m;
+                    var n = m + arr[0];
+                    var c = x;
+                    c *= m;
+                    return x.N + ":" + z.N + ":" + arr[0].N + ":" + w.N + ":" + y.N + ":" + n
+                        + ":" + c.N;
+                }
+            }
+            """));
+    }
+
     // LINQ と同名の user 拡張 method は runtime の List.* ではなく通常の拡張呼び出し
     [Fact]
     public void UserExtensionNamedLikeLinq_IsNotRoutedToRuntime()

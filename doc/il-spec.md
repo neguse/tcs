@@ -143,7 +143,7 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
   1 には field / property / object / collection / 配列の initializer、
   `with` の上書き値、分解の成分、foreach の反復変数、out への書き出し、
   `??=` の右辺を含む。2 には property setter の `value`、`base(...)` の引数、
-  `?.` 経由の呼び出しの引数を含む
+  `?.` 経由の呼び出しの引数、class の user operator の operand (複合代入を含む) を含む。3 には式本体 (`=>`) の lambda / method / property / accessor / operator の値を含む (void の本体は式文なので含まない)
 - 式位置の代入 (`F(a[i] = v)`) の値は代入した値の copy で、格納先とは
   独立した値（受けた側の変更は格納先に残らない）。custom property への代入は
   setter に copy を渡し、setter が `value` を変えても式の値は変わらない
@@ -231,12 +231,20 @@ fault = 決定的に検出される実行時異常。発生した fault はプ�
 - 意味論の規範 = TinySystem dotnet facade + known-differences.json。
   IL 仕様はこれを重複記述しない（conformance sweep / differential が
   実行可能な正本として既に担保している）
-- 数値→文字列（補間・Console 出力・ToString）:
+- 数値→文字列（連結・補間・Console 出力・ToString・`string.Join` の要素）:
   i32 は 10 進最短表記。
   f32 は .NET の `float.ToString()`（InvariantCulture）と同じ文字列で、round-trip する最短の桁を、科学表記の指数 X が -5 < X < 9 なら固定小数（`1000000`、`0.0001`）、それ以外は `d.dddE+XX` / `d.dddE-XX`（指数は 2 桁以上。`1E+09`、`1E-05`）で書く。
   -0 は `-0`、NaN は `NaN`、±∞ は `Infinity` / `-Infinity`。
+  静的型が object の値は中の値で文字列にし (float は f32 の規則)、null は空文字列。C backend は object の文字列化を emit error にする。
   runtime/fmt の 1 つの実装（C。Lua は tcs_rt module）が文字列を作る。
-  書式指定つき（`{f:F2}` など）はこの規則の対象外
+- 補間の f32（と f32 の `T?`）の書式 `G` / `E`（小文字と精度つきも。`{f:G3}`、`{f:e2}`）は `IlCall("String.FormatFloat", [v, spec])` で、.NET の `float.ToString(format)`（InvariantCulture）と同じ文字列。
+  spec は書式の文字と精度（9 桁までの数。`G03` は `G3` に直す）の string literal。
+  `G` と `G0` は上の既定の文字列化と同じ。
+  精度 p の `G` は正確な値を有効数字 p 桁に丸め（ちょうど中間は偶数へ）、指数 X が -5 < X < p なら固定小数、それ以外は `d.dddE+XX` で書く（末尾の 0 は書かない）。
+  `E` は正確な値を小数部 p 桁（精度が無ければ 6）に同じく丸めた `d.ddddddE+XXX`（指数は 3 桁以上）。
+  小文字の書式は指数の文字も小文字。NaN と ±∞ は既定の文字列化と同じ、`T?` の値なしは空文字列。
+  runtime/fmt の同じ実装が文字列を作る。
+  f32 の他の書式（`{f:F2}` など）と整数の書式は printf の書式に写す（`string.format`）
 - enum (と enum の `T?`) の文字列化は `IlCall("String.FormatEnum", [v, spec])`。
   spec は string literal で、`名前:値` を `,` で並べる。`[Flags]` (と書式 "F")
   は先頭に `*` を付けて全 member を .NET の EnumInfo と同じ並び (値の符号なし

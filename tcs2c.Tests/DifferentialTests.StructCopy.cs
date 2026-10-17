@@ -112,6 +112,75 @@ public partial class DifferentialTests
         Assert.Equal("15:1002:2003\n2,1,\n1,2,|1:16", output);
     }
 
+    // 式本体 (=>) の lambda と method の return は struct を copy する (ToDictionary は value selector の戻り値をそのまま格納する)
+    [CFact]
+    public void StructCopy_ExpressionBodyReturn()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using System.Linq;
+            public struct S { public int N; }
+            public class P
+            {
+                static S[] arr = new S[0];
+                static S Get(int k) => arr[0];
+                static S Pick(int k) => k > 0 ? arr[0] : arr[1];
+                public static void Main()
+                {
+                    arr = new S[] { new S { N = 5 }, new S { N = 7 } };
+                    var xs = new List<int> { 1, 0 };
+                    var d1 = xs.ToDictionary(x => x, x => arr[0]);
+                    var d2 = xs.ToDictionary(x => x, x => { return arr[0]; });
+                    var d3 = xs.ToDictionary(k => k, Get);
+                    var d4 = xs.ToDictionary(k => k, Pick);
+                    Func<int, S> f = x => arr[x];
+                    var d5 = xs.ToDictionary(k => k, f);
+                    Action<int> act = x => Get(x);
+                    act(1);
+                    arr[0].N = 6;
+                    arr[1].N = 8;
+                    Console.WriteLine(d1[1].N + ":" + d2[1].N + ":" + d3[1].N + ":" + d4[1].N + ":" + d4[0].N + ":" + d5[1].N + ":" + d5[0].N);
+                }
+            }
+            """, "P");
+        Assert.Equal("5:5:5:5:7:7:5", output);
+    }
+
+    // class の user operator の struct parameter は copy (Lua は呼び出し側で copy を渡す、C は値渡し)
+    [CFact]
+    public void StructCopy_ClassOperatorArgument()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            public struct V { public int X; }
+            public class M
+            {
+                public int K;
+                public static V operator *(M m, V v) { v.X *= m.K; return v; }
+                public static V operator *(V v, M m) { v.X += m.K; return v; }
+                public static int operator +(M m, V v) { v.X = 100; return v.X + m.K; }
+            }
+            public class P
+            {
+                public static void Main()
+                {
+                    var m = new M { K = 3 };
+                    var x = new V { X = 2 };
+                    var z = m * x;
+                    var arr = new V[] { new V { X = 4 } };
+                    var w = m * arr[0];
+                    var y = x * m;
+                    var n = m + arr[0];
+                    var c = x;
+                    c *= m;
+                    Console.WriteLine(x.X + ":" + z.X + ":" + arr[0].X + ":" + w.X + ":" + y.X + ":" + n + ":" + c.X);
+                }
+            }
+            """, "P");
+        Assert.Equal("2:6:4:12:5:103:5", output);
+    }
+
     // LINQ と同名の user 拡張 method (ToList(int) / Where(int)) は自前の実装を呼ぶ
     [CFact]
     public void StructCopy_UserExtensionNamedLikeLinq()
