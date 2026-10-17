@@ -88,6 +88,33 @@
 
 ---
 
+## LINQ トラック (q.md Q18)
+
+- [ ] **T254** (P1): TinySystem の即時評価 LINQ への切り替え。`TinySystem.List` の
+      拡張メソッド (Where / Select / Any / All / Count(pred) / Sum / Min / Max /
+      FirstOrDefault / OrderBy / OrderByDescending)、`IlBuild.Invocations` の束縛判定
+      を `TinySystem.List` に、`System.Linq` を namespace ごと TCS1002、テスト・
+      sample・fuzz (即時評価の既知差異の隔離を撤去) の追随、support-matrix §19 を
+      TinySystem の API として書き直す。Lua runtime と tcs2c は流用
+- [ ] **T255** (P1): 落とす演算の撤去 — First / Last / LastOrDefault / Take / Skip /
+      ToList / Count() / ToDictionary を allowlist・`runtime/tinysystem.lua`・
+      `tcs2c/CEmitter.Linq.cs`・facade・テストから外す
+- [ ] **T256** (P1): 足す演算 — `List<T>.FindIndex` / `RemoveAll` (BCL allowlist +
+      runtime + tcs2c)、TinySystem の MinBy / MaxBy (空列は Min / Max と同じく fault)
+- [ ] **T257** (P2): `readonly record struct` を data の既定として support-matrix
+      (struct 行と §19) に copy コストの根拠つきで記載。lub 雛形への反映は lub へ
+      feature request
+
+---
+
+## 継承撤去の後片付け (q.md Q15)
+
+- [ ] **T258** (P2): `__tcs_is` の metatable 連鎖歩きを `getmetatable(x) == T` の
+      直接比較に (継承が無いので連鎖は無い。分岐の重い loop で約 20%、q.md Q19 の
+      bench)
+
+---
+
 ## Conformance / fuzz トラック（spec-conformance-design.md C4 の継続拡張）
 
 方針 (ユーザー決定 2026-08-07): C# compat の differential fuzz を先に育てる。

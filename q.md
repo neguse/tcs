@@ -6,6 +6,19 @@
 
 ## Open
 
+### Q19: DU とパターンマッチの範囲 — struct の interface 格納、網羅性、位置 / list パターン
+- Q15 の「多態は interface + 型 switch」を Elm の `case` に近づけるときの論点。2026-10-17 の probe (master d0165bf) で分かった事実:
+  - record struct を interface 型の場所に入れると、Lua では `is` / 型 switch が silent に false になる (struct は metatable の無い plain table で実行時タグを持たない)。tcs2c は `IlIsType target is not a class` で明示 error。issue 未登録
+  - tcs2c は interface 型の入力を `switch (v) { case Sq a: a.S }` と `v switch { Sq a => a.S }` で絞った変数の member を `unknown field: IShape.S` で解決できない。`if (v is Sq a)` と `is` + 明示 cast は通る。Lua は 4 形とも正しい。issue 未登録
+  - 位置パターン `Hit(var d)` / `is (0, 0)` と list パターンは TCS1001。ネスト property パターン、関係 / and / or、分解 `var (x, y) = p` は動く
+- 決めること (推奨つき):
+  1. struct → interface / object の変換を TCS1001 にする (推奨)。DU の case は record class に限る。tcs2c の拒否と揃い、設計変更が要らない。代替の boxing は alloc が record class と同じで interface 経由の全呼び出しに unbox が入る。struct に metatable を付ける案は plain table 設計と migration を崩す
+  2. 網羅性の診断を analyzer に足すか。tcs は全プログラムが 1 つの Compilation で `--ref` 以外は閉じているので、「interface I の switch が実装型 X, Y を覆っていない」を出せる (Roslyn は enum / bool 以外で見ない)。`_` があっても知らせるかは別途
+  3. 位置パターンを足すか (型 test + positional property の読み。分解は既にある)
+  4. list パターンの範囲。固定形 (`[]` `[a]` `[a, ..]` `[.., z]` `[a, .., z]`) は Count と添字で O(1)。`.. var rest` は O(n) copy。再帰スタイルは tcs2c に末尾呼び出しの保証がないので推奨しない
+- 性能 (2026-10-17、同条件、DU 200 万件を生成して分岐): Lua は record class 0.75 s / readonly record struct + enum 0.63 s / class + int tag 0.63 s で確保コストは同じ (`__tcs_is` の metatable 連鎖歩きが約 20%、`getmetatable(x) == T` の直接比較で 0.67 s)。C は record class 0.066 s / struct + enum 0.017 s / class + tag 0.072 s で、確保 1 個あたり約 25 ns。k 件/フレームの DU は record class でよく、熱い data は readonly record struct + enum で書く
+- record class は DU の case を運べる唯一の値なので、サブセットに残す
+
 ### Q13: host 組込みの API/glue 構成 — script runtime ABI をどこに置くか
 - エンジンが公開する C API は 1 本とし、tier ごとに glue を生成する構図を
   仮置きしている: dev は Lua binding (スタック marshalling、struct は
@@ -19,6 +32,16 @@
   前提にしない)
 
 ## Resolved
+
+### Q18: LINQ → TinySystem の即時評価 API にする (2026-10-17)
+- `System.Linq` への束縛をやめ、`TinySystem.List` の拡張メソッドとして即時評価の LINQ 風 API を持つ。受け手は `List<T>` だけ、列を返す演算は `List<T>` を返す。dotnet 側も同じ即時実装に束縛されるので、support-matrix §19 の「遅延評価との既知差異」は定義ごと消える。`System.Linq` は namespace ごと TCS1002 (`System.IO` と同列)
+- 名前: C# と意味が一致する演算は C# の名前のまま。改名はしない (Where / Select を Filter / Map にする案は却下。C# の既知感と IDE の補完が tcs の資産)
+- 集合: 残す Where / Select / Any / All / Count(pred) / Sum / Min / Max / FirstOrDefault / OrderBy / OrderByDescending。落とす First / Last / LastOrDefault / Take / Skip / ToList / Count() / ToDictionary (添字、copy constructor、範囲、foreach 2 行で書ける)。足す `List<T>.FindIndex` / `RemoveAll` (BCL の名前のまま allowlist) と MinBy / MaxBy (TinySystem)。Where で代用すると alloc か計算量で損する演算だけを足す
+- 見つける原始は FindIndex (-1)。Elm の Maybe 流に `T?` を返す find は generic 1 本で書けない (struct / class 制約の overload は CS0111、制約なし `T?` は値型で default(T) と区別できない。2026-10-17 確認)。FirstOrDefault は C# の意味 (default(T)) のまま残す
+- 固定する意味論: 述語 / selector は各要素ちょうど 1 回・順序どおり、結果は呼び出し時点の内容で確定 (元の Count まで添字で走る)、空列の Min / Max は fault、FirstOrDefault は default(T)、OrderBy は安定、int の Sum は checked、NaN の順序は .NET と同じ (いずれも現状の runtime の規則を仕様にする)
+- 配列と Dictionary の Keys / Values は対象外 (需要が出たら足す。Keys / Values は C# では view 型で、Lua の毎回 copy と挙動もコストも違うので別途決める)
+- 性能 (2026-10-17、PC、lua32 / tcs2c gcc -O2、2000 フレーム × 1000 要素): Where と foreach + if は Lua 0.089 / 0.090 s、C 0.019 / 0.002 s (C で要素あたり約 8 ns)。struct 要素の Where は readonly record struct 0.089 s、readonly なし 0.715 s (Lua。述語引数と foreach 変数の copy)。C は 0.019 / 0.023 s。「毎フレームの一時 list は作ってよい」「data を運ぶ struct は `readonly record struct` を既定にする」の 2 つを前提として書く
+- 実装の形: `TinySystem/RuntimeFacades.cs` の `List` facade (即時版が static 形で既にある) を拡張メソッドに、`LuaEmitter.IlBuild.Invocations` の束縛判定を `System.Linq.Enumerable` から `TinySystem.List` に、allowlist をシグネチャ列挙から namespace 規則に。Lua runtime の `List.*` と tcs2c の `CEmitter.Linq.cs` は流用。fuzz の「即時評価の既知差異の隔離」は撤去。lub の雛形 csproj には `<Using Include="TinySystem" />` (lub へは feature request)
 
 ### Q16: 名前の写し方 → user のコードは C# の名前のまま (2026-10-12)
 - 今は `Shared/LuaNaming.cs` の snake_case 化がすべての名前を作り、大文字小文字の情報を落とす (`Rng` / `rng` / `RNG` → `rng`、`XMLValue` → `x_m_l_value`)。IL に文字列で載り、tcs2c の C 名と lub-gen の host 名も同じ関数を使う
