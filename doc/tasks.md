@@ -101,14 +101,14 @@
 
 - [ ] **T259** (P1): Dictionary の TinySystem 演算 — Where (→ dict) / Any / All / Count(述語) / RemoveAll (in place) / Clear を `(k, v)` の 2 引数 lambda で。`TinySystem.Dict` の拡張メソッド、allowlist、`runtime/tinysystem.lua` の Dict、tcs2c の emit、conformance test、support-matrix §18 (列挙順未規定の明記を含む)
 - [ ] **T260** (P1): `foreach (var (k, v) in dict)` (ForEachVariableStatement) を Dictionary の受け手に限って対応。Lua は `for k, v in pairs`、tcs2c は既存の dict foreach と同じ走査
-- [ ] **T261** (P1): Keys / Values から List LINQ への橋 — `Dictionary<K,V>.KeyCollection` / `ValueCollection` を receiver とする overload を TinySystem に足す (T254 の後)
+- [ ] **T261** (P1): Keys / Values 経由で List の LINQ を使えるようにする — `Dictionary<K,V>.KeyCollection` / `ValueCollection` を receiver とする overload を TinySystem に足す (T254 の後)
 - [ ] **T262** (P2): `runtime/lua/tcs_lua.c` が `TCS_LUA_SEED` を読み、あるときだけ固定 seed で `lua_newstate` する。Transpiler.Tests の TestHelper と tcs2c.Tests の Backends が設定する。差分ゲートの sort と fuzz の dict 列挙除外はそのまま
 
 ---
 
 ## DU / パターンマッチ (q.md Q19)
 
-- [ ] **T263** (P1): struct → interface / object の変換を TCS1001 (analyzer / check / transpiler 共通の facts)。Lua の silent false を閉じる
+- [ ] **T263** (P1): struct → interface / object の変換を TCS1001 (analyzer / check / transpiler 共通の facts)。Lua で黙って false になる経路を塞ぐ
 - [ ] **T264** (P1): tcs2c が `switch` 文 / 式で絞ったパターン変数の member を解決できない (`unknown field: IShape.S`) を修正
 - [ ] **T265** (P2): interface 型の入力の switch 式 / 文の網羅性を準拠 error に (default / `_` なしで実装型を覆っていないとき)
 
