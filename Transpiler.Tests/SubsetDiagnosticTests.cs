@@ -581,7 +581,7 @@ public class SubsetDiagnosticTests
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Twice(int v) { return v * 2; }

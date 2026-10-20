@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TinyCs.Analyzers\TinyCs.Analyzers.csproj" />
+    <ProjectReference Include="..\TinySystem\TinySystem.csproj" />
   </ItemGroup>
 
 </Project>

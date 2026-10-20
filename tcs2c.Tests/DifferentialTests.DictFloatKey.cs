@@ -8,7 +8,7 @@ public partial class DifferentialTests
     private const string DictNanKeyProgram = """
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class P
             {
                 static int calls;
@@ -26,7 +26,9 @@ public partial class DifferentialTests
                     int sum = 0; int nans = 0;
                     foreach (var kv in d) { if (kv.Key != kv.Key) nans++; sum += kv.Value; }
                     Console.WriteLine(nans + "," + sum);
-                    Console.WriteLine(d.Keys.Count(k => k != k) + "," + d.Keys.Count);
+                    int nanKeys = 0;
+                    foreach (var k in d.Keys) { if (k != k) nanKeys++; }
+                    Console.WriteLine(nanKeys + "," + d.Keys.Count);
                     Console.WriteLine((d.Remove(float.NaN) ? 1 : 0) + "," + (d.Remove(float.NaN) ? 1 : 0) + "," + d.Count);
                     d.Add(float.NaN, 5);
                     Console.WriteLine(d[Key(float.NaN)] + ":" + calls);
@@ -64,7 +66,7 @@ public partial class DifferentialTests
     private const string ToDictionaryKeysProgram = """
         using System;
         using System.Collections.Generic;
-        using System.Linq;
+        using TinySystem.Linq;
         public class P
         {
             public static void Main()
@@ -95,7 +97,7 @@ public partial class DifferentialTests
         var ex = Assert.Throws<InvalidOperationException>(() => Backends.RunLua(["""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class P
             {
                 public static void Main()

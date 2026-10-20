@@ -11,7 +11,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class Item { public string Name; public int Rank; public Item(string n, int r) { Name = n; Rank = r; } }
             public struct Pt { public int X; public string Tag; }
             public class P
@@ -42,7 +42,7 @@ public partial class DifferentialTests
                     calls = 0;
                     var first = nums.OrderBy(Mod3).First();
                     Console.WriteLine(first + " " + calls);
-                    int[] arr = new int[] { 4, 2, 6, 1 };
+                    var arr = new List<int> { 4, 2, 6, 1 };
                     calls = 0;
                     Console.WriteLine(Show(arr.OrderBy(Tick).ToList()) + " " + calls);
                     var empty = new List<int>();
@@ -93,7 +93,7 @@ public partial class DifferentialTests
         const string source = """
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class Program
             {
                 static List<int> nums = new List<int>();

@@ -8,7 +8,7 @@ public class StructCopyPointTests
     private const string S = """
         using System;
         using System.Collections.Generic;
-        using System.Linq;
+        using TinySystem.Linq;
         public struct S { public int N; public void Bump() { N += 1; } }
         """;
 
@@ -223,17 +223,17 @@ public class StructCopyPointTests
     }
 
     [Fact]
-    public void ArrayToList_CopiesElements()
+    public void ToList_CopiesElements()
     {
         Assert.Equal("9:2:2", Run("""
             public class T
             {
                 public static string Test()
                 {
-                    var source = new S[] { new S { N = 2 } };
+                    var source = new List<S> { new S { N = 2 } };
                     var copy = source.ToList();
                     var filtered = source.Where(x => true).ToList();
-                    source[0].N = 9;
+                    source[0] = new S { N = 9 };
                     return source[0].N + ":" + copy[0].N + ":" + filtered[0].N;
                 }
             }
@@ -250,10 +250,10 @@ public class StructCopyPointTests
                 {
                     var xs = new List<S> { new S { N = 3 } };
                     var any = xs.Any(x => { x.Bump(); return x.N == 4; }) ? 1 : 0;
-                    var arr = new S[] { new S { N = 2 } };
+                    var arr = new List<S> { new S { N = 2 } };
                     var count = arr.Count(x => { x.N = 5; return true; });
                     var same = arr.Select(x => x).ToList();
-                    arr[0].N = 3;
+                    arr[0] = new S { N = 3 };
                     return any + ":" + xs[0].N + ":" + same[0].N + ":" + arr[0].N
                         + (count == 1 ? "" : "!");
                 }
@@ -367,7 +367,7 @@ public class StructCopyPointTests
             ("a.cs", """
                 using System;
                 using System.Collections.Generic;
-                using System.Linq;
+                using TinySystem.Linq;
                 public class A
                 {
                     public static Func<S, bool> Saved = B.Bump;
@@ -479,7 +479,7 @@ public class StructCopyPointTests
                 public static string Test()
                 {
                     var arr = new S[] { new S { N = 1 }, new S { N = 2 } };
-                    return arr.ToList(1).Count + ":" + arr.ToList().Where(10);
+                    return arr.ToList(1).Count + ":" + arr.ToList(2).Where(10);
                 }
             }
             """));

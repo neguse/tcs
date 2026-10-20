@@ -8,7 +8,7 @@ public class StructCopyValueTests
     private const string S = """
         using System;
         using System.Collections.Generic;
-        using System.Linq;
+        using TinySystem.Linq;
         public struct S { public int N; }
         """;
 
@@ -44,11 +44,11 @@ public class StructCopyValueTests
             {
                 public static string Test()
                 {
-                    var arr = new S[] { new S { N = 1 }, new S { N = 3 } };
+                    var arr = new List<S> { new S { N = 1 }, new S { N = 3 } };
                     var a = arr.ToDictionary(x => x.N);
                     var b = arr.ToDictionary(x => x.N + 10, x => x);
-                    arr[0].N = 2;
-                    arr[1].N = 4;
+                    arr[0] = new S { N = 2 };
+                    arr[1] = new S { N = 4 };
                     return a[1].N + ":" + b[13].N;
                 }
             }

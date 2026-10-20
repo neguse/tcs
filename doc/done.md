@@ -2268,3 +2268,10 @@
 - 検証: `bash run-tests.sh` 全通過 (Analyzers.Tests 64、Transpiler.Tests 1081 → 1071、tcs2c.Tests 148)。`LuaNameCollision` を期待していたテストは、予約語の側だけに `LuaKeywordIdentifier` が 1 つ出ることを見る形に直し (変更前の master で 8 件 fail、変更後 pass)、`UserMember` 自体のテストと重複していた衝突のテストは消した
 - 判断: local の予約語は従来どおり `LuaLocalRenamer` が `_` を後置する。host (`--ref`) の名前の規則は変えていない
 - 残課題: なし
+
+### T254 TinySystem の即時評価 LINQ への切り替え ✓ (2026-10-20)
+- LINQ の束縛先を `System.Linq.Enumerable` から `TinySystem.Linq.List` の `List<T>` 拡張メソッドに変えた。facade の LINQ 部分を `TinySystem/Linq.cs` に移して `this List<T>` を付け、facade に無かった `Count()` と selector 付きの Min / Max / Sum を足した。`System.Linq` は namespace ごと TCS1002 (allowlist の Enumerable 50 シグネチャを撤去)。Lua runtime と tcs2c の emit は流用
+- `System.Linq` を使う consumer は `using TinySystem.Linq;` に置き換える。受け手は `List<T>` だけで、配列と Dictionary の Keys / Values への LINQ は対象外になった (テストは List の受け手に書き換え)。fuzz の「foreach 駆動の述語は捕捉を持たせない」隔離を撤去 (dotnet 側も即時評価になり差異が無くなった)
+- 検証: `dotnet test` 全通過 (Analyzers.Tests 70、Transpiler.Tests 1074、tcs2c.Tests 165)。`tcs check` で `using System.Linq;` + `list.Where` が TCS1002 `System.Linq.Enumerable.Where` になることを確認
+- 判断: 拡張メソッドの namespace は `TinySystem` 直下ではなく `TinySystem.Linq`。直下だと `using System;` と併用したとき Math / String / Random が CS0104 で曖昧になる (テストで判明)。analyzer のテスト project は TinySystem を参照するようにした
+- 残課題: T255 (落とす演算の撤去)、T256 (FindIndex / RemoveAll / MinBy / MaxBy)、T261 (Keys / Values の receiver overload)。lub の雛形への `<Using Include="TinySystem.Linq" />` は feature request

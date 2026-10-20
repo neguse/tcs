@@ -11,6 +11,7 @@ public static partial class TinyCsComplianceFacts
     private static readonly string[] UnsupportedNamespacePrefixes =
     [
         "System.IO",
+        "System.Linq",
         "System.Net",
         "System.Reflection",
         "System.Text",
@@ -155,57 +156,6 @@ public static partial class TinyCsComplianceFacts
             "System.Collections.Generic.Dictionary<TKey, TValue>.Remove(TKey)",
             "System.Collections.Generic.Dictionary<TKey, TValue>.ContainsKey(TKey)",
             "System.Collections.Generic.Dictionary<TKey, TValue>.TryGetValue(TKey, out TValue)",
-
-            "System.Linq.Enumerable.Where<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, bool>)",
-            "System.Linq.Enumerable.Select<TSource, TResult>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, TResult>)",
-            "System.Linq.Enumerable.Any<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.Any<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, bool>)",
-            "System.Linq.Enumerable.All<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, bool>)",
-            "System.Linq.Enumerable.First<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.First<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, bool>)",
-            "System.Linq.Enumerable.FirstOrDefault<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.FirstOrDefault<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, bool>)",
-            "System.Linq.Enumerable.Last<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.Last<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, bool>)",
-            "System.Linq.Enumerable.LastOrDefault<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.LastOrDefault<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, bool>)",
-            "System.Linq.Enumerable.OrderBy<TSource, TKey>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, TKey>)",
-            "System.Linq.Enumerable.OrderByDescending<TSource, TKey>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, TKey>)",
-            "System.Linq.Enumerable.Take<TSource>(System.Collections.Generic.IEnumerable<TSource>, int)",
-            "System.Linq.Enumerable.Skip<TSource>(System.Collections.Generic.IEnumerable<TSource>, int)",
-            "System.Linq.Enumerable.Min(System.Collections.Generic.IEnumerable<int>)",
-            "System.Linq.Enumerable.Min(System.Collections.Generic.IEnumerable<long>)",
-            "System.Linq.Enumerable.Min(System.Collections.Generic.IEnumerable<float>)",
-            "System.Linq.Enumerable.Min(System.Collections.Generic.IEnumerable<double>)",
-            "System.Linq.Enumerable.Min<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.Min<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, int>)",
-            "System.Linq.Enumerable.Min<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, long>)",
-            "System.Linq.Enumerable.Min<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, float>)",
-            "System.Linq.Enumerable.Min<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, double>)",
-            "System.Linq.Enumerable.Min<TSource, TResult>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, TResult>)",
-            "System.Linq.Enumerable.Max(System.Collections.Generic.IEnumerable<int>)",
-            "System.Linq.Enumerable.Max(System.Collections.Generic.IEnumerable<long>)",
-            "System.Linq.Enumerable.Max(System.Collections.Generic.IEnumerable<float>)",
-            "System.Linq.Enumerable.Max(System.Collections.Generic.IEnumerable<double>)",
-            "System.Linq.Enumerable.Max<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.Max<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, int>)",
-            "System.Linq.Enumerable.Max<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, long>)",
-            "System.Linq.Enumerable.Max<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, float>)",
-            "System.Linq.Enumerable.Max<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, double>)",
-            "System.Linq.Enumerable.Max<TSource, TResult>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, TResult>)",
-            "System.Linq.Enumerable.Sum(System.Collections.Generic.IEnumerable<int>)",
-            "System.Linq.Enumerable.Sum(System.Collections.Generic.IEnumerable<long>)",
-            "System.Linq.Enumerable.Sum(System.Collections.Generic.IEnumerable<float>)",
-            "System.Linq.Enumerable.Sum(System.Collections.Generic.IEnumerable<double>)",
-            "System.Linq.Enumerable.Sum<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, int>)",
-            "System.Linq.Enumerable.Sum<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, long>)",
-            "System.Linq.Enumerable.Sum<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, float>)",
-            "System.Linq.Enumerable.Sum<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, double>)",
-            "System.Linq.Enumerable.Count<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.Count<TSource>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, bool>)",
-            "System.Linq.Enumerable.ToList<TSource>(System.Collections.Generic.IEnumerable<TSource>)",
-            "System.Linq.Enumerable.ToDictionary<TSource, TKey>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, TKey>)",
-            "System.Linq.Enumerable.ToDictionary<TSource, TKey, TElement>(System.Collections.Generic.IEnumerable<TSource>, System.Func<TSource, TKey>, System.Func<TSource, TElement>)",
         };
 
     // シグネチャは許可するが、明示引数の個数に上限がある overload。
@@ -406,15 +356,10 @@ public static partial class TinyCsComplianceFacts
             SymbolDisplayFormat.CSharpErrorMessageFormat)
             == "System.Collections.Generic.Dictionary<TKey, TValue>";
 
-    private static bool IsSystemLinqEnumerable(ITypeSymbol? type) =>
-        type is INamedTypeSymbol named
-        && named.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)
-            == "System.Linq.Enumerable";
-
     private static bool IsTinySystemList(ITypeSymbol? type) =>
         type is INamedTypeSymbol named
         && named.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)
-            == "TinySystem.List";
+            == "TinySystem.Linq.List";
 
     private static bool IsPartiallySupportedApi(ISymbol symbol,
         INamedTypeSymbol containingType)
@@ -424,7 +369,6 @@ public static partial class TinyCsComplianceFacts
             || IsMathType(containingType)
             || IsListType(containingType)
             || IsDictType(containingType)
-            || IsSystemLinqEnumerable(containingType)
             || IsConsoleType(containingType)
             || IsEnvironmentType(containingType)
             || IsRuneType(containingType))

@@ -12,7 +12,7 @@ public partial class TinyCsComplianceAnalyzerTests
     {
         var diagnostics = await AnalyzeAsync("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public record struct K(int x);
             public record R(int x);
             public class C { }

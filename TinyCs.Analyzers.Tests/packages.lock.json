@@ -118,6 +118,9 @@
       },
       "tinycs.analyzers": {
         "type": "Project"
+      },
+      "tinysystem": {
+        "type": "Project"
       }
     }
   }

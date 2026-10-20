@@ -111,11 +111,11 @@ TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味
 
 ### LINQメソッドチェーン
 
-クエリ構文は切るが、メソッドチェーン形式（`.Where().Select().ToList()`）はサポートする。
+クエリ構文は切るが、メソッドチェーン形式（`.Where().Select().ToList()`）はサポートする。`System.Linq` ではなく `TinySystem.Linq` namespace の `List<T>` 拡張メソッドとして提供し、`using TinySystem.Linq;` で使う。`System.Linq` は TCS1002。
 
 **実装要件**: extension methods + ラムダ + 限定的ジェネリクスメソッド（LINQ用スコープ限定）
 
-**重要な差異**: 遅延評価はしない。C#のLINQは`IEnumerable<T>`による遅延評価だが、TinyC#ではLua 5.5 table を即時生成・返却する。チェーンが長い場合、パフォーマンス特性がC#と異なる。
+**遅延評価はしない**: 列を返す演算は `List<T>` を即時に作って返す。dotnet 側の TinySystem も同じ即時評価なので、両者の結果は一致する。
 
 対応メソッド：
 
@@ -158,7 +158,7 @@ Lua table の制約により、`List<T>` の null 要素と `Dictionary<TKey, TV
 
 ### LINQメソッド
 
-`List<T>` 上の extension methods として提供（Where, Select, Any, All, First, FirstOrDefault, Last, LastOrDefault, Count, ToList, ToDictionary, OrderBy, OrderByDescending, Take, Skip, Min, Max, Sum）
+`TinySystem.Linq` の `List<T>` 拡張メソッドとして提供（Where, Select, Any, All, First, FirstOrDefault, Last, LastOrDefault, Count, ToList, ToDictionary, OrderBy, OrderByDescending, Take, Skip, Min, Max, Sum）
 
 ### 規模感
 

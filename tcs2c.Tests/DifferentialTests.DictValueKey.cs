@@ -8,7 +8,7 @@ public partial class DifferentialTests
     private const string DictValueKeyProgram = """
         using System;
         using System.Collections.Generic;
-        using System.Linq;
+        using TinySystem.Linq;
         public record struct K(int X, int Y);
         public struct S { public int X; }
         public record R(int X);

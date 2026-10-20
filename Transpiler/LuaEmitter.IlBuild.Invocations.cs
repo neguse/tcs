@@ -16,10 +16,10 @@ public partial class LuaEmitter
         string methodName, ImmutableArray<IlExpr> args, out IlExpr? result)
     {
         result = null;
-        // 拡張 method は LINQ (System.Linq.Enumerable) だけを runtime へ写す。
+        // 拡張 method は LINQ (TinySystem.Linq.List) だけを runtime へ写す。
         // 同名の user 拡張 method は通常の拡張呼び出しにする
         if (methodSym.IsExtensionMethod
-            && !IsTypeNamed(methodSym.ContainingType, "System.Linq.Enumerable"))
+            && !IsTypeNamed(methodSym.ContainingType, "TinySystem.Linq.List"))
             return false;
         var receiverType = model.GetTypeInfo(receiver).Type;
         if (receiverType == null) return false;

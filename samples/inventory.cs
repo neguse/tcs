@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using System.Linq;
+using TinySystem.Linq;
 
 public class Item
 {

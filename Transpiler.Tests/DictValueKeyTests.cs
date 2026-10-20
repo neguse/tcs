@@ -9,7 +9,7 @@ public class DictValueKeyTests
 {
     private const string Source = """
         using System.Collections.Generic;
-        using System.Linq;
+        using TinySystem.Linq;
         public record struct K(int x, int y);
         public struct S { public int X; }
         public record R(int x);
@@ -71,7 +71,7 @@ public class DictValueKeyTests
     {
         var result = Transpiler.TranspileWithDiagnostics(["""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class C { }
             public enum E { A, B }
             public struct S { public int X; }

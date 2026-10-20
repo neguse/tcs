@@ -33,7 +33,7 @@ public partial class DifferentialTests
         Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class Item { public string Name; public int Price; public Item(string n, int p) { Name = n; Price = p; } }
             public class P
             {
@@ -125,7 +125,7 @@ public partial class DifferentialTests
         Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class P
             {
                 public static void Main()
@@ -360,7 +360,7 @@ public partial class DifferentialTests
                     Console.WriteLine(Config.Seen.Count > 3 && Config.Seen[0] == 1 ? "yes" : "no");
                 }
             }
-            """.Replace("using System.Collections.Generic;", "using System.Collections.Generic;\nusing System.Linq;"), "P");
+            """.Replace("using System.Collections.Generic;", "using System.Collections.Generic;\nusing TinySystem.Linq;"), "P");
     }
 
     [CFact]

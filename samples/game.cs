@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using System.Linq;
+using TinySystem.Linq;
 
 public enum State { Idle = 0, Moving = 1, Attacking = 2, Dead = 3 }
 

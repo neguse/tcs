@@ -12,7 +12,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class Item
             {
                 public int Id;
@@ -69,7 +69,7 @@ public partial class DifferentialTests
                     GenSort(g);
                     var f = new List<float> { 2.0f, nan, 1.0f };
                     TinySystem.List.Sort(f);
-                    Console.WriteLine(Show(g) + " " + Show(f) + " " + Show(GenOb(source, x => x)) + " " + Show(GenObd(source, x => x)) + " " + Show(TinySystem.List.OrderBy(source, x => x)) + " " + Show(TinySystem.List.OrderByDescending(source, x => x)));
+                    Console.WriteLine(Show(g) + " " + Show(f) + " " + Show(GenOb(source, x => x)) + " " + Show(GenObd(source, x => x)) + " " + Show(TinySystem.Linq.List.OrderBy(source, x => x)) + " " + Show(TinySystem.Linq.List.OrderByDescending(source, x => x)));
                     Console.WriteLine(Show(GenOb(source, x => -x)) + " " + Show(GenObd(mixed, x => x)));
                     var ints = new List<int> { 3, -1, 2 };
                     ints.Sort();
@@ -98,7 +98,7 @@ public partial class DifferentialTests
     private const string NullableFloatKeyOrderProgram = """
         using System;
         using System.Collections.Generic;
-        using System.Linq;
+        using TinySystem.Linq;
         public class Item
         {
             public int Id;

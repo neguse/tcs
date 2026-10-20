@@ -33,7 +33,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class P
             {
                 public static void Main()
@@ -47,7 +47,7 @@ public partial class DifferentialTests
                     var mixed = new List<int> { 12, 21, 11, 22 };
                     Console.WriteLine(string.Join(",", mixed.OrderBy(x => x / 10).Select(x => x.ToString())));
                     Console.WriteLine(string.Join(",", mixed.OrderByDescending(x => x / 10).Select(x => x.ToString())));
-                    var words = new string[] { "bb", "a", "cc", "d", "ee" };
+                    var words = new List<string> { "bb", "a", "cc", "d", "ee" };
                     Console.WriteLine(string.Join(",", words.OrderBy(w => w.Length)));
                     Console.WriteLine(string.Join(",", words.OrderByDescending(w => w.Length)));
                     var many = new List<int>();

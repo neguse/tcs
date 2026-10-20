@@ -8,6 +8,7 @@ public class ApiSignatureComplianceTests
         using System;
         using System.Collections.Generic;
         using System.Linq;
+        using TinySystem.Linq;
 
         public class Api
         {
@@ -63,6 +64,53 @@ public class ApiSignatureComplianceTests
     public void ImplementedOverload_PassesWithoutTcs1002(string statement)
     {
         var result = Transpiler.TranspileWithDiagnostics([Wrap(statement)]);
+
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+    }
+
+    // LINQ は TinySystem.Linq.List の拡張メソッド (即時評価)。System.Linq は
+    // namespace ごと TCS1002 で、TinySystem.Linq の using が無い呼び出しは
+    // Enumerable に束縛されて止まる
+    [Fact]
+    public void SystemLinq_WithoutTinySystem_ReportsTcs1002()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using System.Collections.Generic;
+            using System.Linq;
+
+            public class Api
+            {
+                public static int Run()
+                {
+                    var list = new List<int> { 1, 2, 3 };
+                    var big = list.Where(x => x > 1);
+                    return 0;
+                }
+            }
+            """]);
+
+        var error = Assert.Single(result.Errors,
+            e => e.Contains(TinyCsDiagnosticIds.UnsupportedApi));
+        Assert.Contains("System.Linq.Enumerable.Where", error);
+    }
+
+    [Fact]
+    public void TinySystemLinq_ChainBindsWithoutSystemLinq()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+
+            public class Api
+            {
+                public static int Run()
+                {
+                    var list = new List<int> { 1, 2, 3 };
+                    List<int> doubled = list.Where(x => x > 1).Select(x => x * 2);
+                    return doubled.Count + list.Count(x => x > 2) + list.Sum();
+                }
+            }
+            """]);
 
         Assert.True(result.Success, string.Join("\n", result.Errors));
     }

@@ -47,7 +47,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 |------|:------:|------|
 | `String`, `Math`, `Random`, `Console` | **Core** | 小さなスクリプトで頻出する API を厳選して提供 |
 | `List<T>`, `Dictionary<K,V>` | **Core** | sequence/hash table として明確に対応 |
-| LINQ `Enumerable` | **Core** | 即時評価のメソッドチェーンだけ。クエリ構文と遅延評価は非目標 |
+| LINQ (`TinySystem.Linq`) | **Core** | 即時評価のメソッドチェーンだけ。クエリ構文と遅延評価は非目標。`System.Linq` は TCS1002 |
 | `System.Numerics` 風のベクトル型 | **Useful** | engine / math facade として必要になった時点で追加 |
 | `DateTime` / `TimeSpan` / 軽量 IO | **Useful** | サンプルが要求したら最小 API だけ追加 |
 | `System.IO` 全面対応 | **Out** | Lua `io` や engine API で代替。BCL 再実装はしない |
@@ -87,7 +87,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | Random メンバー | **Core** | 3 | 0 | 6 | 0 | 9 |
 | List\<T\> メンバー | **Core** | 11 | 0 | 18 | 0 | 29 |
 | Dictionary\<K,V\> メンバー | **Core** | 10 | 0 | 3 | 0 | 13 |
-| LINQ (Enumerable) | **Core/Useful** | 18 | 0 | 30 | 0 | 48 |
+| LINQ (TinySystem.Linq) | **Core/Useful** | 18 | 0 | 30 | 0 | 48 |
 | Collections.Generic 型 | **Core/Useful** | 2 | 0 | 8 | 5 | 15 |
 | System.Text | **Out** | 0 | 0 | 3 | 0 | 3 |
 | System.IO | **Out** | 0 | 0 | 7 | 0 | 7 |
@@ -427,7 +427,7 @@ C# `int` と一致する。シフトは `__tcs_shl` / `__tcs_shr` (count を 31 
 | `in` (C# 7.2) | **-** | |
 | `ref readonly` (C# 12) | **-** | |
 | `params` | **-** | |
-| `this` (拡張メソッド) | **Y** | user 定義の拡張メソッドは静的呼び出し (receiver が第 1 引数)。拡張の形 `x.M()`、static の形 `Ext.M(x)`、`x?.M()` のどれも同じ呼び出し。LINQ の static の形 (`Enumerable.Count(l)`) は拡張の形と同じ runtime 写像 |
+| `this` (拡張メソッド) | **Y** | user 定義の拡張メソッドは静的呼び出し (receiver が第 1 引数)。拡張の形 `x.M()`、static の形 `Ext.M(x)`、`x?.M()` のどれも同じ呼び出し。LINQ の static の形 (`List.Count(l)`) は拡張の形と同じ runtime 写像 |
 | `scoped` (C# 11) | **-** | |
 
 ### 6.4 変換修飾子
@@ -814,11 +814,14 @@ key 型が型 parameter の dict (generic method の中で作るもの) は対�
 
 ---
 
-## 19. System.Linq — Enumerable メソッド
+## 19. TinySystem.Linq — List\<T\> の LINQ (即時評価)
 
-LINQ はメソッドチェーン形式のみ対応。クエリ構文 (`from x in ...`) は未対応。
-ランタイム `List.Where` 等で即時評価 (遅延評価なし)。このため述語/セレクタが
-捕捉した変数を列挙中に変異させるコードは C# (遅延評価) と結果が異なる。
+LINQ は `TinySystem.Linq` namespace の `List<T>` 拡張メソッドとして提供する (`using TinySystem.Linq;` が `using System.Linq;` の置き換え)。
+`System.Linq` は namespace ごと TCS1002 で、`TinySystem.Linq` の using が無い呼び出しは `Enumerable` に束縛されて止まる。
+dotnet 側の TinySystem も同じ即時評価の実装なので、遅延評価との差異はない。
+受け手は `List<T>` だけで、列を返す演算は `List<T>` を返す。配列と Dictionary の Keys / Values (`KeyCollection` / `ValueCollection`) は受け手にならない (q.md Q18)。
+static の形 `List.Where(xs, f)` も拡張の形と同じ写像。メソッドチェーン形式のみ対応で、クエリ構文 (`from x in ...`) は未対応。
+下の未対応の演算は、`System.Linq` の using があれば TCS1002、無ければ C# の CS1061 になる。
 
 ### 対応済み
 

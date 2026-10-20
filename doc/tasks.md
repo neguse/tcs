@@ -90,7 +90,6 @@
 
 ## LINQ トラック (q.md Q18)
 
-- [ ] **T254** (P1): TinySystem の即時評価 LINQ への切り替え。`TinySystem.List` の拡張メソッド (Where / Select / Any / All / Count(pred) / Sum / Min / Max / FirstOrDefault / OrderBy / OrderByDescending)、`IlBuild.Invocations` の束縛判定を `TinySystem.List` に、`System.Linq` を namespace ごと TCS1002、テスト・sample・fuzz (即時評価の既知差異の隔離を撤去) の追随、support-matrix §19 と objective.md の LINQ 節を TinySystem の API として書き直す。Lua runtime と tcs2c は流用
 - [ ] **T255** (P1): 落とす演算の撤去 — First / Last / LastOrDefault / Take / Skip / ToList / Count() / ToDictionary を allowlist・`runtime/tinysystem.lua`・`tcs2c/CEmitter.Linq.cs`・facade・テストから外す
 - [ ] **T256** (P1): 足す演算 — `List<T>.FindIndex` / `RemoveAll` (BCL allowlist + runtime + tcs2c)、TinySystem の MinBy / MaxBy (空列は Min / Max と同じく fault)
 - [ ] **T257** (P2): `readonly record struct` を data の既定として support-matrix (struct 行と §19) に copy コストの根拠つきで記載。lub 雛形への反映は lub へ feature request
@@ -99,7 +98,7 @@
 
 ## Dictionary トラック (q.md Q18)
 
-- [ ] **T259** (P1): Dictionary の TinySystem 演算 — Where (→ dict) / Any / All / Count(述語) / RemoveAll (in place) / Clear を `(k, v)` の 2 引数 lambda で。`TinySystem.Dict` の拡張メソッド、allowlist、`runtime/tinysystem.lua` の Dict、tcs2c の emit、conformance test、support-matrix §18 (列挙順未規定の明記を含む)
+- [ ] **T259** (P1): Dictionary の TinySystem 演算 — Where (→ dict) / Any / All / Count(述語) / RemoveAll (in place) / Clear を `(k, v)` の 2 引数 lambda で。`TinySystem.Linq` の Dictionary 拡張メソッド、allowlist、`runtime/tinysystem.lua` の Dict、tcs2c の emit、conformance test、support-matrix §18 (列挙順未規定の明記を含む)
 - [ ] **T260** (P1): `foreach (var (k, v) in dict)` (ForEachVariableStatement) を Dictionary の受け手に限って対応。Lua は `for k, v in pairs`、tcs2c は既存の dict foreach と同じ走査
 - [ ] **T261** (P1): Keys / Values 経由で List の LINQ を使えるようにする — `Dictionary<K,V>.KeyCollection` / `ValueCollection` を receiver とする overload を TinySystem に足す (T254 の後)
 - [ ] **T262** (P2): `runtime/lua/tcs_lua.c` が `TCS_LUA_SEED` を読み、あるときだけ固定 seed で `lua_newstate` する。Transpiler.Tests の TestHelper と tcs2c.Tests の Backends が設定する。差分ゲートの sort と fuzz の dict 列挙除外はそのまま

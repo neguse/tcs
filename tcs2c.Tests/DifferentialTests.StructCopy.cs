@@ -11,7 +11,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public struct S { public int N; public void Bump() { N += 1; } }
             public readonly struct R { public readonly int V; public R(int v) { V = v; } }
             public record Pair(S Item, int Tag);
@@ -43,12 +43,12 @@ public partial class DifferentialTests
                     dict.TryGetValue(1, out S got);
                     got.N = 6;
                     Console.WriteLine(arr[0].N + ":" + pair.Item.N + ":" + tag + ":" + dict[1].N);
-                    var copy = arr.ToList();
+                    var copy = list.ToList();
                     var any = list.Any(x => { x.Bump(); return x.N == 3; });
-                    var picked = arr.Where(x => { x.N = 8; return true; }).ToList();
+                    var picked = list.Where(x => { x.N = 8; return true; }).ToList();
                     arr[0].N = 1;
                     Console.WriteLine(copy[0].N + ":" + any + ":" + list[0].N + ":" + picked[0].N + ":" + picked.Count);
-                    var rs = new R[] { new R(3) };
+                    var rs = new List<R> { new R(3) };
                     Console.WriteLine(rs.ToList()[0].V + ":" + rs.Count(r => r.V == 3));
                 }
             }
@@ -63,7 +63,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public struct S { public int N; }
             public static class Ext
             {
@@ -119,7 +119,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public struct S { public int N; }
             public class P
             {
@@ -188,7 +188,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public struct S { public int N; }
             public static class Ext
             {
@@ -206,7 +206,7 @@ public partial class DifferentialTests
                 {
                     var arr = new S[] { new S { N = 1 }, new S { N = 2 } };
                     Console.WriteLine(arr.ToList(1).Count);
-                    Console.WriteLine(arr.ToList().Where(10));
+                    Console.WriteLine(arr.ToList(2).Where(10));
                 }
             }
             """, "P");

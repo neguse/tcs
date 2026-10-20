@@ -9,7 +9,7 @@ public partial class DifferentialTests
     private const string StringOrderProgram = """
         using System;
         using System.Collections.Generic;
-        using System.Linq;
+        using TinySystem.Linq;
         public class P
         {
             public static string Show(List<string> source, List<string> sorted)

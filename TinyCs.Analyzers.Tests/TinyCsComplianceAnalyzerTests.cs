@@ -464,7 +464,7 @@ public partial class TinyCsComplianceAnalyzerTests
     {
         var diagnostics = await AnalyzeAsync("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
 
             public class Demo
             {
@@ -681,6 +681,7 @@ public partial class TinyCsComplianceAnalyzerTests
         using System;
         using System.Collections.Generic;
         using System.Linq;
+        using TinySystem.Linq;
 
         public class Api
         {
@@ -787,11 +788,36 @@ public partial class TinyCsComplianceAnalyzerTests
         return new[]
             {
                 MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(
+                    typeof(global::TinySystem.Random).Assembly.Location),
             }
             .Concat(assemblyNames
                 .Select(name => Path.Combine(runtimeDir, name))
                 .Where(File.Exists)
                 .Select(path => MetadataReference.CreateFromFile(path)))
             .ToArray();
+    }
+
+    [Fact]
+    public async Task SystemLinq_WithoutTinySystem_ReportsTcs1002()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            using System.Collections.Generic;
+            using System.Linq;
+
+            public class Demo
+            {
+                public static int Run()
+                {
+                    var list = new List<int> { 1, 2, 3 };
+                    var big = list.Where(x => x > 1);
+                    return 0;
+                }
+            }
+            """);
+
+        var diagnostic = Assert.Single(diagnostics,
+            d => d.Id == TinyCsDiagnosticIds.UnsupportedApi);
+        Assert.Contains("System.Linq.Enumerable.Where", diagnostic.GetMessage());
     }
 }

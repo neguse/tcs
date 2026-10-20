@@ -7,7 +7,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static bool Test()
@@ -27,7 +27,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()
@@ -45,7 +45,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()
@@ -63,7 +63,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()
@@ -81,7 +81,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()
@@ -99,7 +99,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()
@@ -117,7 +117,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()
@@ -136,7 +136,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()
@@ -155,7 +155,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
 
             public class Item
             {
@@ -192,7 +192,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
 
             public class Item
             {
@@ -229,7 +229,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static string Test()
@@ -249,7 +249,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static string Test()
@@ -269,7 +269,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static string Test()
@@ -289,7 +289,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()
@@ -308,7 +308,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static string Test()
@@ -330,7 +330,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static string Test()
@@ -357,7 +357,7 @@ public class LinqSemanticTests
         var ex = Assert.Throws<InvalidOperationException>(() =>
             TestHelper.TranspileAndRunWithRuntime("""
                 using System.Collections.Generic;
-                using System.Linq;
+                using TinySystem.Linq;
                 public class T
                 {
                     public static int Test()
@@ -377,7 +377,7 @@ public class LinqSemanticTests
         var ex = Assert.Throws<InvalidOperationException>(() =>
             TestHelper.TranspileAndRunWithRuntime("""
                 using System.Collections.Generic;
-                using System.Linq;
+                using TinySystem.Linq;
                 public class T
                 {
                     public static int Test()
@@ -398,7 +398,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static string Log = "";
@@ -422,7 +422,7 @@ public class LinqSemanticTests
     {
         var result = TestHelper.TranspileAndRunWithRuntime("""
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class T
             {
                 public static int Test()

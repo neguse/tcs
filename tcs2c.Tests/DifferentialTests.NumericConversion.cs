@@ -86,7 +86,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public class P
             {
                 public static int I(float f) => (int)f;
@@ -167,7 +167,7 @@ public partial class DifferentialTests
     private static string SumProgram(string sum) => $$"""
         using System;
         using System.Collections.Generic;
-        using System.Linq;
+        using TinySystem.Linq;
         public class P
         {
             public static void Main()

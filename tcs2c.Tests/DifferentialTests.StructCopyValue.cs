@@ -12,7 +12,7 @@ public partial class DifferentialTests
         var output = Backends.AssertParity("""
             using System;
             using System.Collections.Generic;
-            using System.Linq;
+            using TinySystem.Linq;
             public struct S { public int N; }
             public struct Box { public S I; }
             public class D { public S Mine; public S Held; public D(S s) { Mine = s; s.N = 5; Held = s; } }
@@ -38,11 +38,11 @@ public partial class DifferentialTests
                     l?.Add(t);
                     t.N = 2;
                     Console.WriteLine(d.Mine.N + ":" + d.Held.N + ":" + l[0].N);
-                    var arr = new S[] { new S { N = 1 }, new S { N = 3 } };
+                    var arr = new List<S> { new S { N = 1 }, new S { N = 3 } };
                     var a = arr.ToDictionary(x => x.N);
                     var b = arr.ToDictionary(x => x.N + 10, x => x);
-                    arr[0].N = 2;
-                    arr[1].N = 4;
+                    arr[0] = new S { N = 2 };
+                    arr[1] = new S { N = 4 };
                     Console.WriteLine(a[1].N + ":" + b[13].N);
                     var h = new H();
                     var src = new S { N = 5 };
