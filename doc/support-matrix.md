@@ -750,9 +750,10 @@ Lua sequence table は `nil` 要素を保持できないため、`null` 要素�
 | `.Insert(index, item)` | **-** | | |
 | `.InsertRange(index, collection)` | **-** | | |
 | `.RemoveRange(index, count)` | **-** | | |
-| `.RemoveAll(predicate)` | **-** | | |
+| `.RemoveAll(predicate)` | **Y** | `List.RemoveAll(list, fn)` (残す要素を前に詰めて末尾を切る) | T+R。述語は要素ごとに 1 回・要素の順、残る順は保つ、消した数を返す |
 | `.Find(predicate)` / `.FindLast()` / `.FindAll()` | **-** | | |
-| `.FindIndex(predicate)` / `.FindLastIndex()` | **-** | | |
+| `.FindIndex(predicate)` | **Y** | `List.FindIndex(list, fn)` | T+R。0-based の位置か -1。見つけた時点で止まる |
+| `.FindLastIndex()` | **-** | | |
 | `.Sort()` / `.Sort(comparison)` | **Y** | `List.Sort(list, comparison)` | T+R。比較なしの順序は .NET の既定の comparer と同じく NaN が最小。string の順序は .NET の ordinal (UTF-16 の code unit の順。大文字が小文字より先)。.NET と同じ introsort で、同値の要素の並びと比較関数の呼び出し列も同じ |
 | `.Reverse()` | **-** | | |
 | `.BinarySearch(item)` | **-** | | |
@@ -840,6 +841,7 @@ static の形 `List.Where(xs, f)` も拡張の形と同じ写像。メソッド�
 | `.Max()` | **Y** | `List.Max(list)` | T+R。NaN は最小の値 (NaN 以外が無いときだけ NaN)。string は ordinal の順 |
 | `.Sum()` | **Y** | `List.Sum(list)` | T+R。int の和 (要素型か selector の戻り値が int) は `List.SumInt` で checked (Enumerable.Sum と同じく途中の overflow で fault)。float の和は空でも `0.0` |
 | `.Count(predicate)` | **Y** | `List.Count(list, fn)` | T+R。要素数は `.Count` property |
+| `.MinBy(keySelector)` / `.MaxBy(keySelector)` | **Y** | `List.MinBy/MaxBy(list, fn)` | T+R。key が最小 / 最大の要素。同じ key は先の要素、NaN の key は最小 (Comparer\<float\>.Default と同じ)、string の key は ordinal。空列は fault (.NET の MinBy は参照型で null を返すが揃えない) |
 | チェーン `.Where().Select()` | **Y** | ネスト呼び出し (各段が `List<T>` を返す) | T |
 
 ### 未対応
@@ -881,7 +883,7 @@ q.md Q18 で外した演算は、添字・copy constructor・foreach で書く�
 | `.ToLookup()` | **-** | |
 | `.Cast()` / `.OfType()` | **-** | |
 | `.Reverse()` (LINQ) | **-** | |
-| `.MinBy()` / `.MaxBy()` | **-** | |
+| `.MinBy()` / `.MaxBy()` | **Y** (TinySystem.Linq) | 下の対応表 |
 | `Enumerable.Range()` (static) | **-** | |
 | `Enumerable.Repeat()` (static) | **-** | |
 | `Enumerable.Empty()` (static) | **-** | |

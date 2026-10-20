@@ -2284,3 +2284,10 @@
 - 検証: `dotnet test` 全通過 (Analyzers.Tests 69、Transpiler.Tests 1072、tcs2c.Tests 164)
 - 判断: 落とす演算は TinySystem に定義しないことで「無い」状態にする (allowlist で弾くのではなく、C# のコンパイルで止まる)。GetRange は足さない (Take / Skip の代替は for / foreach)
 - 残課題: T256 (FindIndex / RemoveAll / MinBy / MaxBy)
+
+### T256 FindIndex / RemoveAll / MinBy / MaxBy ✓ (2026-10-21)
+- `List<T>.FindIndex(Predicate<T>)` と `RemoveAll(Predicate<T>)` を BCL の名前のまま allowlist に足し、Lua runtime (`List.FindIndex` / `List.RemoveAll`) と tcs2c (inline loop。RemoveAll は残す要素を前に詰めて `tcs_list_truncate` で末尾を切る) に実装した
+- `TinySystem.Linq` に `MinBy` / `MaxBy` を足した。key の比較は Min / Max と同じく NaN を最小とみなし、同じ key は先の要素、string の key は ordinal。空列は Lua / C / dotnet とも fault (.NET の MinBy が参照型で null を返す挙動には揃えない)
+- 検証: `dotnet test` 全通過。Lua の意味論テスト (述語と key selector の呼び出し回数と順、残る順、struct 要素の copy、空列) と tcs2c の差分テスト (同じ program の Lua / C 出力一致) を追加
+- 判断: 見つける原始は FindIndex (-1)。`Find` は `T?` を generic 1 本で返せないので足さない (q.md Q18)
+- 残課題: T257 (readonly record struct の記載)

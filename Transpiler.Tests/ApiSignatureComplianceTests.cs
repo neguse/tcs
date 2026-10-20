@@ -36,6 +36,7 @@ public class ApiSignatureComplianceTests
     [InlineData("var c = new Dictionary<string, int>(4);", "Dictionary<TKey, TValue>")]
     [InlineData("dict.Remove(\"a\", out var removed);", "Dictionary<TKey, TValue>.Remove")]
     [InlineData("list.Sort(Comparer<int>.Default);", "List<T>.Sort")]
+    [InlineData("list.Find(x => x > 1);", "List<T>.Find")]
     [InlineData("Math.Round(1.55f, MidpointRounding.AwayFromZero);", "System.Math.Round")]
     [InlineData("string.Join('-', \"a\", \"b\");", "string.Join")]
     public void UnimplementedOverload_ReportsTcs1002(string statement,
@@ -59,6 +60,7 @@ public class ApiSignatureComplianceTests
     [InlineData("var f = list.FirstOrDefault() + list.Count(x => x > 1) + list.Min() + list.Sum();")]
     [InlineData("var any = list.Any() || list.Any(x => x > 2);")]
     [InlineData("var shortest = names.Min(x => x.Length);")]
+    [InlineData("var i = list.FindIndex(x => x > 1) + list.RemoveAll(x => x > 2); var m = list.MinBy(x => -x) + list.MaxBy(x => x);")]
     [InlineData("list[0] = list[1]; dict[\"a\"] = dict[\"a\"] + 1;")]
     public void ImplementedOverload_PassesWithoutTcs1002(string statement)
     {

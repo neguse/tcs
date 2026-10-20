@@ -374,4 +374,57 @@ public class LinqSemanticTests
             SpecConformance.CorpusDifferential.Check(source, "T.Test()", ""));
         Assert.Contains("Index was out of range", dotnet.Message);
     }
+
+    // MinBy / MaxBy は key が最小 / 最大の要素。同じ key は先の要素、NaN の key は最小 (Comparer<float>.Default)、
+    // string の key は ordinal の順。key selector は要素ごとに 1 回、要素の順
+    [Fact]
+    public void Linq_MinBy_MaxBy()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public record class Item(string Name, int Rank, float Score);
+            public class T
+            {
+                public static string Test()
+                {
+                    var items = new List<Item>
+                    {
+                        new Item("b", 2, 1.5f), new Item("a", 1, 0f / 0f), new Item("c", 2, 9f), new Item("d", 1, -1f),
+                    };
+                    var log = "";
+                    var minRank = items.MinBy(i => { log += i.Name; return i.Rank; });
+                    var maxRank = items.MaxBy(i => i.Rank);
+                    var minScore = items.MinBy(i => i.Score);
+                    var maxScore = items.MaxBy(i => i.Score);
+                    var minName = items.MinBy(i => i.Name);
+                    var maxName = items.MaxBy(i => i.Name);
+                    var ints = new List<int> { 4, -2, 7 };
+                    return minRank.Name + maxRank.Name + ":" + minScore.Name + maxScore.Name + ":" + minName.Name + maxName.Name
+                        + ":" + ints.MinBy(x => -x) + ints.MaxBy(x => -x) + ":" + log;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("ab:ac:ad:7-2:bacd", result);
+    }
+
+    [Fact]
+    public void Linq_MinByOnEmpty_RaisesExplicitError()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            TestHelper.TranspileAndRunWithRuntime("""
+                using System.Collections.Generic;
+                using TinySystem.Linq;
+                public class T
+                {
+                    public static int Test()
+                    {
+                        var ints = new List<int>();
+                        return ints.MinBy(x => x);
+                    }
+                }
+                """, "T.Test()"));
+
+        Assert.Contains("Sequence contains no elements", ex.Message);
+    }
 }

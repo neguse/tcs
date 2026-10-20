@@ -383,8 +383,8 @@ public partial class LuaEmitter
     // List/Dict method names that map to runtime library calls
     private static readonly HashSet<string> ListRuntimeMethods =
         ["Where", "Select", "Any", "All", "FirstOrDefault",
-         "OrderBy", "OrderByDescending", "Min", "Max", "Sum", "Count",
-         "Contains", "IndexOf"];
+         "OrderBy", "OrderByDescending", "Min", "Max", "MinBy", "MaxBy", "Sum", "Count",
+         "Contains", "IndexOf", "FindIndex", "RemoveAll"];
 
     // 値型・string は Lua 側に型 table が無く getmetatable 比較だと nil が
     // マッチする (未定義 global との nil == nil)。type() 判定にする。

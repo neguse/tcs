@@ -120,7 +120,8 @@ TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味
 対応メソッド：
 
 - Where, Select, Any, All, FirstOrDefault, Count(predicate)
-- OrderBy, OrderByDescending, Min, Max, Sum
+- OrderBy, OrderByDescending, Min, Max, MinBy, MaxBy, Sum
+- `List<T>` の `FindIndex(predicate)` / `RemoveAll(predicate)` (BCL のまま)
 
 添字・copy constructor (`new List<T>(source)`)・foreach で書けるもの (First / Last / Take / Skip / ToList / ToDictionary / Count()) は置かない (q.md Q18)。
 
@@ -158,7 +159,7 @@ Lua table の制約により、`List<T>` の null 要素と `Dictionary<TKey, TV
 
 ### LINQメソッド
 
-`TinySystem.Linq` の `List<T>` 拡張メソッドとして提供（Where, Select, Any, All, FirstOrDefault, Count(predicate), OrderBy, OrderByDescending, Min, Max, Sum）
+`TinySystem.Linq` の `List<T>` 拡張メソッドとして提供（Where, Select, Any, All, FirstOrDefault, Count(predicate), OrderBy, OrderByDescending, Min, Max, MinBy, MaxBy, Sum）
 
 ### 規模感
 

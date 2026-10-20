@@ -186,4 +186,18 @@ public static class List
         for (var i = 0; i < count; i++) total += selector(list[i]);
         return (float)total;
     }
+    // 空列は Min / Max と同じく例外 (.NET の MinBy は参照型で default を返すが、
+    // Lua / C の fault と揃える)。同じ key は先の要素
+    public static T MinBy<T, TKey>(
+        this global::System.Collections.Generic.List<T> list,
+        global::System.Func<T, TKey> keySelector) =>
+        list.Count == 0
+            ? throw new global::System.InvalidOperationException("Sequence contains no elements")
+            : global::System.Linq.Enumerable.MinBy(list, keySelector)!;
+    public static T MaxBy<T, TKey>(
+        this global::System.Collections.Generic.List<T> list,
+        global::System.Func<T, TKey> keySelector) =>
+        list.Count == 0
+            ? throw new global::System.InvalidOperationException("Sequence contains no elements")
+            : global::System.Linq.Enumerable.MaxBy(list, keySelector)!;
 }

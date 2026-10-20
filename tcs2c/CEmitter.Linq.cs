@@ -241,6 +241,21 @@ internal sealed partial class CEmitter
             case "Count":
                 if (args.Length == 2) _ = Pred(1);
                 return CType.I32;
+            case "FindIndex":
+                RequireArity(call.Callee, args.Length, 2); _ = Pred(1);
+                return CType.I32;
+            case "RemoveAll":
+                RequireArity(call.Callee, args.Length, 2); _ = Pred(1);
+                if (seq.Kind != CTypeKind.List) throw new Tcs2cException("RemoveAll: receiver is not a List");
+                return CType.I32;
+            case "MinBy" or "MaxBy":
+            {
+                RequireArity(call.Callee, args.Length, 2);
+                var key = InferClosureResult(args[1], [elem]);
+                if (key.Kind is not (CTypeKind.I32 or CTypeKind.F32 or CTypeKind.String))
+                    throw new Tcs2cException($"{call.Callee}: keys must be numbers or strings");
+                return elem;
+            }
             case "Sum" or "SumInt" or "Min" or "Max":
             {
                 var key = args.Length == 2 ? InferClosureResult(args[1], [elem]) : elem;
@@ -436,6 +451,44 @@ internal sealed partial class CEmitter
             }
             case "Copy":
                 return $"({{ {sb}{(seq.Kind == CTypeKind.Array ? "tcs_array_to_list" : "tcs_list_copy")}({s}); }})";
+            case "FindIndex":
+            {
+                var r = Temp("index");
+                sb.Append($"int32_t {r} = -1; ");
+                sb.Append(Loop($"if ({Closure(1, CType.Bool, elem)}) {{ {r} = {i}; break; }}"));
+                return $"({{ {sb}{r}; }})";
+            }
+            // 残す要素を前に詰めて末尾を切る (述語は要素ごとに 1 回、要素の順)
+            case "RemoveAll":
+            {
+                var w = Temp("w");
+                sb.Append($"int32_t {w} = 0; ");
+                sb.Append(Loop($"if (!({Closure(1, CType.Bool, elem)})) {{ " +
+                    $"if ({w} != {i}) (({elem.CName} *){s}->data)[{w}] = {v}; {w}++; }}"));
+                sb.Append($"tcs_list_truncate({s}, {w}); ");
+                return $"({{ {sb}{n} - {w}; }})";
+            }
+            // key の比較は Min / Max と同じく NaN を最小とみなす (Comparer<float>.Default)。
+            // 同じ key は先の要素。key selector は要素ごとに 1 回、要素の順
+            case "MinBy" or "MaxBy":
+            {
+                var key = InferClosureResult(args[1], [elem]);
+                var best = Temp("best");
+                var bestKey = Temp("bestkey");
+                var has = Temp("has");
+                var k = Temp("k");
+                var value = Closure(1, key, elem);
+                var better = name == "MinBy" ? LessExpr(key, k, bestKey) : LessExpr(key, bestKey, k);
+                if (key.Kind == CTypeKind.F32)
+                    better = name == "MinBy"
+                        ? $"({k} != {k} ? {bestKey} == {bestKey} : ({bestKey} == {bestKey} && {k} < {bestKey}))"
+                        : $"({bestKey} != {bestKey} ? {k} == {k} : ({k} == {k} && {k} > {bestKey}))";
+                sb.Append($"{elem.CName} {best} = {ZeroInit(elem)}; {key.CName} {bestKey} = {ZeroInit(key)}; bool {has} = false; ");
+                sb.Append(Loop($"{key.CName} {k} = {value}; " +
+                    $"if (!{has} || {better}) {{ {best} = {v}; {bestKey} = {k}; {has} = true; }}"));
+                sb.Append($"if (!{has}) tcs_fault(\"Sequence contains no elements\"); ");
+                return $"({{ {sb}{best}; }})";
+            }
             case "Contains" or "IndexOf" or "Remove":
             {
                 var target = Temp("target");

@@ -120,6 +120,16 @@ internal sealed partial class CEmitter
                 0, list->element_size);
         }
 
+        static void
+        tcs_list_truncate(TcsList *list, int32_t length)
+        {
+            tcs_nonnull(list);
+            if (length < 0 || (size_t)length > list->length) tcs_fault("bounds");
+            memset((unsigned char *)list->data + (size_t)length * list->element_size,
+                0, (list->length - (size_t)length) * list->element_size);
+            list->length = (size_t)length;
+        }
+
         static TcsArray *
         tcs_list_to_array(TcsList *list)
         {

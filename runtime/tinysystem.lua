@@ -373,6 +373,34 @@ function List.Max(list, selector)
   return maxVal
 end
 
+-- MinBy / MaxBy の key の比較。NaN はどの値より小さい (Comparer<float>.Default)。
+-- 同じ key は先の要素を残す。key selector は要素ごとに 1 回、要素の順に呼ぶ
+local function keyLess(a, b)
+  if a ~= a then return b == b end
+  if b ~= b then return false end
+  return lessThan(a, b)
+end
+
+function List.MinBy(list, keySelector)
+  if #list == 0 then error("Sequence contains no elements") end
+  local best, bestKey = list[1], keySelector(list[1])
+  for i = 2, #list do
+    local k = keySelector(list[i])
+    if keyLess(k, bestKey) then best, bestKey = list[i], k end
+  end
+  return best
+end
+
+function List.MaxBy(list, keySelector)
+  if #list == 0 then error("Sequence contains no elements") end
+  local best, bestKey = list[1], keySelector(list[1])
+  for i = 2, #list do
+    local k = keySelector(list[i])
+    if keyLess(bestKey, k) then best, bestKey = list[i], k end
+  end
+  return best
+end
+
 -- float の Sum (空でも float の 0)
 function List.Sum(list, selector)
   selector = selector or function(x) return x end
@@ -413,6 +441,29 @@ function List.SumInt(list, selector)
 end
 
 -- copy は変更可能な struct 要素の型別 __copy (新しい List は要素の copy を持つ)
+-- 0-based の位置か -1 (List<T>.FindIndex)
+function List.FindIndex(list, predicate)
+  for i = 1, #list do
+    if predicate(list[i]) then return i - 1 end
+  end
+  return -1
+end
+
+-- 述語が真の要素をその場で消し、消した数を返す (List<T>.RemoveAll)。述語は
+-- 要素ごとに 1 回、要素の順。残る要素の順は保つ
+function List.RemoveAll(list, predicate)
+  local n, w = #list, 0
+  for i = 1, n do
+    local v = list[i]
+    if not predicate(v) then
+      w = w + 1
+      list[w] = v
+    end
+  end
+  for i = w + 1, n do list[i] = nil end
+  return n - w
+end
+
 -- copy constructor `new List<T>(source)`。copy は変更可能な struct 要素の型別 __copy
 function List.Copy(list, copy)
   local result = {}

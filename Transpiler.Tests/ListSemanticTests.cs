@@ -150,4 +150,53 @@ public class ListSemanticTests
 
         Assert.Equal("3,2,1", result);
     }
+
+    // FindIndex は 0-based の位置か -1。述語は要素ごとに 1 回、要素の順で、見つかった時点で止まる
+    [Fact]
+    public void List_FindIndex()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            public class T
+            {
+                public static string Test()
+                {
+                    var list = new List<int> { 3, 5, 8 };
+                    var log = "";
+                    var found = list.FindIndex(x => { log += x + ";"; return x > 4; });
+                    var missing = list.FindIndex(x => x > 100);
+                    var empty = new List<int>().FindIndex(x => true);
+                    return found + ":" + missing + ":" + empty + ":" + log;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("1:-1:-1:3;5;", result);
+    }
+
+    // RemoveAll は述語が真の要素をその場で消して数を返す。残る順は保ち、述語は要素ごとに 1 回
+    [Fact]
+    public void List_RemoveAll()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            public struct S { public int N; }
+            public class T
+            {
+                public static string Test()
+                {
+                    var list = new List<int> { 1, 2, 3, 4, 5, 6 };
+                    var calls = 0;
+                    var removed = list.RemoveAll(x => { calls++; return x % 2 == 0; });
+                    var none = list.RemoveAll(x => x > 100);
+                    var ss = new List<S> { new S { N = 1 }, new S { N = 2 }, new S { N = 3 } };
+                    var sr = ss.RemoveAll(s => { s.N = 99; return s.N == 99 && ss.Count == 3 && false; });
+                    var all = new List<int> { 7, 8 };
+                    var allRemoved = all.RemoveAll(x => true);
+                    return removed + ":" + none + ":" + calls + ":" + string.Join(",", list)
+                        + ":" + sr + ":" + ss[0].N + ss[1].N + ss[2].N + ":" + allRemoved + ":" + all.Count;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("3:0:6:1,3,5:0:123:2:0", result);
+    }
 }
