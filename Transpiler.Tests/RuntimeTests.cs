@@ -88,11 +88,11 @@ public class RuntimeTests
     }
 
     [Fact]
-    public void List_First()
+    public void List_FirstOrDefault()
     {
         var result = RunWithRuntime("""
             local l = {10, 20, 30}
-            print(List.First(l))
+            print(List.FirstOrDefault(l, nil, 0))
             """);
         Assert.Equal("10", result);
     }

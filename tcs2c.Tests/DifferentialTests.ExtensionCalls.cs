@@ -32,7 +32,7 @@ public partial class DifferentialTests
                     Console.WriteLine((h.S?.Len() ?? -1) + ":" + (h.N?.Len() ?? -1) + ":" + (h.S?.Len(3) ?? -1));
                     Console.WriteLine(h.MaybeV?.Bump() ?? -1);
                     var l = new List<int> { 1, 2, 3 };
-                    Console.WriteLine(List.Count(l) + ":" + List.Sum(l) + ":" + List.Count(l, x => x > 1));
+                    Console.WriteLine(l.Count + ":" + List.Sum(l) + ":" + List.Count(l, x => x > 1));
                 }
             }
             """, "P");

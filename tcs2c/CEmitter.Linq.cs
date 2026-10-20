@@ -233,10 +233,7 @@ internal sealed partial class CEmitter
             case "All":
                 RequireArity(call.Callee, args.Length, 2); _ = Pred(1);
                 return CType.Bool;
-            case "First" or "Last":
-                if (args.Length == 2) _ = Pred(1);
-                return elem;
-            case "FirstOrDefault" or "LastOrDefault":
+            case "FirstOrDefault":
                 RequireArity(call.Callee, args.Length, 3);
                 if (!IsNilLiteral(args[1])) _ = Pred(1);
                 CheckAssignable(elem, args[2], $"{call.Callee} default");
@@ -260,32 +257,13 @@ internal sealed partial class CEmitter
                 _ = LessExpr(key, "a", "b");
                 return CType.List(elem);
             }
-            case "Take" or "Skip":
-                RequireArity(call.Callee, args.Length, 2);
-                RequireType(CType.I32, TypeOf(args[1]), call.Callee);
-                return CType.List(elem);
-            // 変更可能な struct 要素では Lua 向けの `S.__copy` 参照が 2 番目に付く
-            // (C は要素を値で写すので読まない)
-            case "ToList":
+            // copy constructor `new List<T>(source)`。変更可能な struct 要素では
+            // Lua 向けの `S.__copy` 参照が 2 番目に付く (C は要素を値で写すので読まない)
+            case "Copy":
                 if (args.Length == 2 && IsElementCopyRef(args[1], elem))
                     return CType.List(elem);
                 RequireArity(call.Callee, args.Length, 1);
                 return CType.List(elem);
-            // float key では Lua 向けの key 置換 (Dict.FloatKey) が 4 番目に付く
-            // (C は float key を受けないので下の key 型検査で止まる)。value
-            // selector の無い変更可能な struct 要素では、Lua 向けの `S.__copy` が
-            // value selector の位置に付く
-            case "ToDictionary":
-            {
-                if (args.Length is not (2 or 3 or 4))
-                    throw new Tcs2cException("ToDictionary: expected 2 or 3 arguments");
-                var key = InferClosureResult(args[1], [elem]);
-                if (key.Kind is not (CTypeKind.I32 or CTypeKind.String))
-                    throw new Tcs2cException($"Dictionary key type not supported: {key}");
-                var value = HasValueSelector(args, elem)
-                    ? InferClosureResult(args[2], [elem]) : elem;
-                return CType.Dict(key, value);
-            }
             // struct 要素では Lua 向けの op_Equality 参照が 3 番目に付く
             // (C は要素型から memberwise 比較を生成するので読まない)
             case "Contains":
@@ -380,22 +358,15 @@ internal sealed partial class CEmitter
                 sb.Append(Loop($"if (!({call1})) {{ {r} = false; break; }}"));
                 return $"({{ {sb}{r}; }})";
             }
-            case "First" or "Last" or "FirstOrDefault" or "LastOrDefault":
+            case "FirstOrDefault":
             {
-                var reverse = name.StartsWith("Last", StringComparison.Ordinal);
-                var orDefault = name.EndsWith("OrDefault", StringComparison.Ordinal);
-                var hasPred = orDefault ? !IsNilLiteral(args[1]) : args.Length == 2;
+                var hasPred = !IsNilLiteral(args[1]);
                 var r = Temp("found");
                 var has = Temp("has");
                 sb.Append($"{elem.CName} {r} = {ZeroInit(elem)}; bool {has} = false; ");
                 var cond = hasPred ? $"if ({Closure(1, CType.Bool, elem)}) " : "";
-                sb.Append(Loop($"{cond}{{ {r} = {v}; {has} = true; break; }}", reverse));
-                if (orDefault)
-                    sb.Append($"if (!{has}) {r} = {RenderCoerced(args[2], elem)}; ");
-                else
-                    sb.Append($"if (!{has}) tcs_fault(\"{(hasPred
-                        ? "Sequence contains no matching element"
-                        : "Sequence contains no elements")}\"); ");
+                sb.Append(Loop($"{cond}{{ {r} = {v}; {has} = true; break; }}"));
+                sb.Append($"if (!{has}) {r} = {RenderCoerced(args[2], elem)}; ");
                 return $"({{ {sb}{r}; }})";
             }
             case "Count":
@@ -463,45 +434,8 @@ internal sealed partial class CEmitter
                 sb.Append($"tcs_list_sort_by_keys({copy}, {keys}, {comparator}); ");
                 return $"({{ {sb}{copy}; }})";
             }
-            case "Take" or "Skip":
-            {
-                var count = Temp("count");
-                var layout = LayoutRef(elem);
-                var outList = Temp("out");
-                sb.Append($"int32_t {count} = {RenderExpr(args[1])}; if ({count} < 0) {count} = 0; ");
-                sb.Append($"TcsList *{outList} = tcs_list_new(sizeof({elem.CName}), {layout}); ");
-                var cond = name == "Take" ? $"if ({i} >= {count}) break; " : $"if ({i} < {count}) continue; ";
-                sb.Append(Loop($"{cond}tcs_list_add({outList}, &{v}, sizeof({v}), {layout});"));
-                return $"({{ {sb}{outList}; }})";
-            }
-            case "ToList":
+            case "Copy":
                 return $"({{ {sb}{(seq.Kind == CTypeKind.Array ? "tcs_array_to_list" : "tcs_list_copy")}({s}); }})";
-            case "ToDictionary":
-            {
-                var key = resultType.Key!;
-                var value = resultType.Element!;
-                var keyType = CType.Closure(key, [elem]);
-                var fk = Temp("keyfn");
-                sb.Append($"TcsClosure *{fk} = (TcsClosure *)tcs_nonnull({RenderCoerced(args[1], keyType)}); ");
-                string valueExpr = v;
-                if (HasValueSelector(args, elem))
-                {
-                    var valueType = CType.Closure(value, [elem]);
-                    var fv = Temp("valfn");
-                    sb.Append($"TcsClosure *{fv} = (TcsClosure *)tcs_nonnull({RenderCoerced(args[2], valueType)}); ");
-                    valueExpr = CallClosure(fv, valueType, v);
-                }
-                var dict = Temp("dict");
-                var k = Temp("k");
-                var val = Temp("val");
-                var keyArgs = key.Kind == CTypeKind.String ? $"0, {k}" : $"{k}, NULL";
-                sb.Append($"TcsDict *{dict} = tcs_dict_new({DictKeyKind(key)}, " +
-                    $"sizeof({value.CName}), {LayoutRef(value)}); ");
-                sb.Append(Loop($"{key.CName} {k} = {CallClosure(fk, keyType, v)}; " +
-                    $"{value.CName} {val} = {valueExpr}; " +
-                    $"*({value.CName} *)tcs_dict_put({dict}, {keyArgs}) = {val};"));
-                return $"({{ {sb}{dict}; }})";
-            }
             case "Contains" or "IndexOf" or "Remove":
             {
                 var target = Temp("target");
@@ -582,7 +516,4 @@ internal sealed partial class CEmitter
         elem.Kind == CTypeKind.StructVal
         && arg is IlField { Recv: IlVar owner, Name: "__copy" }
         && owner.Name == elem.Name;
-
-    private static bool HasValueSelector(ImmutableArray<IlExpr> args, CType elem) =>
-        args.Length == 3 && !IsElementCopyRef(args[2], elem);
 }

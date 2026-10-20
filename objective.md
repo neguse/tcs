@@ -111,7 +111,7 @@ TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味
 
 ### LINQメソッドチェーン
 
-クエリ構文は切るが、メソッドチェーン形式（`.Where().Select().ToList()`）はサポートする。`System.Linq` ではなく `TinySystem.Linq` namespace の `List<T>` 拡張メソッドとして提供し、`using TinySystem.Linq;` で使う。`System.Linq` は TCS1002。
+クエリ構文は切るが、メソッドチェーン形式（`.Where().Select()`）はサポートする。`System.Linq` ではなく `TinySystem.Linq` namespace の `List<T>` 拡張メソッドとして提供し、`using TinySystem.Linq;` で使う。`System.Linq` は TCS1002。
 
 **実装要件**: extension methods + ラムダ + 限定的ジェネリクスメソッド（LINQ用スコープ限定）
 
@@ -119,10 +119,10 @@ TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味
 
 対応メソッド：
 
-- Where, Select, Any, All
-- First, FirstOrDefault, Last, LastOrDefault
-- Count, ToList, ToDictionary
-- OrderBy, OrderByDescending, Take, Skip, Min, Max
+- Where, Select, Any, All, FirstOrDefault, Count(predicate)
+- OrderBy, OrderByDescending, Min, Max, Sum
+
+添字・copy constructor (`new List<T>(source)`)・foreach で書けるもの (First / Last / Take / Skip / ToList / ToDictionary / Count()) は置かない (q.md Q18)。
 
 ## TinySystem 標準ライブラリ
 
@@ -158,7 +158,7 @@ Lua table の制約により、`List<T>` の null 要素と `Dictionary<TKey, TV
 
 ### LINQメソッド
 
-`TinySystem.Linq` の `List<T>` 拡張メソッドとして提供（Where, Select, Any, All, First, FirstOrDefault, Last, LastOrDefault, Count, ToList, ToDictionary, OrderBy, OrderByDescending, Take, Skip, Min, Max, Sum）
+`TinySystem.Linq` の `List<T>` 拡張メソッドとして提供（Where, Select, Any, All, FirstOrDefault, Count(predicate), OrderBy, OrderByDescending, Min, Max, Sum）
 
 ### 規模感
 

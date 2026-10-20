@@ -588,7 +588,7 @@ public class SubsetDiagnosticTests
                 public static string Test()
                 {
                     var xs = new List<int> { 1, 2 };
-                    var ys = xs.Select(Twice).ToList();
+                    var ys = xs.Select(Twice);
                     return $"{ys[0]}:{ys[1]}";
                 }
             }

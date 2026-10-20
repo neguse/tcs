@@ -43,13 +43,13 @@ public partial class DifferentialTests
                     dict.TryGetValue(1, out S got);
                     got.N = 6;
                     Console.WriteLine(arr[0].N + ":" + pair.Item.N + ":" + tag + ":" + dict[1].N);
-                    var copy = list.ToList();
+                    var copy = new List<S>(list);
                     var any = list.Any(x => { x.Bump(); return x.N == 3; });
-                    var picked = list.Where(x => { x.N = 8; return true; }).ToList();
+                    var picked = list.Where(x => { x.N = 8; return true; });
                     arr[0].N = 1;
                     Console.WriteLine(copy[0].N + ":" + any + ":" + list[0].N + ":" + picked[0].N + ":" + picked.Count);
                     var rs = new List<R> { new R(3) };
-                    Console.WriteLine(rs.ToList()[0].V + ":" + rs.Count(r => r.V == 3));
+                    Console.WriteLine(new List<R>(rs)[0].V + ":" + rs.Count(r => r.V == 3));
                 }
             }
             """, "P");
@@ -88,10 +88,9 @@ public partial class DifferentialTests
                 public static void Main()
                 {
                     var xs = new List<S> { new S { N = 2 }, new S { N = 1 } };
-                    var n = xs.Where(Bump).Count() + xs.Count(Bump) + (xs.All(Bump) ? 1 : 0)
-                        + (xs.Any(Bump) ? 1 : 0) + xs.First(Bump).N + xs.Last(Bump).N
-                        + xs.OrderBy(Key).Count() + xs.Select(Id).Count()
-                        + xs.ToDictionary(Key, Id).Count;
+                    var n = xs.Where(Bump).Count + xs.Count(Bump) + (xs.All(Bump) ? 1 : 0)
+                        + (xs.Any(Bump) ? 1 : 0) + xs.FirstOrDefault(Bump).N
+                        + xs.OrderBy(Key).Count + xs.Select(Id).Count;
                     Console.WriteLine(n + ":" + xs.Max(Key) + ":" + xs.Sum(Key));
                     xs.Any(Ext.BumpE);
                     Ext.AnyBumped(xs);
@@ -109,10 +108,10 @@ public partial class DifferentialTests
                 }
             }
             """, "P");
-        Assert.Equal("15:1002:2003\n2,1,\n1,2,|1:16", output);
+        Assert.Equal("12:1002:2003\n2,1,\n1,2,|1:16", output);
     }
 
-    // 式本体 (=>) の lambda と method の return は struct を copy する (ToDictionary は value selector の戻り値をそのまま格納する)
+    // 式本体 (=>) の lambda と method の return は struct を copy する (Select は selector の戻り値をそのまま格納する)
     [CFact]
     public void StructCopy_ExpressionBodyReturn()
     {
@@ -130,17 +129,17 @@ public partial class DifferentialTests
                 {
                     arr = new S[] { new S { N = 5 }, new S { N = 7 } };
                     var xs = new List<int> { 1, 0 };
-                    var d1 = xs.ToDictionary(x => x, x => arr[0]);
-                    var d2 = xs.ToDictionary(x => x, x => { return arr[0]; });
-                    var d3 = xs.ToDictionary(k => k, Get);
-                    var d4 = xs.ToDictionary(k => k, Pick);
+                    var d1 = xs.Select(x => arr[0]);
+                    var d2 = xs.Select(x => { return arr[0]; });
+                    var d3 = xs.Select(Get);
+                    var d4 = xs.Select(Pick);
                     Func<int, S> f = x => arr[x];
-                    var d5 = xs.ToDictionary(k => k, f);
+                    var d5 = xs.Select(f);
                     Action<int> act = x => Get(x);
                     act(1);
                     arr[0].N = 6;
                     arr[1].N = 8;
-                    Console.WriteLine(d1[1].N + ":" + d2[1].N + ":" + d3[1].N + ":" + d4[1].N + ":" + d4[0].N + ":" + d5[1].N + ":" + d5[0].N);
+                    Console.WriteLine(d1[0].N + ":" + d2[0].N + ":" + d3[0].N + ":" + d4[0].N + ":" + d4[1].N + ":" + d5[0].N + ":" + d5[1].N);
                 }
             }
             """, "P");

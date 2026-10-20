@@ -284,17 +284,6 @@ function List.All(list, predicate)
   return true
 end
 
-function List.First(list, predicate)
-  if not predicate then
-    if #list == 0 then error("Sequence contains no elements") end
-    return list[1]
-  end
-  for i = 1, #list do
-    if predicate(list[i]) then return list[i] end
-  end
-  error("Sequence contains no matching element")
-end
-
 -- default は要素型別の C# default(T) (int=0 / bool=false / ref=nil)。
 -- transpiler が呼び出しサイトの型から埋め込む。
 function List.FirstOrDefault(list, predicate, default)
@@ -347,47 +336,6 @@ end
 
 function List.OrderByDescending(list, keySelector)
   return orderby(list, keySelector, greater, nanAfter, stringAfter)
-end
-
-function List.Take(list, count)
-  local result = {}
-  if count < 0 then count = 0 end
-  local limit = math.min(count, #list)
-  for i = 1, limit do result[#result + 1] = list[i] end
-  return result
-end
-
-function List.Skip(list, count)
-  local result = {}
-  local n = #list
-  -- 要素数以上の count は空列。count + 1 は LUA_32BITS で int.MaxValue が
-  -- wrap するので、要素数未満の count だけ足す
-  if count >= n then return result end
-  if count < 0 then count = 0 end
-  for i = count + 1, n do result[#result + 1] = list[i] end
-  return result
-end
-
-function List.Last(list, predicate)
-  if not predicate then
-    if #list == 0 then error("Sequence contains no elements") end
-    return list[#list]
-  end
-  for i = #list, 1, -1 do
-    if predicate(list[i]) then return list[i] end
-  end
-  error("Sequence contains no matching element")
-end
-
-function List.LastOrDefault(list, predicate, default)
-  if not predicate then
-    if #list == 0 then return default end
-    return list[#list]
-  end
-  for i = #list, 1, -1 do
-    if predicate(list[i]) then return list[i] end
-  end
-  return default
 end
 
 local function lessThan(a, b)
@@ -465,7 +413,8 @@ function List.SumInt(list, selector)
 end
 
 -- copy は変更可能な struct 要素の型別 __copy (新しい List は要素の copy を持つ)
-function List.ToList(list, copy)
+-- copy constructor `new List<T>(source)`。copy は変更可能な struct 要素の型別 __copy
+function List.Copy(list, copy)
   local result = {}
   if copy then
     for i = 1, #list do result[i] = copy(list[i]) end
@@ -478,23 +427,8 @@ end
 -- Dictionary<float, _> の NaN key。Lua table は NaN を key にできないので、
 -- .NET (NaN 同士は等しい key) と同じく 1 つの key として sentinel に置き、
 -- 列挙で NaN に戻す (Dict.FloatKey / FloatKeyOut / FloatKeys。生成コードは
--- float key の dict にだけ通し、ToDictionary には keyMap として渡す)
+-- float key の dict にだけ通す)
 local NAN_KEY = "NaN"
-
-function List.ToDictionary(list, keySelector, valueSelector, keyMap)
-  valueSelector = valueSelector or function(x) return x end
-  local dict = {}
-  for i = 1, #list do
-    local item = list[i]
-    -- C# と同じく key → value の順で各 1 回評価する (Lua の代入式の
-    -- 評価順は未規定なので local で明示する)。duplicate key は C# と
-    -- 異なり上書き (既知差異、support-matrix 参照)
-    local key = keySelector(item)
-    if keyMap then key = keyMap(key) end
-    dict[key] = valueSelector(item)
-  end
-  return dict
-end
 
 -- Dictionary operations
 local Dict = {}

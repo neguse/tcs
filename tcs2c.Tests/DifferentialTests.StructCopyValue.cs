@@ -38,12 +38,11 @@ public partial class DifferentialTests
                     l?.Add(t);
                     t.N = 2;
                     Console.WriteLine(d.Mine.N + ":" + d.Held.N + ":" + l[0].N);
-                    var arr = new List<S> { new S { N = 1 }, new S { N = 3 } };
-                    var a = arr.ToDictionary(x => x.N);
-                    var b = arr.ToDictionary(x => x.N + 10, x => x);
-                    arr[0] = new S { N = 2 };
-                    arr[1] = new S { N = 4 };
-                    Console.WriteLine(a[1].N + ":" + b[13].N);
+                    var arr = new S[] { new S { N = 1 }, new S { N = 3 } };
+                    var a = new List<S>(arr);
+                    arr[0].N = 2;
+                    arr[1].N = 4;
+                    Console.WriteLine(a[0].N + ":" + a[1].N);
                     var h = new H();
                     var src = new S { N = 5 };
                     var y = (h.Item = src);

@@ -22,15 +22,14 @@ public partial class TinyCsComplianceAnalyzerTests
                 {
                     var d = new Dictionary<K, int>();
                     Dictionary<R, int> r = new();
-                    var t = new List<int> { 1 }.ToDictionary(x => new K(x));
                     var c = new Dictionary<C, int>();
                     var i = new Dictionary<int, K>();
-                    return d.Count + r.Count + t.Count + c.Count + i.Count;
+                    return d.Count + r.Count + c.Count + i.Count;
                 }
             }
             """);
 
-        Assert.Equal(3, diagnostics.Count);
+        Assert.Equal(2, diagnostics.Count);
         Assert.All(diagnostics, d =>
         {
             Assert.Equal(TinyCsDiagnosticIds.UnsupportedSyntax, d.Id);
@@ -38,6 +37,5 @@ public partial class TinyCsComplianceAnalyzerTests
         });
         Assert.Contains("ValueEqualityDictionaryKey(K)", diagnostics[0].GetMessage());
         Assert.Contains("ValueEqualityDictionaryKey(R)", diagnostics[1].GetMessage());
-        Assert.Contains("ValueEqualityDictionaryKey(K)", diagnostics[2].GetMessage());
     }
 }

@@ -63,12 +63,6 @@ public static class List
             if (predicate(list[i])) n++;
         return n;
     }
-    public static T First<T>(
-        this global::System.Collections.Generic.List<T> list) => list[0];
-    public static T First<T>(
-        this global::System.Collections.Generic.List<T> list,
-        global::System.Func<T, bool> predicate) =>
-        global::System.Linq.Enumerable.First(list, predicate);
     public static T? FirstOrDefault<T>(
         this global::System.Collections.Generic.List<T> list) =>
         list.Count == 0 ? default : list[0];
@@ -115,25 +109,6 @@ public static class List
         for (var i = 0; i < count; i++) result.Add(items[index[i]]);
         return result;
     }
-    public static global::System.Collections.Generic.List<T> Take<T>(
-        this global::System.Collections.Generic.List<T> list, int count) =>
-        [.. global::System.Linq.Enumerable.Take(list, count)];
-    public static global::System.Collections.Generic.List<T> Skip<T>(
-        this global::System.Collections.Generic.List<T> list, int count) =>
-        [.. global::System.Linq.Enumerable.Skip(list, count)];
-    public static T Last<T>(
-        this global::System.Collections.Generic.List<T> list) => list[^1];
-    public static T Last<T>(
-        this global::System.Collections.Generic.List<T> list,
-        global::System.Func<T, bool> predicate) =>
-        global::System.Linq.Enumerable.Last(list, predicate);
-    public static T? LastOrDefault<T>(
-        this global::System.Collections.Generic.List<T> list) =>
-        global::System.Linq.Enumerable.LastOrDefault(list);
-    public static T? LastOrDefault<T>(
-        this global::System.Collections.Generic.List<T> list,
-        global::System.Func<T, bool> predicate) =>
-        global::System.Linq.Enumerable.LastOrDefault(list, predicate);
     public static T Min<T>(
         this global::System.Collections.Generic.List<T> list) =>
         Min(list, static x => x);
@@ -146,25 +121,6 @@ public static class List
     public static float Sum(
         this global::System.Collections.Generic.List<float> list) =>
         Sum(list, static x => x);
-    public static global::System.Collections.Generic.List<T> ToList<T>(
-        this global::System.Collections.Generic.List<T> list) => [.. list];
-    public static global::System.Collections.Generic.Dictionary<TKey, T>
-        ToDictionary<T, TKey>(
-            this global::System.Collections.Generic.List<T> list,
-            global::System.Func<T, TKey> keySelector)
-        where TKey : notnull =>
-        global::System.Linq.Enumerable.ToDictionary(list, keySelector,
-            item => item);
-    public static global::System.Collections.Generic.Dictionary<TKey, TValue>
-        ToDictionary<T, TKey, TValue>(
-            this global::System.Collections.Generic.List<T> list,
-            global::System.Func<T, TKey> keySelector,
-            global::System.Func<T, TValue> valueSelector)
-        where TKey : notnull =>
-        global::System.Linq.Enumerable.ToDictionary(list, keySelector,
-            valueSelector);
-    public static int Count<T>(
-        this global::System.Collections.Generic.List<T> list) => list.Count;
     // Min は NaN を見た時点で NaN (以降の selector は呼ばない)、Max は NaN 以外が
     // 1 つでもあればその最大 (Lua / C runtime と同じ。NaN は最小の値なので
     // Compare だけで決まる)。等しい値同士 (±0) は先の方を残す

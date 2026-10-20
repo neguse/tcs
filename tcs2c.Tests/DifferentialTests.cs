@@ -41,20 +41,21 @@ public partial class DifferentialTests
                 public static void Main()
                 {
                     var items = new List<Item> { new Item("sword", 100), new Item("potion", 10), new Item("shield", 80), new Item("arrow", 2) };
-                    var names = items.Where(i => i.Price >= 50).Select(i => i.Name).ToList();
+                    var names = items.Where(i => i.Price >= 50).Select(i => i.Name);
                     Console.WriteLine(string.Join(",", names));
                     Console.WriteLine(items.Select(i => i.Price).Sum());
                     Console.WriteLine(items.Min(i => i.Price) + ":" + items.Max(i => i.Price));
-                    Console.WriteLine(items.OrderBy(i => i.Price).First().Name);
-                    Console.WriteLine(items.OrderByDescending(i => i.Name).First().Name);
+                    Console.WriteLine(items.OrderBy(i => i.Price)[0].Name);
+                    Console.WriteLine(items.OrderByDescending(i => i.Name)[0].Name);
                     Console.WriteLine(items.Any(i => i.Price > 90) + ":" + items.All(i => i.Price > 5));
-                    Console.WriteLine(items.Count(i => i.Price > 5) + ":" + items.Count());
-                    Console.WriteLine(items.Where(Cheap).Count());
+                    Console.WriteLine(items.Count(i => i.Price > 5) + ":" + items.Count);
+                    Console.WriteLine(items.Where(Cheap).Count);
                     Console.WriteLine(items.FirstOrDefault(i => i.Price > 1000) == null);
-                    Console.WriteLine(items.Last().Name + ":" + items.LastOrDefault(i => i.Price > 50).Name);
-                    var prices = items.Select(i => i.Price).OrderBy(p => p).Skip(1).Take(2).ToList();
-                    Console.WriteLine(prices[0] + "," + prices[1]);
-                    var byName = items.ToDictionary(i => i.Name, i => i.Price);
+                    Console.WriteLine(items[items.Count - 1].Name + ":" + items.FirstOrDefault(i => i.Price > 50).Name);
+                    var prices = items.Select(i => i.Price).OrderBy(p => p);
+                    Console.WriteLine(prices[1] + "," + prices[2]);
+                    var byName = new Dictionary<string, int>();
+                    foreach (var i in items) byName[i.Name] = i.Price;
                     Console.WriteLine(byName["shield"]);
                     var nums = new List<int> { 5, 3, 9, 1 };
                     Console.WriteLine(nums.Contains(9) + ":" + nums.IndexOf(9) + ":" + nums.IndexOf(7));

@@ -90,7 +90,6 @@
 
 ## LINQ トラック (q.md Q18)
 
-- [ ] **T255** (P1): 落とす演算の撤去 — First / Last / LastOrDefault / Take / Skip / ToList / Count() / ToDictionary を allowlist・`runtime/tinysystem.lua`・`tcs2c/CEmitter.Linq.cs`・facade・テストから外す
 - [ ] **T256** (P1): 足す演算 — `List<T>.FindIndex` / `RemoveAll` (BCL allowlist + runtime + tcs2c)、TinySystem の MinBy / MaxBy (空列は Min / Max と同じく fault)
 - [ ] **T257** (P2): `readonly record struct` を data の既定として support-matrix (struct 行と §19) に copy コストの根拠つきで記載。lub 雛形への反映は lub へ feature request
 

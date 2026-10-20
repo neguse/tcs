@@ -56,8 +56,7 @@ public class ApiSignatureComplianceTests
     [InlineData("var p = s.Split(','); var i = s.IndexOf('a'); var b = s.Contains('a') && char.IsDigit(s[0]);")]
     [InlineData("var i = s.IndexOf(\"a\", 1); var sub = s.Substring(1, 2);")]
     [InlineData("var j = string.Join(\",\", names) + string.Join(\",\", \"x\", \"y\");")]
-    [InlineData("var byName = names.ToDictionary(x => x); var byLen = names.ToDictionary(x => x, x => x.Length);")]
-    [InlineData("var f = list.First() + list.Count(x => x > 1) + list.Min() + list.Sum();")]
+    [InlineData("var f = list.FirstOrDefault() + list.Count(x => x > 1) + list.Min() + list.Sum();")]
     [InlineData("var any = list.Any() || list.Any(x => x > 2);")]
     [InlineData("var shortest = names.Min(x => x.Length);")]
     [InlineData("list[0] = list[1]; dict[\"a\"] = dict[\"a\"] + 1;")]
@@ -92,6 +91,24 @@ public class ApiSignatureComplianceTests
         var error = Assert.Single(result.Errors,
             e => e.Contains(TinyCsDiagnosticIds.UnsupportedApi));
         Assert.Contains("System.Linq.Enumerable.Where", error);
+    }
+
+    [Theory]
+    [InlineData("list.First();")]
+    [InlineData("list.Last();")]
+    [InlineData("list.LastOrDefault(x => x > 1);")]
+    [InlineData("list.Take(1);")]
+    [InlineData("list.Skip(1);")]
+    [InlineData("list.ToList();")]
+    [InlineData("list.Count();")]
+    [InlineData("names.ToDictionary(x => x);")]
+    public void DroppedOperation_IsNotInTinySystemLinq(string statement)
+    {
+        var source = Wrap(statement).Replace("using System.Linq;\n", "");
+        var result = Transpiler.TranspileWithDiagnostics([source]);
+
+        Assert.Contains(result.Errors, e => e.Contains("CS1061") || e.Contains("CS1955") || e.Contains("CS7036"));
+        Assert.DoesNotContain(result.Errors, e => e.Contains(TinyCsDiagnosticIds.UnsupportedApi));
     }
 
     [Fact]

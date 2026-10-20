@@ -21,12 +21,6 @@ public static partial class TinyCsComplianceFacts
         {
             BaseObjectCreationExpressionSyntax creation =>
                 model.GetTypeInfo(creation).Type,
-            InvocationExpressionSyntax invocation
-                when model.GetSymbolInfo(invocation).Symbol is IMethodSymbol
-                {
-                    Name: "ToDictionary",
-                } toDictionary =>
-                toDictionary.ReturnType,
             _ => null,
         };
         if (!IsDictType(created)

@@ -480,8 +480,6 @@ public partial class TinyCsComplianceAnalyzerTests
                     };
                     dict["b"] = default;
 
-                    var values = new List<string> { "a" };
-                    var byValue = values.ToDictionary(v => v, v => (string)null);
                 }
             }
             """);
@@ -490,7 +488,7 @@ public partial class TinyCsComplianceAnalyzerTests
             .Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedCollectionNull)
             .ToArray();
 
-        Assert.Equal(6, collectionNulls.Length);
+        Assert.Equal(5, collectionNulls.Length);
         Assert.All(collectionNulls,
             d => Assert.Contains("null storage", d.GetMessage()));
         Assert.Contains(collectionNulls,
@@ -729,8 +727,7 @@ public partial class TinyCsComplianceAnalyzerTests
     [InlineData("var p = s.Split(','); var i = s.IndexOf('a'); var b = s.Contains('a') && char.IsDigit(s[0]);")]
     [InlineData("var i = s.IndexOf(\"a\", 1); var sub = s.Substring(1, 2);")]
     [InlineData("var j = string.Join(\",\", names) + string.Join(\",\", \"x\", \"y\");")]
-    [InlineData("var byName = names.ToDictionary(x => x); var byLen = names.ToDictionary(x => x, x => x.Length);")]
-    [InlineData("var f = list.First() + list.Count(x => x > 1) + list.Min() + list.Sum();")]
+    [InlineData("var f = list.FirstOrDefault() + list.Count(x => x > 1) + list.Min() + list.Sum();")]
     [InlineData("var any = list.Any() || list.Any(x => x > 2);")]
     [InlineData("var shortest = names.Min(x => x.Length);")]
     [InlineData("list[0] = list[1]; dict[\"a\"] = dict[\"a\"] + 1;")]

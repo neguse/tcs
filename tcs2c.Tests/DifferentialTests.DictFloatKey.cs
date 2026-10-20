@@ -37,7 +37,8 @@ public partial class DifferentialTests
                     init2[float.NaN] = "b";
                     Console.WriteLine(init.Count + "," + init[float.NaN] + "," + init2.Count + "," + init2[float.NaN]);
                     var list = new List<float> { 1f, float.NaN, 3f };
-                    var byKey = list.ToDictionary(x => x, x => 1);
+                    var byKey = new Dictionary<float, int>();
+                    foreach (var x in list) byKey[x] = 1;
                     Console.WriteLine(byKey.Count + "," + (byKey.ContainsKey(float.NaN) ? 1 : 0));
                     Dictionary<float, int> maybe = d;
                     Console.WriteLine((maybe?.ContainsKey(float.NaN) ?? false) ? 1 : 0);
@@ -63,7 +64,7 @@ public partial class DifferentialTests
         Assert.Contains("Dictionary key type not supported", ex.Message);
     }
 
-    private const string ToDictionaryKeysProgram = """
+    private const string FloatKeyInitializerProgram = """
         using System;
         using System.Collections.Generic;
         using TinySystem.Linq;
@@ -71,28 +72,28 @@ public partial class DifferentialTests
         {
             public static void Main()
             {
-                var byStr = new List<string> { "NaN", "a" }.ToDictionary(s => s);
+                var byStr = new Dictionary<string, string> { ["NaN"] = "NaN", ["a"] = "a" };
                 Console.WriteLine(byStr.Count + "," + (byStr.ContainsKey("NaN") ? 1 : 0));
-                var byF = new List<float> { float.NaN, 1f }.ToDictionary(x => x);
+                var byF = new Dictionary<float, float> { [float.NaN] = float.NaN, [1f] = 1f };
                 Console.WriteLine(byF.Count + "," + (byF.ContainsKey(float.NaN) ? 1 : 0));
             }
         }
         """;
 
-    // NaN の置換は float key の ToDictionary だけ。C は float key で止まる
+    // NaN の置換は float key の dict だけ。C は float key で止まる
     [Fact]
-    public void Dict_ToDictionary_FloatKeyOnly()
+    public void Dict_FloatKeyInitializer_LuaMapsNaN_CStops()
     {
-        Assert.Equal("2,1\n2,1", Backends.RunLua([ToDictionaryKeysProgram], "P"));
+        Assert.Equal("2,1\n2,1", Backends.RunLua([FloatKeyInitializerProgram], "P"));
         var ex = Assert.Throws<Tcs2cException>(
-            () => Backends.EmitC([ToDictionaryKeysProgram], "P"));
+            () => Backends.EmitC([FloatKeyInitializerProgram], "P"));
         Assert.Contains("Dictionary key type not supported", ex.Message);
     }
 
     // float 以外の静的型の key に入った NaN は対象外 (Lua table に置けず止まる)。
     // 文字列 "NaN" の key と取り違えて黙って 1 つにしない (CoreCLR は 2)
     [Fact]
-    public void Dict_ToDictionary_ObjectKeyNaN_IsNotMergedWithStringKey()
+    public void Dict_ObjectKeyNaN_IsNotMergedWithStringKey()
     {
         var ex = Assert.Throws<InvalidOperationException>(() => Backends.RunLua(["""
             using System;
@@ -103,7 +104,9 @@ public partial class DifferentialTests
                 public static void Main()
                 {
                     var objs = new List<object> { "NaN", float.NaN };
-                    Console.WriteLine(objs.ToDictionary(x => x, x => 1).Count);
+                    var byObj = new Dictionary<object, int>();
+                    foreach (var x in objs) byObj[x] = 1;
+                    Console.WriteLine(byObj.Count);
                 }
             }
             """], "P"));

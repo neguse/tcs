@@ -2276,3 +2276,11 @@
 - 判断: 拡張メソッドの namespace は `TinySystem` 直下ではなく `TinySystem.Linq`。直下だと `using System;` と併用したとき Math / String / Random が CS0104 で曖昧になる (テストで判明)。analyzer のテスト project は TinySystem を参照するようにした
 - 判断: facade は Enumerable に委譲せず添字で走る。走査は呼び出し時点の Count まで、要素は callback の前に読み、順は string が ordinal (Lua / C runtime と同じ)。Enumerable 委譲だと callback が受け手に Add すると dotnet だけ「Collection was modified」で止まり、Min(selector) は NaN で打ち切らず、string は culture の順になる。Lua runtime の Where / FirstOrDefault は callback 後に `list[i]` を読み直していたので callback 前の要素を返し、OrderBy は全要素を写してから key を計算するようにした (C は元から要素を先に読み、OrderBy は list を copy する)。callback が受け手を縮めて添字が範囲外になったときは .NET (list[i]) と C (bounds) が fault するのに対し Lua は nil を callback に渡していたので、nil の要素を範囲外として error にした (要素は null を持てないので nil は範囲外にしか現れない)
 - 残課題: T255 (落とす演算の撤去)、T256 (FindIndex / RemoveAll / MinBy / MaxBy)、T261 (Keys / Values の receiver overload)。lub の雛形への `<Using Include="TinySystem.Linq" />` は feature request
+
+### T255 落とす演算の撤去 ✓ (2026-10-21)
+- First / Last / LastOrDefault / Take / Skip / ToList / Count() / ToDictionary を `TinySystem.Linq.List`、`runtime/tinysystem.lua`、`tcs2c/CEmitter.Linq.cs`、transpiler の写像 (ListRuntimeMethods、FirstOrDefault 以外の default 渡し、ToDictionary の struct copy / float key の引数)、shared facts (ToDictionary の null 値と value-equality key の規則) から外した。`TinySystem.Linq` だけを using した呼び出しは C# の CS1061 / CS7036 になり、`System.Linq` があれば TCS1002
+- ToList の代替として copy constructor `new List<T>(source)` を足した (allowlist、Lua は `List.Copy` (旧 ToList の runtime を改名)、tcs2c は `tcs_list_copy` / 配列は `tcs_array_to_list`)。変更可能な struct 要素は型別 `__copy` で写す
+- テスト: 落とした演算を使っていた snippet を添字 / copy constructor / foreach に書き換え、演算固有のテスト (Take / Skip / Last / ToDictionary 系) は削除。fuzz の template も同じ語彙に揃えた。tcs2c の dict initializer は float key を項の型付けより前に `Dictionary key type not supported` で止めるようにした (Lua 向けの `Dict.FloatKey` 呼びで別のメッセージになっていた)
+- 検証: `dotnet test` 全通過 (Analyzers.Tests 69、Transpiler.Tests 1072、tcs2c.Tests 164)
+- 判断: 落とす演算は TinySystem に定義しないことで「無い」状態にする (allowlist で弾くのではなく、C# のコンパイルで止まる)。GetRange は足さない (Take / Skip の代替は for / foreach)
+- 残課題: T256 (FindIndex / RemoveAll / MinBy / MaxBy)

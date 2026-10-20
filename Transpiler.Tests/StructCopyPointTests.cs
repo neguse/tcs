@@ -223,7 +223,7 @@ public class StructCopyPointTests
     }
 
     [Fact]
-    public void ToList_CopiesElements()
+    public void CopyConstructor_CopiesElements()
     {
         Assert.Equal("9:2:2", Run("""
             public class T
@@ -231,8 +231,8 @@ public class StructCopyPointTests
                 public static string Test()
                 {
                     var source = new List<S> { new S { N = 2 } };
-                    var copy = source.ToList();
-                    var filtered = source.Where(x => true).ToList();
+                    var copy = new List<S>(source);
+                    var filtered = source.Where(x => true);
                     source[0] = new S { N = 9 };
                     return source[0].N + ":" + copy[0].N + ":" + filtered[0].N;
                 }
@@ -252,7 +252,7 @@ public class StructCopyPointTests
                     var any = xs.Any(x => { x.Bump(); return x.N == 4; }) ? 1 : 0;
                     var arr = new List<S> { new S { N = 2 } };
                     var count = arr.Count(x => { x.N = 5; return true; });
-                    var same = arr.Select(x => x).ToList();
+                    var same = arr.Select(x => x);
                     arr[0] = new S { N = 3 };
                     return any + ":" + xs[0].N + ":" + same[0].N + ":" + arr[0].N
                         + (count == 1 ? "" : "!");
@@ -287,7 +287,7 @@ public class StructCopyPointTests
     [Fact]
     public void MethodGroup_StructParameterIsCopy()
     {
-        Assert.Equal("15:1002:2003|2,1,|1,2,|1:16", Run("""
+        Assert.Equal("12:1002:2003|2,1,|1,2,|1:16", Run("""
             public static class Ext
             {
                 public static bool BumpE(this S s) { s.N += 100; return true; }
@@ -311,10 +311,9 @@ public class StructCopyPointTests
                 public static string Test()
                 {
                     var xs = new List<S> { new S { N = 2 }, new S { N = 1 } };
-                    var n = xs.Where(Bump).Count() + xs.Count(Bump) + (xs.All(Bump) ? 1 : 0)
-                        + (xs.Any(Bump) ? 1 : 0) + xs.First(Bump).N + xs.Last(Bump).N
-                        + xs.OrderBy(Key).Count() + xs.Select(Id).Count()
-                        + xs.ToDictionary(Key, Id).Count;
+                    var n = xs.Where(Bump).Count + xs.Count(Bump) + (xs.All(Bump) ? 1 : 0)
+                        + (xs.Any(Bump) ? 1 : 0) + xs.FirstOrDefault(Bump).N
+                        + xs.OrderBy(Key).Count + xs.Select(Id).Count;
                     var max = xs.Max(Key);
                     var sum = xs.Sum(Key);
                     xs.Any(Ext.BumpE);
@@ -410,18 +409,18 @@ public class StructCopyPointTests
                 {
                     arr = new S[] { new S { N = 5 }, new S { N = 7 } };
                     var xs = new List<int> { 1, 0 };
-                    var d1 = xs.ToDictionary(x => x, x => arr[0]);
-                    var d2 = xs.ToDictionary(x => x, x => { return arr[0]; });
-                    var d3 = xs.ToDictionary(k => k, Get);
-                    var d4 = xs.ToDictionary(k => k, Pick);
+                    var d1 = xs.Select(x => arr[0]);
+                    var d2 = xs.Select(x => { return arr[0]; });
+                    var d3 = xs.Select(Get);
+                    var d4 = xs.Select(Pick);
                     Func<int, S> f = x => arr[x];
-                    var d5 = xs.ToDictionary(k => k, f);
+                    var d5 = xs.Select(f);
                     Action<int> act = x => Get(x);
                     act(1);
                     arr[0].N = 6;
                     arr[1].N = 8;
-                    return d1[1].N + ":" + d2[1].N + ":" + d3[1].N + ":" + d4[1].N + ":" + d4[0].N
-                        + ":" + d5[1].N + ":" + d5[0].N;
+                    return d1[0].N + ":" + d2[0].N + ":" + d3[0].N + ":" + d4[0].N + ":" + d4[1].N
+                        + ":" + d5[0].N + ":" + d5[1].N;
                 }
             }
             """));

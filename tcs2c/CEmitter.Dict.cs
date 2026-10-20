@@ -41,6 +41,10 @@ internal sealed partial class CEmitter
         if (table.Entries.Any(e => e.NameKey is not null || e.Key is null && table.Entries.Length > 0 && table.KeyType is null))
             throw new Tcs2cException("mixed IlTable entries are not supported");
         CType? key = table.KeyType is null ? null : _facts.MapType(table.KeyType);
+        // 契約の key 型が対応外 (float 等) なら、項 (Lua 向けの Dict.FloatKey 呼び
+        // を含む) を型付けする前に止める
+        if (key is not null && !_facts.IsDictKey(key))
+            throw new Tcs2cException($"Dictionary key type not supported: {key}");
         CType? value = table.ElementType is null
             ? null : _facts.MapType(table.ElementType);
         foreach (var entry in table.Entries)

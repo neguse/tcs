@@ -35,7 +35,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | struct / record struct | **Core** | 値セマンティクス対応済み (T219b)。instance member / 値等価 / readonly copy 省略。C backend は素の C struct |
 | if / switch / loop / lambda / pattern | **Core** | ゲームロジックと小さな業務ロジックの表現力として必要 |
 | 演算子オーバーロード (算術) | **Core** | ベクトル/行列など math 型の表現に必要。二項 `+ - * / %` と単項 `-` だけを class table 上の static 関数へ写像し (呼び出し箇所で overload を静的解決)、変換演算子と `==`/`!=`/比較系は対象外 |
-| LINQ メソッドチェーン | **Core** | `Where`/`Select`/`Any`/`All`/`First`/`Last`/`OrderBy`/`Take`/`Skip`/集計の小核だけ即時評価で提供 |
+| LINQ メソッドチェーン | **Core** | `Where`/`Select`/`Any`/`All`/`FirstOrDefault`/`OrderBy`/集計の小核だけ即時評価で提供 |
 | ユーザー定義ジェネリクス | **Out** | 型消去 runtime と複雑さが釣り合わない。組み込み generic 型に限定 |
 | reflection / dynamic / expression tree | **Out** | Lua 5.5 backend と compact baseline に合わない |
 | async / Task / threading | **Out** | ホットリロード可能なシングルスレッド Lua 実行を基本にする |
@@ -151,7 +151,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | 型 | 状態 | Lua マッピング | 備考 |
 |----|:----:|--------------|------|
 | `class` | **Y** | table + metatable | 基底 class は持てない (継承は対象外、§8)。interface の実装は可。object の member (ToString / Equals / GetHashCode) の override も TCS1001 (Lua は `ToString()` を tostring、連結を `..`、List.Contains を同一性に写し、override を呼ばない) |
-| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。ToList / ToDictionary と LINQ の lambda parameter、static method の method group の parameter、式本体 (`=>`) の lambda と method の戻り値、`?.` 呼び出しの引数、class の user operator の operand、式位置の代入の値、switch 式の arm の値、struct の `T?` の値 (値があれば中の struct) も値 copy。static member / operator / override はサブセット外 (TCS1001。static field と static auto property は Lua で nil を読むので build を止める error、const は使用箇所で値に畳むので可) |
+| `struct` | **Y** | plain table (metatable なし) + copy 地点で型別 `__copy` | 値意味論 (il-spec §10)。instance member は静的自由関数 (C backend は `Tcs_S *self` のアドレス渡し)。List.Contains / IndexOf / Remove は memberwise 等価。copy constructor `new List<T>(source)` の要素と LINQ の lambda parameter、static method の method group の parameter、式本体 (`=>`) の lambda と method の戻り値、`?.` 呼び出しの引数、class の user operator の operand、式位置の代入の値、switch 式の arm の値、struct の `T?` の値 (値があれば中の struct) も値 copy。static member / operator / override はサブセット外 (TCS1001。static field と static auto property は Lua で nil を読むので build を止める error、const は使用箇所で値に畳むので可) |
 | `record` / `record class` | **Y** | table + metatable (`__eq`)。IL 契約に IsRecord で収載、C backend は型ごとの構造等価関数と実行時 layout の with copy | positional record。record の継承 (`record D(...) : B(...)`) は対象外 (§8)。==/!= は実行時型の一致と、各 positional field の値等価 (struct field は memberwise、struct の `T?` field は値の有無と中の値、float / `float?` field と generic な record の型 parameter の field は float.Equals で NaN 同士も等しい。C# の合成 Equals と同じ。型 parameter に struct を入れた field は table の同一性で比べる)。static field (const / static readonly 込み) と static auto property は class と同じく pre-zero して型をまたぐ初期化順で初期化する。Equals / GetHashCode / ToString 呼びと override は対象外 (override は TCS1001)。C# の `(T)x` downcast は IlCast で C 側 fault 対象 |
 | `record struct` | **Y** | plain table + positional ctor + 合成 `op_Equality` | 値等価 ==/!= (field ごとの比較は record class と同じく EqualityComparer\<T\>.Default、struct の List 検索の ValueType.Equals も同じ) と with 式。readonly (record) struct は copy 全省略。IL 契約 (IlStructInfo) と C backend、hot reload の migration も struct と同じ |
 | `interface` | **P** | 出力なし | Roslyn 型チェックのみ |
@@ -737,6 +737,7 @@ Lua sequence table は `nil` 要素を保持できないため、`null` 要素�
 |---------|:----:|--------------|:----:|
 | `new List<T>()` | **Y** | `{}` | T |
 | `new List<T> { 1, 2, 3 }` | **Y** | `{1, 2, 3}` | T |
+| `new List<T>(source)` | **Y** | `List.Copy(source)` (要素を新しい List へ写す。変更可能な struct 要素は型別 `__copy`、配列も受ける) | T+R |
 | `list[i]` (get/set) | **Y** | `list[i+1]` | T |
 | `.Count` | **Y** | `#list` | T |
 | `.Add(item)` | **Y** | 文位置は `list[#list + 1] = item` (受け手が変数/field 連鎖の場合。引数が呼び出しを含むときは `local __tcs_v = item` に先に束縛)。受け手が式 (`Get().Add(x)` 等) のときは `table.insert(list, item)` | T |
@@ -792,7 +793,7 @@ key を対応外として生成前に止める (`Dictionary key type not support
 Dictionary は対応外。.NET (`EqualityComparer<K>.Default`) は等しい値の key を
 同じ key とみなすが、Lua table は table の同一性で引くので、等しい値の別の
 table では `ContainsKey` / 索引が外れる。作る地点 (`new Dictionary<K, V>()`、
-target-typed `new()`、`ToDictionary`) を TCS1001 `ValueEqualityDictionaryKey(K)`
+target-typed `new()`) を TCS1001 `ValueEqualityDictionaryKey(K)`
 とし、transpiler は build を止める (Lua / C とも出力しない。analyzer は warning)。
 key 型が型 parameter の dict (generic method の中で作るもの) は対象外。
 
@@ -832,25 +833,27 @@ static の形 `List.Where(xs, f)` も拡張の形と同じ写像。メソッド�
 | `.Select(selector)` | **Y** | `List.Select(list, fn)` | T+R |
 | `.Any()` / `.Any(predicate)` | **Y** | `List.Any(list, fn)` | T+R |
 | `.All(predicate)` | **Y** | `List.All(list, fn)` | T+R |
-| `.First()` / `.First(predicate)` | **Y** | `List.First(list, fn)` | T+R |
 | `.FirstOrDefault()` / `.FirstOrDefault(pred)` | **Y** | `List.FirstOrDefault(list, fn, default)` | T+R。miss 時は要素型別 default (int=0/bool=false/ref=nil) |
 | `.OrderBy(keySelector)` | **Y** | `List.OrderBy(list, fn)` (安定 sort) | T+R。NaN の key は最小。string の key は ordinal の順 |
 | `.OrderByDescending(keySelector)` | **Y** | `List.OrderByDescending(list, fn)` (安定 sort) | T+R。NaN の key は最小 (降順では末尾)。string の key は ordinal の順 |
-| `.Take(count)` | **Y** | `List.Take(list, count)` | T+R |
-| `.Skip(count)` | **Y** | `List.Skip(list, count)` | T+R |
-| `.Last()` / `.LastOrDefault()` | **Y** | `List.Last/LastOrDefault(list, fn, default)` | T+R。First/Last/Min/Max の empty は明示 error |
 | `.Min()` | **Y** | `List.Min(list)` | T+R。NaN は最小の値 (NaN を見た時点で NaN)。string は ordinal の順 |
 | `.Max()` | **Y** | `List.Max(list)` | T+R。NaN は最小の値 (NaN 以外が無いときだけ NaN)。string は ordinal の順 |
 | `.Sum()` | **Y** | `List.Sum(list)` | T+R。int の和 (要素型か selector の戻り値が int) は `List.SumInt` で checked (Enumerable.Sum と同じく途中の overflow で fault)。float の和は空でも `0.0` |
-| `.Count()` / `.Count(predicate)` | **Y** | `List.Count(list, fn)` | T+R |
-| `.ToList()` | **Y** | `List.ToList(list)` | T+R |
-| `.ToDictionary(key)` / `.ToDictionary(key, value)` | **Y** | `List.ToDictionary(list, keyFn, valueFn)`。selector は各要素 1 回・key → value 順。**既知差異**: duplicate key は C# の ArgumentException ではなく Lua table 上書き (`Dictionary.Add` の duplicate も同様) | T+R |
-| チェーン `.Where().Select().ToList()` | **Y** | ネスト呼び出し | T |
+| `.Count(predicate)` | **Y** | `List.Count(list, fn)` | T+R。要素数は `.Count` property |
+| チェーン `.Where().Select()` | **Y** | ネスト呼び出し (各段が `List<T>` を返す) | T |
 
 ### 未対応
 
+q.md Q18 で外した演算は、添字・copy constructor・foreach で書く。
+
 | メソッド | 状態 | 備考 |
 |---------|:----:|------|
+| `.First()` / `.First(predicate)` | **-** | `list[0]`、`FirstOrDefault(predicate)` |
+| `.Last()` / `.LastOrDefault()` | **-** | `list[list.Count - 1]`、後ろからの foreach |
+| `.Take(count)` / `.Skip(count)` | **-** | for / foreach で書く |
+| `.Count()` | **-** | `.Count` property |
+| `.ToList()` | **-** | copy constructor `new List<T>(source)` (§17) |
+| `.ToDictionary(key)` / `.ToDictionary(key, value)` | **-** | `new Dictionary<K, V>()` と foreach で書く |
 | `.SelectMany()` | **-** | |
 | `.ThenBy()` / `.ThenByDescending()` | **-** | |
 | `.GroupBy()` | **-** | |

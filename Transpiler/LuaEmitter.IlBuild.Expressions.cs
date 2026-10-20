@@ -729,6 +729,20 @@ public partial class LuaEmitter
                 ? named.TypeArguments[i].ToDisplayString() : null;
         if (IsListType(typeDef))
         {
+            // copy constructor `new List<T>(source)`: 要素を新しい List へ写す。
+            // 変更可能な struct 要素なら型別 __copy を渡す (C backend は要素を
+            // 値で写すので読まない)
+            var ctorArgs = argumentList?.ToList() ?? [];
+            if (ctorArgs.Count == 1 && initializer == null)
+            {
+                if (!ctorArgs[0].RefKindKeyword.IsKind(SyntaxKind.None)) return null;
+                var source = BuildExpr(model, ctorArgs[0].Expression);
+                if (source == null) return null;
+                var elem = (typeSymbol as INamedTypeSymbol)?.TypeArguments.FirstOrDefault();
+                return new IlCall("List.Copy", elem != null && IsMutableStruct(elem)
+                    ? [source, new IlField(new IlVar(TypeName(elem)), "__copy")]
+                    : [source]);
+            }
             if (initializer == null) return new IlTable([], TypeArg(0));
             var items = new List<IlTableEntry>();
             foreach (var e in initializer.Expressions)

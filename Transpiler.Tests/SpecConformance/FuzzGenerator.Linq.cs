@@ -4,8 +4,8 @@ namespace TinyCs.Tests.SpecConformance;
 /// FuzzGenerator の LINQ 部 (allowlist 小核) + Split/Join/IsNullOrEmpty。
 /// 例外を踏む形は構造的に排除する: Sum は要素を % 1000 で有界化して
 /// OverflowException (C# の Sum は checked) を避け、Min/Max/First/Last は
-/// Count ガードか OrDefault 系のみ、ToDictionary はキー重複 throw のため
-/// 生成しない。列挙順が確定しない Dictionary への LINQ も生成しない。
+/// Count ガードか OrDefault 系のみ。列挙順が確定しない Dictionary への LINQ は
+/// 生成しない。
 /// </summary>
 internal sealed partial class FuzzGenerator
 {
@@ -33,12 +33,12 @@ internal sealed partial class FuzzGenerator
             1 => $"{xs}.Count({v} => {Predicate(v)})",
             2 => $"({xs}.Count > 0 ? {xs}.{(_rng.Next(2) == 0 ? "Max" : "Min")}() " +
                  $": {IntExpr(Math.Max(depth - 1, 0))})",
-            3 => $"{xs}.Where({v} => {Predicate(v)}).Count()",
+            3 => $"{xs}.Where({v} => {Predicate(v)}).Count",
             4 => $"{xs}.FirstOrDefault({v} => {Predicate(v)})",
-            5 => $"{xs}.LastOrDefault({v} => {Predicate(v)})",
+            5 => $"{xs}.Where({v} => {Predicate(v)}).FirstOrDefault()",
             6 => $"{xs}.OrderBy{(_rng.Next(2) == 0 ? "" : "Descending")}" +
-                 $"({v} => {v}).Skip({_rng.Next(0, 3)}).FirstOrDefault()",
-            _ => $"{xs}.Take({_rng.Next(0, 4)}).Count()",
+                 $"({v} => {v}).FirstOrDefault()",
+            _ => $"new List<int>({xs}).Count",
         };
     }
 

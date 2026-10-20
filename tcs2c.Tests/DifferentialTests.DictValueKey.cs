@@ -2,7 +2,7 @@ namespace TinyCs.Tcs2c.Tests;
 
 // 値で比べる key の Dictionary は両 backend とも生成前に止まる (#185)。Lua
 // table は key を同一性で引くので、止めないと等しい値の key で ContainsKey が
-// false になる (CoreCLR は `rs:1:1` / `s:1` / `r:1` / `todict:1`)
+// false になる (CoreCLR は `rs:1:1` / `s:1` / `r:1`)
 public partial class DifferentialTests
 {
     private const string DictValueKeyProgram = """
@@ -26,8 +26,6 @@ public partial class DifferentialTests
                 r[new R(1)] = 1;
                 r[new R(1)] = 2;
                 Console.WriteLine("r:" + r.Count);
-                var t = new List<int> { 1, 2 }.ToDictionary(x => new K(x, x));
-                Console.WriteLine("todict:" + (t.ContainsKey(new K(1, 1)) ? 1 : 0));
             }
         }
         """;
@@ -49,8 +47,6 @@ public partial class DifferentialTests
             Assert.Contains("(14,17): error TCS1001: unsupported syntax: ValueEqualityDictionaryKey(S)",
                 ex.Message);
             Assert.Contains("(17,32): error TCS1001: unsupported syntax: ValueEqualityDictionaryKey(R)",
-                ex.Message);
-            Assert.Contains("(21,17): error TCS1001: unsupported syntax: ValueEqualityDictionaryKey(K)",
                 ex.Message);
         }
     }

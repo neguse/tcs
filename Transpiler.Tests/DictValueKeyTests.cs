@@ -20,8 +20,7 @@ public class DictValueKeyTests
                 var d = new Dictionary<K, int>();
                 Dictionary<R, int> r = new();
                 var n = new Dictionary<S?, int>();
-                var t = new List<int> { 1 }.ToDictionary(x => new S { X = x });
-                return d.Count + r.Count + n.Count + t.Count;
+                return d.Count + r.Count + n.Count;
             }
         }
         """;
@@ -31,7 +30,7 @@ public class DictValueKeyTests
     {
         var result = Transpiler.TranspileWithDiagnostics([Source]);
 
-        Assert.Equal(4, result.Errors.Count);
+        Assert.Equal(3, result.Errors.Count);
         Assert.All(result.Errors, e => Assert.Contains(
             "error TCS1001: unsupported syntax: ValueEqualityDictionaryKey(", e));
         Assert.StartsWith("(10,17)", result.Errors[0]);
@@ -39,8 +38,6 @@ public class DictValueKeyTests
         Assert.StartsWith("(11,32)", result.Errors[1]);
         Assert.EndsWith("ValueEqualityDictionaryKey(R)", result.Errors[1]);
         Assert.EndsWith("ValueEqualityDictionaryKey(S?)", result.Errors[2]);
-        Assert.StartsWith("(13,17)", result.Errors[3]);
-        Assert.EndsWith("ValueEqualityDictionaryKey(S)", result.Errors[3]);
         Assert.Empty(result.Lua);
     }
 
@@ -83,8 +80,7 @@ public class DictValueKeyTests
                     var e = new Dictionary<E, int>();
                     var i = new Dictionary<int, S>();
                     var s = new Dictionary<string, int>();
-                    var t = new List<int> { 1 }.ToDictionary(x => x, x => new S { X = x });
-                    return c.Count + e.Count + i.Count + s.Count + t.Count;
+                    return c.Count + e.Count + i.Count + s.Count;
                 }
             }
             """]);

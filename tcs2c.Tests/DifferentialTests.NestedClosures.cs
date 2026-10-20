@@ -33,7 +33,7 @@ public partial class DifferentialTests
                     Console.WriteLine(h(2));
                     Func<int, Func<int, Func<int, int>>> add3 = a => b => c => a * 100 + b * 10 + c;
                     Console.WriteLine(add3(1)(2)(3));
-                    var counts = arr.Select(x => arr.Where(y => y > x).Count()).ToList();
+                    var counts = arr.Select(x => arr.Where(y => y > x).Count);
                     Console.WriteLine(counts[0] + "," + counts[1] + "," + counts[2] + "," + counts[3]);
                     Console.WriteLine(Field(2) + ":" + new Counter().Run(arr));
                 }

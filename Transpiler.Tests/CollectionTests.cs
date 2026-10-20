@@ -104,7 +104,7 @@ public class CollectionTests
                 public static int Test()
                 {
                     var list = new List<int> { 1, 2, 3, 4, 5 };
-                    var evens = list.Where(x => x % 2 == 0).ToList();
+                    var evens = list.Where(x => x % 2 == 0);
                     return evens.Count;
                 }
             }
@@ -124,7 +124,7 @@ public class CollectionTests
                 public static int Test()
                 {
                     var list = new List<int> { 1, 2, 3 };
-                    var doubled = list.Select(x => x * 2).ToList();
+                    var doubled = list.Select(x => x * 2);
                     return doubled[0] + doubled[1] + doubled[2];
                 }
             }
@@ -145,7 +145,7 @@ public class CollectionTests
                 public static int Test()
                 {
                     var list = new List<int> { 1, 2, 3, 4, 5 };
-                    var result = list.Where(x => x > 2).Select(x => x * 10).ToList();
+                    var result = list.Where(x => x > 2).Select(x => x * 10);
                     return result[0] + result[1] + result[2];
                 }
             }
@@ -185,7 +185,7 @@ public class CollectionTests
                 public static int Test()
                 {
                     var list = new List<int> { 10, 20, 30 };
-                    return list.First();
+                    return list[0];
                 }
             }
             """,
@@ -278,7 +278,7 @@ public class CollectionTests
                 public static int Test()
                 {
                     var list = new List<int> { 3, 1, 2 };
-                    var sorted = list.OrderBy(x => x).ToList();
+                    var sorted = list.OrderBy(x => x);
                     return sorted[0] * 100 + sorted[1] * 10 + sorted[2];
                 }
             }
@@ -335,5 +335,27 @@ public class CollectionTests
             }
             """, "T.Test()");
         Assert.Equal("0", result);
+    }
+
+    // copy constructor `new List<T>(source)` は要素を新しい List へ写す (ToList の代替)
+    [Fact]
+    public void List_CopyConstructor_CopiesElements()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            public class T
+            {
+                public static string Test()
+                {
+                    var src = new List<int> { 1, 2, 3 };
+                    var copy = new List<int>(src);
+                    src.Add(4);
+                    copy[0] = 9;
+                    var fromArray = new List<int>(new int[] { 7, 8 });
+                    return copy.Count + ":" + copy[0] + ":" + src[0] + ":" + src.Count + ":" + fromArray[1];
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("3:9:1:4:8", result);
     }
 }

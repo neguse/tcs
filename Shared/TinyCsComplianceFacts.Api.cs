@@ -142,6 +142,7 @@ public static partial class TinyCsComplianceFacts
             "string.EnumerateRunes()",
 
             "System.Collections.Generic.List<T>.List()",
+            "System.Collections.Generic.List<T>.List(System.Collections.Generic.IEnumerable<T>)",
             "System.Collections.Generic.List<T>.Add(T)",
             "System.Collections.Generic.List<T>.Remove(T)",
             "System.Collections.Generic.List<T>.RemoveAt(int)",
@@ -355,11 +356,6 @@ public static partial class TinyCsComplianceFacts
         && named.OriginalDefinition.ToDisplayString(
             SymbolDisplayFormat.CSharpErrorMessageFormat)
             == "System.Collections.Generic.Dictionary<TKey, TValue>";
-
-    private static bool IsTinySystemList(ITypeSymbol? type) =>
-        type is INamedTypeSymbol named
-        && named.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)
-            == "TinySystem.Linq.List";
 
     private static bool IsPartiallySupportedApi(ISymbol symbol,
         INamedTypeSymbol containingType)

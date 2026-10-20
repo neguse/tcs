@@ -148,19 +148,6 @@ public static partial class TinyCsComplianceFacts
             return true;
         }
 
-        // 拡張の形 `xs.ToDictionary(k, v)` は value selector が第 2 引数、
-        // static の形 `List.ToDictionary(xs, k, v)` は第 3 引数
-        var valueSelector = method.ReducedFrom != null ? 1 : 2;
-        if (method.Name == "ToDictionary"
-            && IsTinySystemList(method.ContainingType)
-            && args.Count > valueSelector
-            && IsNilReturningLambda(args[valueSelector].Expression, model))
-        {
-            description =
-                "Dictionary<K,V> cannot store null values because nil removes keys";
-            return true;
-        }
-
         return false;
     }
 

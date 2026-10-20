@@ -623,7 +623,6 @@ public partial class LuaEmitter
                 case "Clear":
                     return BuildListClear(obj);
                 case "FirstOrDefault":
-                case "LastOrDefault":
                 {
                     var invoked = model.GetSymbolInfo(inv).Symbol as IMethodSymbol;
                     if (invoked == null) return null;

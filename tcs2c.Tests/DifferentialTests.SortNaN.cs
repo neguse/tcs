@@ -21,8 +21,8 @@ public partial class DifferentialTests
             public class P
             {
                 public static void GenSort<T>(List<T> l) { l.Sort(); }
-                public static List<T> GenOb<T, K>(List<T> l, Func<T, K> key) => l.OrderBy(key).ToList();
-                public static List<T> GenObd<T, K>(List<T> l, Func<T, K> key) => l.OrderByDescending(key).ToList();
+                public static List<T> GenOb<T, K>(List<T> l, Func<T, K> key) => l.OrderBy(key);
+                public static List<T> GenObd<T, K>(List<T> l, Func<T, K> key) => l.OrderByDescending(key);
                 public static string Show(List<float> values)
                 {
                     string result = "";
@@ -58,13 +58,13 @@ public partial class DifferentialTests
                     allNan.Sort();
                     Console.WriteLine(Show(allNan));
                     var source = new List<float> { 2.0f, nan, 1.0f };
-                    Console.WriteLine(Show(source.OrderBy(x => x).ToList()) + " " + Show(source.OrderByDescending(x => x).ToList()) + " " + Show(source));
-                    Console.WriteLine(Show(mixed.OrderBy(x => -x).ToList()) + " " + Show(mixed.OrderByDescending(x => x).ToList()));
+                    Console.WriteLine(Show(source.OrderBy(x => x)) + " " + Show(source.OrderByDescending(x => x)) + " " + Show(source));
+                    Console.WriteLine(Show(mixed.OrderBy(x => -x)) + " " + Show(mixed.OrderByDescending(x => x)));
                     var finite = new List<float> { 2.0f, 0.0f, 1.0f };
-                    Console.WriteLine(Show(finite.OrderBy(x => 1.0f).ToList()) + " " + Show(finite.OrderByDescending(x => 1.0f).ToList()) + " " + Show(finite.OrderByDescending(x => x).ToList()));
+                    Console.WriteLine(Show(finite.OrderBy(x => 1.0f)) + " " + Show(finite.OrderByDescending(x => 1.0f)) + " " + Show(finite.OrderByDescending(x => x)));
                     var items = new List<Item>();
                     for (int i = 0; i < 9; i++) items.Add(new Item { Id = i, Key = i % 3 == 0 ? nan : (float)(i % 4) });
-                    Console.WriteLine(Ids(items.OrderBy(it => it.Key).ToList()) + " " + Ids(items.OrderByDescending(it => it.Key).ToList()));
+                    Console.WriteLine(Ids(items.OrderBy(it => it.Key)) + " " + Ids(items.OrderByDescending(it => it.Key)));
                     var g = new List<float> { 2.0f, nan, 1.0f };
                     GenSort(g);
                     var f = new List<float> { 2.0f, nan, 1.0f };
@@ -75,7 +75,7 @@ public partial class DifferentialTests
                     ints.Sort();
                     var words = new List<string> { "b", "a", "c" };
                     words.Sort();
-                    Console.WriteLine(ints[0] + "," + ints[1] + "," + ints[2] + " " + words[0] + words[1] + words[2] + " " + Ids(items.OrderBy(it => it.Id % 2).ToList()));
+                    Console.WriteLine(ints[0] + "," + ints[1] + "," + ints[2] + " " + words[0] + words[1] + words[2] + " " + Ids(items.OrderBy(it => it.Id % 2)));
                 }
             }
             """, "P");
@@ -118,7 +118,7 @@ public partial class DifferentialTests
                 float nan = zero / zero;
                 var items = new List<Item>();
                 for (int i = 0; i < 9; i++) items.Add(new Item { Id = i, Key = i % 3 == 0 ? nan : (float)(i % 4) });
-                Console.WriteLine(Ids(items.OrderBy(it => it.Key).ToList()) + " " + Ids(items.OrderByDescending(it => it.Key).ToList()));
+                Console.WriteLine(Ids(items.OrderBy(it => it.Key)) + " " + Ids(items.OrderByDescending(it => it.Key)));
             }
         }
         """;

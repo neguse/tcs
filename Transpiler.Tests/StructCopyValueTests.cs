@@ -37,19 +37,18 @@ public class StructCopyValueTests
     }
 
     [Fact]
-    public void ToDictionary_CopiesElementValues()
+    public void CopyConstructor_CopiesElementValues()
     {
         Assert.Equal("1:3", Run("""
             public class T
             {
                 public static string Test()
                 {
-                    var arr = new List<S> { new S { N = 1 }, new S { N = 3 } };
-                    var a = arr.ToDictionary(x => x.N);
-                    var b = arr.ToDictionary(x => x.N + 10, x => x);
-                    arr[0] = new S { N = 2 };
-                    arr[1] = new S { N = 4 };
-                    return a[1].N + ":" + b[13].N;
+                    var arr = new S[] { new S { N = 1 }, new S { N = 3 } };
+                    var a = new List<S>(arr);
+                    arr[0].N = 2;
+                    arr[1].N = 4;
+                    return a[0].N + ":" + a[1].N;
                 }
             }
             """));
