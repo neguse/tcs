@@ -2293,3 +2293,8 @@
 - 判断: MinBy / MaxBy の facade も Enumerable に委譲せず添字で走る (走査は呼び出し時点の Count まで、要素は callback の前に読む、string の key は ordinal。T254 と同じ)。Lua runtime は最初の key selector の後に `#list` を評価し、callback 後の `list[i]` を要素として返していたので、長さを先に取り要素を先に読むようにした。callback が受け手を縮めて添字が範囲外になれば MinBy / MaxBy / FindIndex も fault (Lua は nil の要素を範囲外とみなす。T254 と同じ)
 - 判断: FindIndex / RemoveAll は BCL の `List<T>` の実装に揃える (dotnet 側は BCL そのもので変えられない)。FindIndex は呼び出し時点の Count まで、RemoveAll は生きた Count まで走って述語が足した要素も述語に渡し、残す要素は述語の後に読み直す (Lua / C は固定長で callback 前の要素を写していた)。FindIndex の述語が受け手を縮めたとき、RemoveAll の述語が受け手を既に残した数より短く縮めたとき (`Clear()` など) は、.NET が配列の残骸を読む (RemoveAll は `_size = freeIndex` で負の数を返し消えた要素を Count に戻す) のに対し、Lua / C は fault する (Lua は最後の長さが残した数より短ければ範囲外、C は truncate の bounds) — BCL の内部配列は再現しないので、この 2 つの差だけは揃えずに support-matrix §17 と q.md Q18 に書いた
 - 残課題: T257 (readonly record struct の記載)
+
+### T257 readonly record struct を data の既定として記載 ✓ (2026-10-21)
+- support-matrix の struct 行と §19 に、data を運ぶ struct は `readonly record struct` を既定にすること、readonly が copy 地点の `__copy` を省くこと、その根拠 (Lua の Where で readonly record struct 0.089 s / readonly でない struct 0.715 s、C は 0.019 / 0.023 s。q.md Q18 の計測) を書いた
+- 検証: docs のみ。`bash run-tests.sh` 全通過
+- 残課題: lub の雛形 (templates/game/Game.cs) に data 型の例を readonly record struct で示すのは lub への feature request
