@@ -103,9 +103,11 @@ public partial class LuaEmitter
         AppendLine("local function __tcs_op_ge(a, b) return a >= b end");
         AppendLine("local function __tcs_op_neg(a) return -a end");
         AppendLine("local function __tcs_op_bnot(a) return ~a end");
-        // C# の `is T` は「T またはその派生」(il-spec §9)。継承は
-        // instance の metatable = class table、class table の
-        // metatable.__index = base で表現しているため chain を辿る。
+        // C# の `is T` は「T またはその派生」(il-spec §9)。派生があるのは
+        // `--ref` stub の class だけで (user の class は継承できない。q.md Q15)、
+        // 派生の無い T は生成コードが `getmetatable(x) == T` を直接書く。派生の
+        // ある T は instance の metatable = class table、class table の
+        // metatable.__index = base の chain を辿る。
         AppendLine("local function __tcs_is(x, T)");
         AppendLine("  local mt = getmetatable(x)");
         AppendLine("  while mt do");

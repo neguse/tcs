@@ -30,7 +30,36 @@ public partial class LuaEmitter
                     .Equals(UnwrapNullable(inputType), patternType))
                 return new IlNullableHasValue(expr);
         }
-        return typeRef == null ? null : new IlIsType(expr, typeRef);
+        return typeRef == null ? null
+            : new IlIsType(expr, typeRef, Direct: !HasDerivedClass(patternType));
+    }
+
+    // compilation (user と `--ref` の tree) の中で T を基底にする class があるか。
+    // user の class は継承できない (q.md Q15) ので、派生は `--ref` stub の class だけ
+    private CSharpCompilation? _compilation;
+    private HashSet<string>? _basesWithDerived;
+    private bool HasDerivedClass(ITypeSymbol? type)
+    {
+        if (type is not INamedTypeSymbol { TypeKind: TypeKind.Class } named) return false;
+        _basesWithDerived ??= CollectBasesWithDerived();
+        return _basesWithDerived.Contains(named.OriginalDefinition.ToDisplayString());
+    }
+
+    private HashSet<string> CollectBasesWithDerived()
+    {
+        var bases = new HashSet<string>(StringComparer.Ordinal);
+        if (_compilation == null) return bases;
+        foreach (var tree in _compilation.SyntaxTrees)
+        {
+            var model = _compilation.GetSemanticModel(tree);
+            foreach (var decl in tree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>())
+            {
+                if (decl is not (ClassDeclarationSyntax or RecordDeclarationSyntax)) continue;
+                if (model.GetDeclaredSymbol(decl)?.BaseType is { SpecialType: SpecialType.None } baseType)
+                    bases.Add(baseType.OriginalDefinition.ToDisplayString());
+            }
+        }
+        return bases;
     }
 
     // struct の宣言 pattern の designation に束縛する値: 入力 (`S?` は値が

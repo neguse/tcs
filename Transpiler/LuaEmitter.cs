@@ -43,6 +43,7 @@ public partial class LuaEmitter
         bool emitGlobalStatements = true)
     {
         (compilation, model, tree) = RenameKeywordLocals(compilation, model, tree);
+        _compilation = compilation;
         if (!_headerEmitted) EmitChunkPrelude();
         var root = tree.GetCompilationUnitRoot();
         if (emitNonGlobalMembers)

@@ -113,12 +113,6 @@
 
 ---
 
-## 継承撤去の後片付け (q.md Q15)
-
-- [ ] **T258** (P2): `__tcs_is` の metatable 連鎖歩きを `getmetatable(x) == T` の直接比較に (継承が無いので連鎖は無い。分岐の重い loop で約 20%、q.md Q19 の bench)
-
----
-
 ## Conformance / fuzz トラック（spec-conformance-design.md C4 の継続拡張）
 
 方針 (ユーザー決定 2026-08-07): C# compat の differential fuzz を先に育てる。

@@ -370,7 +370,9 @@ public partial class LuaEmitter
             : $"({RenderIl(convert.Value)} * 1.0)",
         IlNumericConvert convert => RenderIl(convert.Value),
         IlRefCast refCast => RenderIl(refCast.Value),
-        IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
+        IlIsType isType => isType.Direct
+            ? $"(getmetatable({RenderIl(isType.E)}) == {isType.TypeRef})"
+            : $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
         // Lua 出力の builder は作らない (StructuralTypeTests)。IlExport の IL を
         // 描く経路 (hot reload の field 初期化子) では実行時 error にする
         IlIsRefType => "error(\"TinyC#: unsupported structural type test\")",

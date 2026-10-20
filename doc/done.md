@@ -2298,3 +2298,8 @@
 - support-matrix の struct 行と §19 に、data を運ぶ struct は `readonly record struct` を既定にすること、readonly が copy 地点の `__copy` を省くこと、その根拠 (Lua の Where で readonly record struct 0.089 s / readonly でない struct 0.715 s、C は 0.019 / 0.023 s。q.md Q18 の計測) を書いた
 - 検証: docs のみ。`bash run-tests.sh` 全通過
 - 残課題: lub の雛形 (templates/game/Game.cs) に data 型の例を readonly record struct で示すのは lub への feature request
+
+### T258 `__tcs_is` の直接比較化 ✓ (2026-10-21)
+- 派生 class の無い型への `is` / 型 switch を `getmetatable(x) == T` の直接比較で出すようにした (IlIsType に Direct)。user の class は継承できない (q.md Q15) ので派生があるのは `--ref` stub の class だけで、その基底への `is` は従来どおり chain を辿る `__tcs_is` (prelude / `TinySystem.instanceof`) を使う。派生の有無は compilation (user と `--ref` の tree) の class 宣言の基底から引く
+- 検証: `dotnet test` 全通過。派生の無い class の出力に `__tcs_is(` が無く `getmetatable(` があること、`--ref` stub の基底への `is` は `__tcs_is(` のままなこと、直接比較が null / string / int / 別 class を偽にすることをテストで固定。q.md Q19 の計測では分岐の重い loop で約 20% の差
+- 残課題: なし

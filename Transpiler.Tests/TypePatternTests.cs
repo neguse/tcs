@@ -179,4 +179,64 @@ public class TypePatternTests
             """, "T.Test()");
         Assert.Equal("false|false", result);
     }
+
+    // 派生の無い class の `is` は metatable の直接比較 (user の class は継承できない。q.md Q15)。
+    // 派生があるのは `--ref` stub の class だけで、その基底への `is` は chain を辿る __tcs_is のまま
+    [Fact]
+    public void IsClass_WithoutDerived_ComparesMetatableDirectly()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public interface IShape { }
+            public class Sq : IShape { public int S; }
+            public class Ci : IShape { public int R; }
+            public class T
+            {
+                public static int Test(IShape v) => v is Sq s ? s.S : v switch { Ci c => c.R, _ => -1 };
+            }
+            """]);
+
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        Assert.Contains("getmetatable(", result.Lua);
+        // prelude の定義 1 回だけで、呼び出しは無い
+        Assert.Equal(1, result.Lua.Split("__tcs_is(").Length - 1);
+    }
+
+    [Fact]
+    public void IsClass_WithDerivedStub_WalksMetatableChain()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public class T
+            {
+                public static bool Test(object v) => v is BaseOptions;
+            }
+            """], null, ["""
+            public class BaseOptions { public int Width; }
+            public class Options : BaseOptions { public int Height; }
+            """]);
+
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        Assert.True(result.Lua.Split("__tcs_is(").Length - 1 > 1, "派生のある基底への is は chain を辿る");
+    }
+
+    [Fact]
+    public void IsClass_DirectComparison_RejectsNullAndOtherValues()
+    {
+        var result = TestHelper.TranspileAndRun("""
+            public class A { public int X; }
+            public class B { public int Y; }
+            public class T
+            {
+                public static string Test()
+                {
+                    object a = new A { X = 1 };
+                    object b = new B { Y = 2 };
+                    object n = null;
+                    object s = "str";
+                    object i = 5;
+                    return (a is A) + ":" + (b is A) + ":" + (n is A) + ":" + (s is A) + ":" + (i is A);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("true:false:false:false:false", result);
+    }
 }

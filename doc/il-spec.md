@@ -292,7 +292,7 @@ rename 注釈（`[RenamedFrom]` 相当）/ ユーザーフック（`OnReload` �
 - capture を保存するループ生成 — numeric for は制御変数が捕捉されていない
   場合のみ使用可（T221）
 - 式位置制御フローの statement 化（IIFE 廃止。examples 決定 2）
-- type test の継承対応 helper（metatable chain 走査。T222）
+- type test: 派生の無い T は `getmetatable(x) == T` の直接比較、派生のある T (`--ref` stub の class) は metatable chain 走査の helper (T222 / T258)
 - f32 shortest round-trip の fmt helper（`tostring` の `%.14g` 系は不適合）
 - f32 リテラルは bit 値を正確に表す表記（16 進浮動小数リテラル等）で出力
   （10 進経由の二重丸め禁止 — §6）
