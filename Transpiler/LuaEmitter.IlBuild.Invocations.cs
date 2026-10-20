@@ -16,10 +16,11 @@ public partial class LuaEmitter
         string methodName, ImmutableArray<IlExpr> args, out IlExpr? result)
     {
         result = null;
-        // 拡張 method は LINQ (TinySystem.Linq.List) だけを runtime へ写す。
+        // 拡張 method は LINQ (TinySystem.Linq.List / Dict) だけを runtime へ写す。
         // 同名の user 拡張 method は通常の拡張呼び出しにする
         if (methodSym.IsExtensionMethod
-            && !IsTypeNamed(methodSym.ContainingType, "TinySystem.Linq.List"))
+            && !IsTypeNamed(methodSym.ContainingType, "TinySystem.Linq.List")
+            && !IsTypeNamed(methodSym.ContainingType, "TinySystem.Linq.Dict"))
             return false;
         var receiverType = model.GetTypeInfo(receiver).Type;
         if (receiverType == null) return false;
@@ -39,6 +40,13 @@ public partial class LuaEmitter
                     return true;
                 case "Add":
                     // 代入形は statement 側 (BuildDictAddStatInto) が扱う
+                    return true;
+                case "Clear":
+                    result = BuildListClear(recvD);
+                    return true;
+                case "Where" or "Any" or "All" or "Count" or "RemoveAll"
+                    when methodSym.IsExtensionMethod:
+                    result = BuildDictPredicateCall(receiverType, methodName, recvD, args[0]);
                     return true;
                 default:
                     return false;
@@ -152,6 +160,15 @@ public partial class LuaEmitter
                 result[i] = new IlCall("string.char", [result[i]]);
         return [.. result];
     }
+
+    // Dictionary の (k, v) 述語の演算 (TinySystem.Linq.Dict)。float key の dict は
+    // 述語に渡す key を sentinel から NaN に戻す Dict.FloatKeyOut を 3 番目に付ける
+    // (C backend は float key を受けないので読まない)
+    private static IlExpr BuildDictPredicateCall(ITypeSymbol? dictType, string methodName,
+        IlExpr dict, IlExpr predicate) =>
+        new IlCall($"Dict.{methodName}", HasFloatKey(dictType)
+            ? [dict, predicate, new IlField(new IlVar("Dict"), "FloatKeyOut")]
+            : [dict, predicate]);
 
     // List.Clear: 全 key を nil に (IIFE。C backend は runtime 呼びに認識する)
     private static IlExpr BuildListClear(IlExpr recv) =>

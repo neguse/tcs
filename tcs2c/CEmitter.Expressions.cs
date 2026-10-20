@@ -431,8 +431,10 @@ internal sealed partial class CEmitter
             "tostring" => RenderToString(call.Args[0]),
             "Dict.ContainsKey" => RenderDictSimple(call, "tcs_dict_contains"),
             "Dict.Remove" => RenderDictSimple(call, "tcs_dict_remove"),
-            "Dict.Count" =>
+            "Dict.Count" when call.Args.Length == 1 =>
                 $"tcs_dict_count({RenderExpr(call.Args[0])})",
+            "Dict.Where" or "Dict.Any" or "Dict.All" or "Dict.Count" or "Dict.RemoveAll" =>
+                RenderDictPredicateOp(call),
             // Lua backend の f32 shortest round-trip helper。C 側の
             // to-string は元々 shortest round-trip なので同一経路で良い
             "__tcs_fstr" => RenderToString(call.Args[0]),
@@ -482,12 +484,13 @@ internal sealed partial class CEmitter
                 "Dict.Remove key");
             return CType.Bool;
         }
-        if (call.Callee == "Dict.Count")
+        if (call.Callee == "Dict.Count" && call.Args.Length == 1)
         {
-            RequireArity(call.Callee, call.Args.Length, 1);
             _ = RequireDict(call.Args[0], out _);
             return CType.I32;
         }
+        if (call.Callee is "Dict.Where" or "Dict.Any" or "Dict.All" or "Dict.Count" or "Dict.RemoveAll")
+            return TypeOfDictPredicateOp(call);
         if (call.Callee == "__tcs_nstr")
         {
             RequireArity(call.Callee, call.Args.Length, 1);

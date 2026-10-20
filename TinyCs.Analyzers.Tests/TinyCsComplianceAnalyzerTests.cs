@@ -733,6 +733,7 @@ public partial class TinyCsComplianceAnalyzerTests
     [InlineData("var shortest = names.Min(x => x.Length);")]
     [InlineData("var i = list.FindIndex(x => x > 1) + list.RemoveAll(x => x > 2); var m = list.MinBy(x => -x) + list.MaxBy(x => x);")]
     [InlineData("list[0] = list[1]; dict[\"a\"] = dict[\"a\"] + 1;")]
+    [InlineData("dict.Clear(); var w = dict.Where((k, v) => v > 0); var n = dict.Count((k, v) => true) + dict.RemoveAll((k, v) => false); var b = dict.Any((k, v) => true) && dict.All((k, v) => true);")]
     public async Task ImplementedOverload_PassesWithoutTcs1002(string statement)
     {
         var diagnostics = await AnalyzeAsync(WrapApiStatement(statement));

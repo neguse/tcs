@@ -154,4 +154,73 @@ public class DictSemanticTests
 
         Assert.Equal("false:nil", result);
     }
+
+    // Dictionary の (k, v) 述語の演算 (TinySystem.Linq.Dict)。結果は key と value の集合だけで決まる
+    [Fact]
+    public void Dict_WhereAnyAllCountRemoveAll()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var d = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3, ["d"] = 4 };
+                    var even = d.Where((k, v) => v % 2 == 0);
+                    var any = d.Any((k, v) => k == "c" && v == 3);
+                    var none = d.Any((k, v) => v > 10);
+                    var all = d.All((k, v) => v > 0);
+                    var notAll = d.All((k, v) => k != "a");
+                    var count = d.Count((k, v) => v >= 2);
+                    var removed = d.RemoveAll((k, v) => v <= 2);
+                    return even.Count + ":" + (even.ContainsKey("b") ? 1 : 0) + (even.ContainsKey("a") ? 1 : 0) + ":" + (any ? 1 : 0) + (none ? 1 : 0)
+                        + ":" + (all ? 1 : 0) + (notAll ? 1 : 0) + ":" + count + ":" + removed + ":" + d.Count
+                        + ":" + (d.ContainsKey("c") ? 1 : 0) + (d.ContainsKey("a") ? 1 : 0);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("2:10:10:10:3:2:2:10", result);
+    }
+
+    [Fact]
+    public void Dict_Clear_KeepsTableIdentity()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            public class T
+            {
+                public static string Test()
+                {
+                    var d = new Dictionary<int, string> { [1] = "x", [2] = "y" };
+                    var alias = d;
+                    d.Clear();
+                    d[3] = "z";
+                    return alias.Count + ":" + alias[3];
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("1:z", result);
+    }
+
+    // float key の dict は述語に NaN をそのまま渡す (sentinel は見えない)
+    [Fact]
+    public void Dict_FloatKey_PredicateSeesNaN()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var d = new Dictionary<float, int> { [float.NaN] = 1, [1.5f] = 2 };
+                    var nan = d.Count((k, v) => k != k);
+                    var kept = d.Where((k, v) => k != k);
+                    return nan + ":" + kept.Count + ":" + (kept.ContainsKey(float.NaN) ? 1 : 0);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("1:1:1", result);
+    }
 }

@@ -2304,3 +2304,10 @@
 - 検証: `dotnet test` 全通過。派生の無い class の出力に `__tcs_is(` が無く `getmetatable(` があること、`--ref` stub の基底への `is` は `__tcs_is(` のままなこと、直接比較が null / string / int / 別 class を偽にすることをテストで固定。q.md Q19 の計測では分岐の重い loop で約 20% の差
 - 修正 (#270 / #271): `--ref` の class は Lua に定義が無く `getmetatable(nil) == nil` が真になるので直接比較の対象外にした。増分 session の method splice (EmitSingleMethod) は Visit を通らず compilation が無かったので設定し、分からない経路では派生があるものとして扱う
 - 残課題: なし
+
+### T259 Dictionary の TinySystem 演算 ✓ (2026-10-21)
+- `TinySystem.Linq.Dict` に Where (→ dict) / Any / All / Count / RemoveAll (その場で削除) を `(k, v) =>` の 2 引数 lambda で足し、`Dictionary.Clear()` を allowlist に足した。Lua runtime は `Dict.*` (float key の dict は述語に渡す key を sentinel から NaN に戻す `Dict.FloatKeyOut` を 3 番目に付ける)、tcs2c は bucket の chain を回す inline loop (RemoveAll は `tcs_dict_remove` と同じ手順で node を外す)、Clear は List と同じ IIFE (C は `tcs_dict_clear`)
+- support-matrix §18 に列挙順が未規定であること (backend ごとに異なり、Lua は process ごとに変わる) と、順序が要るときは Keys / Values を List にしてから並べることを書いた
+- 検証: `dotnet test` 全通過。Lua の意味論テスト (集合だけで決まる値、Clear の table 同一性、float key の NaN)、tcs2c の差分テスト、allowlist のテストを追加
+- 判断: Select は dict では意味が mapValues になるので置かない。Sum は float の加算順で丸めが変わるので置かない。Any / All は決まった時点で止める (述語の呼ばれる entry は列挙順に依る。Go と同じく述語は純粋と約束する)
+- 残課題: T260 (分解 foreach)、T261 (Keys / Values の receiver overload)、T262 (TCS_LUA_SEED)

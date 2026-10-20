@@ -68,6 +68,102 @@ internal sealed partial class CEmitter
         return CType.Dict(key, value);
     }
 
+    // Dictionary の (k, v) 述語の演算 (TinySystem.Linq.Dict)。述語の closure は
+    // (key, value) を取る。Lua 向けの 3 番目の引数 (float key の Dict.FloatKeyOut)
+    // は C では来ない (float key は dict 生成で止まる)
+    private CType TypeOfDictPredicateOp(IlCall call)
+    {
+        RequireArity(call.Callee, call.Args.Length, 2);
+        var value = RequireDict(call.Args[0], out var dict);
+        var closure = CType.Closure(CType.Bool, [dict.Key!, value]);
+        if (InferClosureResult(call.Args[1], [dict.Key!, value]) != CType.Bool)
+            throw new Tcs2cException($"{call.Callee}: predicate must return bool");
+        _ = closure;
+        return call.Callee switch
+        {
+            "Dict.Where" => CType.Dict(dict.Key!, value),
+            "Dict.Any" or "Dict.All" => CType.Bool,
+            _ => CType.I32,
+        };
+    }
+
+    private string RenderDictPredicateOp(IlCall call)
+    {
+        var resultType = TypeOfDictPredicateOp(call);
+        var value = RequireDict(call.Args[0], out var dict);
+        var key = dict.Key!;
+        var closureType = CType.Closure(CType.Bool, [key, value]);
+        var d = Temp("dict");
+        var f = Temp("fn");
+        var b = Temp("bucket");
+        var node = Temp("node");
+        var k = Temp("k");
+        var v = Temp("v");
+        var keyExpr = key.Kind switch
+        {
+            CTypeKind.String => $"{node}->key_s",
+            CTypeKind.Ref => $"(({key.CName}){node}->key_s)",
+            _ => $"{node}->key_i",
+        };
+        var sb = new StringBuilder();
+        sb.Append($"TcsDict *{d} = (TcsDict *)tcs_nonnull({RenderExpr(call.Args[0])}); ");
+        sb.Append($"TcsClosure *{f} = (TcsClosure *)tcs_nonnull({RenderCoerced(call.Args[1], closureType)}); ");
+        var pred = CallClosure(f, closureType, k, v);
+        string Loop(string body) =>
+            $"for (size_t {b} = 0; {b} < {d}->bucket_count; {b}++) " +
+            $"for (TcsDictNode *{node} = {d}->buckets[{b}]; {node} != NULL; {node} = {node}->next) {{ " +
+            $"{key.CName} {k} = {keyExpr}; {value.CName} {v} = *({value.CName} *){node}->value; {body} }} ";
+        switch (call.Callee)
+        {
+            case "Dict.Where":
+            {
+                var outDict = Temp("out");
+                var keyArgs = key.Kind == CTypeKind.I32 ? $"{k}, NULL" : $"0, (TcsString *)(void *){k}";
+                sb.Append($"TcsDict *{outDict} = tcs_typed(tcs_dict_new({DictKeyKind(key)}, " +
+                    $"sizeof({value.CName}), {LayoutRef(value)}), {RuntimeTypeId(resultType)}); ");
+                sb.Append(Loop($"if ({pred}) *({value.CName} *)tcs_dict_put({outDict}, {keyArgs}) = {v};"));
+                return $"({{ {sb}{outDict}; }})";
+            }
+            case "Dict.Any":
+            {
+                var r = Temp("any");
+                sb.Append($"bool {r} = false; ");
+                sb.Append(Loop($"if ({pred}) {{ {r} = true; goto {r}_done; }}"));
+                sb.Append($"{r}_done: ; ");
+                return $"({{ {sb}{r}; }})";
+            }
+            case "Dict.All":
+            {
+                var r = Temp("all");
+                sb.Append($"bool {r} = true; ");
+                sb.Append(Loop($"if (!({pred})) {{ {r} = false; goto {r}_done; }}"));
+                sb.Append($"{r}_done: ; ");
+                return $"({{ {sb}{r}; }})";
+            }
+            case "Dict.Count":
+            {
+                var r = Temp("count");
+                sb.Append($"int32_t {r} = 0; ");
+                sb.Append(Loop($"if ({pred}) {r}++;"));
+                return $"({{ {sb}{r}; }})";
+            }
+            default:
+            {
+                // 述語が真の node を bucket の chain から外す (tcs_dict_remove と同じ手順)
+                var r = Temp("removed");
+                var link = Temp("link");
+                sb.Append($"int32_t {r} = 0; ");
+                sb.Append($"for (size_t {b} = 0; {b} < {d}->bucket_count; {b}++) {{ " +
+                    $"TcsDictNode **{link} = &{d}->buckets[{b}]; " +
+                    $"while (*{link} != NULL) {{ TcsDictNode *{node} = *{link}; " +
+                    $"{key.CName} {k} = {keyExpr}; {value.CName} {v} = *({value.CName} *){node}->value; " +
+                    $"if ({pred}) {{ *{link} = {node}->next; {d}->count--; {r}++; }} " +
+                    $"else {link} = &{node}->next; }} }} ");
+                return $"({{ {sb}{r}; }})";
+            }
+        }
+    }
+
     private string RenderDictTable(IlTable table)
     {
         var type = TypeOfDictTable(table);

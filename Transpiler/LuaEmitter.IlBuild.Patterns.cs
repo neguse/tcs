@@ -646,6 +646,10 @@ public partial class LuaEmitter
                 "ContainsKey" => new IlCall("Dict.ContainsKey", [obj, DictKey(model,
                     receiverType, inv.ArgumentList.Arguments[0].Expression, argArr[0])]),
                 "Add" or "TryGetValue" => null,
+                "Clear" => BuildListClear(obj),
+                "Where" or "Any" or "All" or "Count" or "RemoveAll"
+                    when model.GetSymbolInfo(inv).Symbol is IMethodSymbol { IsExtensionMethod: true } =>
+                    BuildDictPredicateCall(receiverType, methodName, obj, argArr[0]),
                 _ => new IlInvoke(obj, methodName, argArr),
             };
         }

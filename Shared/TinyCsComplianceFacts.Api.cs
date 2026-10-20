@@ -159,6 +159,7 @@ public static partial class TinyCsComplianceFacts
             "System.Collections.Generic.Dictionary<TKey, TValue>.Remove(TKey)",
             "System.Collections.Generic.Dictionary<TKey, TValue>.ContainsKey(TKey)",
             "System.Collections.Generic.Dictionary<TKey, TValue>.TryGetValue(TKey, out TValue)",
+            "System.Collections.Generic.Dictionary<TKey, TValue>.Clear()",
         };
 
     // シグネチャは許可するが、明示引数の個数に上限がある overload。

@@ -303,7 +303,7 @@ Rider 実機確認の手順:
 
 class, enum, interface(型チェックのみ。class / record の継承は対象外で、多態は interface と型 switch), コンストラクタ, auto/custom プロパティ,
 static/instance メソッド, if/else/while/for/foreach/switch, ラムダ,
-List\<T\>, Dictionary\<K,V\>, LINQ (`using TinySystem.Linq;` で Where/Select/Any/All/FirstOrDefault/OrderBy/OrderByDescending/Min/Max/MinBy/MaxBy/Sum/Count(predicate))、List の FindIndex/RemoveAll,
+List\<T\>, Dictionary\<K,V\>, LINQ (`using TinySystem.Linq;` で Where/Select/Any/All/FirstOrDefault/OrderBy/OrderByDescending/Min/Max/MinBy/MaxBy/Sum/Count(predicate))、List の FindIndex/RemoveAll、Dictionary の Where/Any/All/Count/RemoveAll (`(k, v) =>` の述語) と Clear,
 文字列補間, null 条件演算子 (`?.`), is パターン, switch 式 など。
 
 詳細は [doc/support-matrix.md](doc/support-matrix.md) 参照。

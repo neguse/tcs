@@ -220,3 +220,60 @@ public static class List
         return best;
     }
 }
+
+// Dictionary<K,V> の演算。結果が key と value の集合だけで決まるものに限る
+// (列挙順は backend ごとに異なり未規定。q.md Q18)。述語は `(k, v) =>` の 2 引数
+// (KeyValuePair を値として持たない)。Any / All は真 / 偽が決まった時点で止まる
+public static class Dict
+{
+    public static global::System.Collections.Generic.Dictionary<TKey, TValue> Where<TKey, TValue>(
+        this global::System.Collections.Generic.Dictionary<TKey, TValue> dict,
+        global::System.Func<TKey, TValue, bool> predicate)
+        where TKey : notnull
+    {
+        var result = new global::System.Collections.Generic.Dictionary<TKey, TValue>();
+        foreach (var kv in dict)
+            if (predicate(kv.Key, kv.Value)) result[kv.Key] = kv.Value;
+        return result;
+    }
+    public static bool Any<TKey, TValue>(
+        this global::System.Collections.Generic.Dictionary<TKey, TValue> dict,
+        global::System.Func<TKey, TValue, bool> predicate)
+        where TKey : notnull
+    {
+        foreach (var kv in dict)
+            if (predicate(kv.Key, kv.Value)) return true;
+        return false;
+    }
+    public static bool All<TKey, TValue>(
+        this global::System.Collections.Generic.Dictionary<TKey, TValue> dict,
+        global::System.Func<TKey, TValue, bool> predicate)
+        where TKey : notnull
+    {
+        foreach (var kv in dict)
+            if (!predicate(kv.Key, kv.Value)) return false;
+        return true;
+    }
+    public static int Count<TKey, TValue>(
+        this global::System.Collections.Generic.Dictionary<TKey, TValue> dict,
+        global::System.Func<TKey, TValue, bool> predicate)
+        where TKey : notnull
+    {
+        var n = 0;
+        foreach (var kv in dict)
+            if (predicate(kv.Key, kv.Value)) n++;
+        return n;
+    }
+    // 述語が真の entry をその場で消し、消した数を返す
+    public static int RemoveAll<TKey, TValue>(
+        this global::System.Collections.Generic.Dictionary<TKey, TValue> dict,
+        global::System.Func<TKey, TValue, bool> predicate)
+        where TKey : notnull
+    {
+        var removed = new global::System.Collections.Generic.List<TKey>();
+        foreach (var kv in dict)
+            if (predicate(kv.Key, kv.Value)) removed.Add(kv.Key);
+        foreach (var key in removed) dict.Remove(key);
+        return removed.Count;
+    }
+}
