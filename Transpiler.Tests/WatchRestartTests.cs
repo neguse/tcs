@@ -41,14 +41,14 @@ public class WatchRestartTests
 
                 Thread.Sleep(500);
                 File.WriteAllText(inputPath, changedInit);
-                var reasons = messages.Next("restart_required", timeoutMs: 5000);
+                var reasons = messages.Next("restart_required", timeoutMs: 15000);
                 Assert.Equal("static initializer changed: Game.x\n", reasons);
 
                 // ホストの再起動: 書き終えた出力を新しい VM で読む
                 var restarted = File.ReadAllText(outputPath);
                 Thread.Sleep(500);
                 File.WriteAllText(inputPath, changedBody);
-                var chunk = messages.Next("reload_chunk", timeoutMs: 5000);
+                var chunk = messages.Next("reload_chunk", timeoutMs: 15000);
                 Assert.Equal("2\t12", TestHelper.RunLua($$"""
                     local m = assert(load({{WatchModeTests.LuaLongString(restarted)}}, "=v2"))()
                     local before = m.OnFrame()

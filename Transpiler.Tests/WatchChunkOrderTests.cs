@@ -44,7 +44,7 @@ public class WatchChunkOrderTests
                 {
                     Thread.Sleep(300);
                     File.WriteAllText(inputPath, Game(build * 100));
-                    var chunk = messages.Next("reload_chunk", timeoutMs: 5000);
+                    var chunk = messages.Next("reload_chunk", timeoutMs: 15000);
                     var output = File.ReadAllText(outputPath);
                     var map = File.ReadAllText(mapPath);
 

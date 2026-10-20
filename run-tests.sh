@@ -49,13 +49,15 @@ if [[ "$LUA_VERSION" != Lua\ 5.5* ]]; then
 fi
 
 # Run dotnet tests (spec conformance sweep と corpus differential 込み。
-# 章別レポートも再生成される — 挙動変更は report/baseline の diff として現れる)
+# 章別レポートも再生成される — 挙動変更は report/baseline の diff として現れる)。
+# -m:1 で test project を直列に走らせる (watch mode のテストは process の応答を
+# 秒単位で待つので、tcs2c.Tests の gcc / Lua と並列だと CPU 競合で timeout する)
 echo "Running dotnet tests (with spec conformance + differential)..."
 TCS_SPEC_CONFORMANCE=1 \
 TCS_SPEC_REPORT="$SCRIPT_DIR/doc/spec-conformance-report.md" \
 TCS_DIFFERENTIAL=1 \
 TCS_FUZZ=1 \
-  dotnet test "$SCRIPT_DIR" --verbosity minimal
+  dotnet test "$SCRIPT_DIR" -m:1 --verbosity minimal
 
 echo "Running tcs check on samples..."
 sample_checks=(

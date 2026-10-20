@@ -145,7 +145,7 @@ public class WatchModeTests
                     """);
 
                 // Wait for rebuild (output file should change)
-                WaitForFileChange(outputPath, v1, timeoutMs: 5000);
+                WaitForFileChange(outputPath, v1, timeoutMs: 15000);
                 var v2 = File.ReadAllText(outputPath);
                 Assert.Contains("42", v2);
             }
@@ -264,7 +264,7 @@ public class WatchModeTests
                     }
                     """);
 
-                WaitForFileWriteAfter(outputPath, initialWrite, timeoutMs: 5000);
+                WaitForFileWriteAfter(outputPath, initialWrite, timeoutMs: 15000);
             }
             finally
             {
@@ -343,10 +343,10 @@ public class WatchModeTests
                 // ホストが 1 つ目を当てる前に 2 回目の build が終わる
                 Thread.Sleep(500);
                 File.WriteAllText(inputPath, withField);
-                var addField = messages.Next("reload_chunk", timeoutMs: 5000);
+                var addField = messages.Next("reload_chunk", timeoutMs: 15000);
                 Thread.Sleep(500);
                 File.WriteAllText(inputPath, usingField);
-                var useField = messages.Next("reload_chunk", timeoutMs: 5000);
+                var useField = messages.Next("reload_chunk", timeoutMs: 15000);
 
                 const string Host = "engine = { api = { base = function(opts) return opts.w + 2 end } }";
                 var inOrder = $$"""
@@ -472,7 +472,7 @@ public class WatchModeTests
                 // prelude だけを変更 (C# は無変更) → rebuild される
                 Thread.Sleep(500);
                 File.WriteAllText(preludePath, "-- prelude v2\n");
-                WaitForFileChange(outputPath, v1, timeoutMs: 5000);
+                WaitForFileChange(outputPath, v1, timeoutMs: 15000);
                 var v2 = File.ReadAllText(outputPath);
                 Assert.Contains("prelude v2", v2);
 
