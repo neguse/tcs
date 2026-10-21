@@ -422,6 +422,9 @@ public static partial class TinyCsComplianceFacts
     {
         if (TryGetUnsupportedSyntax(node, out syntaxName)) return true;
 
+        if (TryGetUnsupportedForEachDeconstruction(node, model, out syntaxName))
+            return true;
+
         // top-level statements の暗黙パラメータ args。Lua 出力に定義が存在せず
         // 実行時 nil になる (command line は host の責務)。lambda 等の自前
         // parameter args は synthesized Main 判定で除外される。
@@ -505,6 +508,40 @@ public static partial class TinyCsComplianceFacts
             && TryGetUnsupportedSyntax(model.GetOperation(node),
                 out syntaxName);
     }
+
+    // foreach の分解 `foreach (var (k, v) in dict)` は Dictionary の (key, value) の
+    // 2 要素だけ。List / 配列 / tuple の分解と discard は対象外。analyzer は
+    // ForEachVariableStatement の node action でこれを呼ぶ
+    public static bool TryGetUnsupportedForEachDeconstruction(SyntaxNode node,
+        SemanticModel model, out string syntaxName)
+    {
+        syntaxName = "";
+        if (node is not ForEachVariableStatementSyntax deconstruct
+            || IsDictionaryPairDeconstruction(deconstruct, model))
+            return false;
+        syntaxName = "ForEachVariableStatement";
+        return true;
+    }
+
+    public static bool IsDictionaryPairDeconstruction(
+        ForEachVariableStatementSyntax deconstruct, SemanticModel model) =>
+        PairDesignations(deconstruct.Variable) != null
+        && model.GetTypeInfo(deconstruct.Expression).Type is INamedTypeSymbol
+        {
+            Name: "Dictionary", ContainingType: null, TypeArguments.Length: 2,
+        } dict
+        && dict.ContainingNamespace.ToDisplayString() == "System.Collections.Generic";
+
+    // `var (k, v)` の 2 要素の分解の変数名。tuple の形 `(var k, var v)` は tuple が
+    // サブセット外 (TupleExpression) なので受けない
+    // (netstandard2.0 の analyzer では list pattern が使えないので Count と添字で見る)
+    public static (string Key, string Value)? PairDesignations(ExpressionSyntax variable) =>
+        variable is DeclarationExpressionSyntax { Designation: ParenthesizedVariableDesignationSyntax paren }
+        && paren.Variables.Count == 2
+        && paren.Variables[0] is SingleVariableDesignationSyntax k
+        && paren.Variables[1] is SingleVariableDesignationSyntax v
+            ? (k.Identifier.ValueText, v.Identifier.ValueText)
+            : null;
 
     private static bool IsInterfaceTypeTest(SyntaxNode node,
         SemanticModel model) => node switch

@@ -247,6 +247,31 @@ public partial class LuaEmitter
             }
             case ForStatementSyntax forStmt:
                 return BuildForInto(model, forStmt, acc);
+            // `foreach (var (k, v) in dict)`: KeyValuePair を作らず pairs で (k, v) を束縛する。
+            // float key は sentinel を NaN に戻し、変更可能な struct の値は copy する
+            case ForEachVariableStatementSyntax deconstruct:
+            {
+                if (!TinyCsComplianceFacts.IsDictionaryPairDeconstruction(deconstruct, model)
+                    || TinyCsComplianceFacts.PairDesignations(deconstruct.Variable)
+                        is not var (keyName, valueName))
+                    return false;
+                var dict = BuildExpr(model, deconstruct.Expression);
+                var pairBody = BuildBlock(model, deconstruct.Statement);
+                if (dict == null || pairBody == null) return false;
+                // Lua 5.5 の generic for の制御変数は const なので、raw の名前で回して
+                // user の k / v は local に束縛する
+                var dictType = model.GetTypeInfo(deconstruct.Expression).Type;
+                var rawKey = new IlVar("__tcs_fk");
+                var rawValue = new IlVar("__tcs_fv");
+                IlExpr keyInit = HasFloatKey(dictType)
+                    ? new IlCall("Dict.FloatKeyOut", [rawKey]) : rawKey;
+                var valueInit = CopyIfMutableStruct(
+                    (dictType as INamedTypeSymbol)?.TypeArguments[1], rawValue);
+                acc.Add(new IlForPairs("__tcs_fk", "__tcs_fv", dict,
+                    new IlBlock([new IlLocal(keyName, keyInit), new IlLocal(valueName, valueInit),
+                        .. pairBody.Stats])) { Origin = stmt });
+                return true;
+            }
             case ForEachStatementSyntax foreachStmt:
             {
                 var varName = foreachStmt.Identifier.ValueText;

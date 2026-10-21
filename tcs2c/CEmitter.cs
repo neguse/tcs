@@ -488,6 +488,7 @@ internal sealed partial class CEmitter
             case IlNumericFor loop: EmitNumericFor(loop); break;
             case IlForeachList loop: EmitForeachList(loop); break;
             case IlForeachDict loop: EmitForeachDict(loop); break;
+            case IlForPairs loop: EmitForPairs(loop); break;
             case IlForeachRunes loop: EmitForeachRunes(loop); break;
             case IlBreak when _breakTargets.Count > 0 && _breakTargets.Peek() is { } breakLabel:
                 _usedBreakLabels.Add(breakLabel);

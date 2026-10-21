@@ -70,6 +70,8 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
         context.RegisterSyntaxNodeAction(AnalyzeClassInheritance,
             SyntaxKind.SimpleBaseType,
             SyntaxKind.PrimaryConstructorBaseType);
+        context.RegisterSyntaxNodeAction(AnalyzeForEachDeconstruction,
+            SyntaxKind.ForEachVariableStatement);
         context.RegisterOperationAction(AnalyzeOperation,
             OperationKind.Invocation,
             OperationKind.PropertyReference,
@@ -99,6 +101,18 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
     {
         if (!TinyCsComplianceFacts.TryGetUnsupportedSyntax(context.Node,
             out var syntaxName))
+        {
+            return;
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(UnsupportedSyntaxRule,
+            context.Node.GetLocation(), syntaxName));
+    }
+
+    private static void AnalyzeForEachDeconstruction(SyntaxNodeAnalysisContext context)
+    {
+        if (!TinyCsComplianceFacts.TryGetUnsupportedForEachDeconstruction(context.Node,
+            context.SemanticModel, out var syntaxName))
         {
             return;
         }

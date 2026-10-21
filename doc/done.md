@@ -2312,3 +2312,9 @@
 - 判断: Select は dict では意味が mapValues になるので置かない。Sum は float の加算順で丸めが変わるので置かない。Any / All は決まった時点で止める (述語の呼ばれる entry は列挙順に依る。Go と同じく述語は純粋と約束する)
 - 判断: 述語は呼び出し時点の entry の写しに対して呼ぶ (facade は KeyValuePair[] に CopyTo、Lua は pairs で key / value の配列に写す、C は tcs_dict_keys / tcs_dict_values の List)。live に走ると .NET は述語の追加で「Collection was modified」、Lua の pairs 中の追加は未定義、C は rehash と node の unlink で走査が乱れ、3 経路の結果が分かれていた。RemoveAll は写しの key のうち述語が真でまだ在るものを消し、述語が先に消した entry は数えない。写しは Keys / Values と同じ O(n) の確保で、Any / All の短絡は述語の回数に残る
 - 残課題: T260 (分解 foreach)、T261 (Keys / Values の receiver overload)、T262 (TCS_LUA_SEED)
+
+### T260 `foreach (var (k, v) in dict)` ✓ (2026-10-21)
+- Dictionary の受け手に限って分解 foreach を通した。Lua は `for k, v in pairs(dict)` (IlForPairs) で KeyValuePair の table を作らず、float key は `Dict.FloatKeyOut` で NaN に戻し、変更可能な struct の値は copy する。tcs2c は bucket の chain を回して node の key / value を raw の変数に取り、user の k / v は IlLocal で束縛する (closure の捕捉は通常の local と同じ経路)
+- shared facts に「分解 foreach は Dictionary の (key, value) の 2 要素だけ」の規則を足し、List の tuple の分解と discard は TCS1001 `ForEachVariableStatement` (従来は emitter の fallback だけが出していた)
+- 検証: `dotnet test` 全通過。Lua の意味論テスト、analyzer のテスト、tcs2c の差分テスト (closure の捕捉、struct の copy、break / continue) を追加
+- 残課題: T261 (Keys / Values の receiver overload)、T262 (TCS_LUA_SEED)

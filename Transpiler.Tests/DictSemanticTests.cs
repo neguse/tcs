@@ -256,4 +256,56 @@ public class DictSemanticTests
             """, "T.Test()");
         Assert.Equal("3:6:224:00:130:1:11:0211", result);
     }
+
+    // `foreach (var (k, v) in dict)`: KeyValuePair を作らず (k, v) を束縛する。float key は NaN、
+    // 変更可能な struct の値は copy、break / continue は通常の foreach と同じ
+    [Fact]
+    public void Dict_ForeachDeconstruct()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            public struct S { public int N; public void Bump() { N += 1; } }
+            public class T
+            {
+                public static string Test()
+                {
+                    var d = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3 };
+                    var sum = 0; var keys = 0;
+                    foreach (var (k, v) in d) { if (k == "b") continue; sum += v; keys += k.Length; }
+                    var f = new Dictionary<float, int> { [float.NaN] = 5, [1.5f] = 6 };
+                    var nan = 0;
+                    foreach (var (k, v) in f) { if (k != k) nan += v; }
+                    var ss = new Dictionary<int, S> { [1] = new S { N = 10 } };
+                    foreach (var (k, v) in ss) { v.Bump(); }
+                    var seen = 0;
+                    foreach (var (k, v) in d) { seen++; if (seen == 1) break; }
+                    return sum + ":" + keys + ":" + nan + ":" + ss[1].N + ":" + seen;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("4:2:5:10:1", result);
+    }
+
+    // 分解 foreach は Dictionary の (key, value) の 2 要素だけ。List の tuple や discard は TCS1001
+    [Fact]
+    public void Dict_ForeachDeconstruct_OtherShapesAreUnsupported()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using System.Collections.Generic;
+            public class T
+            {
+                public static int Test()
+                {
+                    var pairs = new List<(int, int)> { (1, 2) };
+                    var n = 0;
+                    foreach (var (a, b) in pairs) n += a + b;
+                    var d = new Dictionary<string, int> { ["a"] = 1 };
+                    foreach (var (k, _) in d) n += k.Length;
+                    return n;
+                }
+            }
+            """]);
+
+        Assert.Equal(2, result.Errors.Count(e => e.Contains("TCS1001") && e.Contains("ForEachVariableStatement")));
+    }
 }

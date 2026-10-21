@@ -243,6 +243,62 @@ internal sealed partial class CEmitter
         Line("}");
     }
 
+    // `foreach (var (k, v) in dict)` (IlForPairs)。node の key / value を raw の
+    // 変数に取り、user の k / v は IlLocal として束縛する (closure の捕捉は通常の
+    // local と同じ経路)
+    private void EmitForPairs(IlForPairs loop)
+    {
+        if (loop.VVar is null)
+            throw new Tcs2cException("for pairs without a value variable is only used by Clear");
+        var valueType = RequireDict(loop.Coll, out var dictType);
+        var key = dictType.Key!;
+        var dictTemp = Temp("dict");
+        var bucketTemp = Temp("bucket");
+        var nodeTemp = Temp("node");
+        var breakLabel = Temp("dict_break");
+        Line("{");
+        _indent++;
+        PushScope();
+        Line($"TcsDict *{dictTemp} = ({{ TcsDict *d = " +
+            $"{RenderExpr(loop.Coll)}; (TcsDict *)tcs_nonnull(d); }});");
+        Line($"for (size_t {bucketTemp} = 0; {bucketTemp} < {dictTemp}->bucket_count; " +
+            $"{bucketTemp}++)");
+        Line($"for (TcsDictNode *{nodeTemp} = {dictTemp}->buckets[{bucketTemp}]; " +
+            $"{nodeTemp} != NULL; {nodeTemp} = {nodeTemp}->next)");
+        Line("{");
+        _indent++;
+        PushScope();
+        var keyExpr = key.Kind switch
+        {
+            CTypeKind.String => $"{nodeTemp}->key_s",
+            CTypeKind.Ref => $"(({key.CName}){nodeTemp}->key_s)",
+            _ => $"{nodeTemp}->key_i",
+        };
+        var rawKey = $"__tcs_k_{_serial++}";
+        var rawValue = $"__tcs_v_{_serial++}";
+        var rawKeyVar = new Variable(Temp("k"), key);
+        var rawValueVar = new Variable(Temp("v"), valueType);
+        Line($"{key.CName} {rawKeyVar.CName} = {keyExpr};");
+        Line($"{valueType.CName} {rawValueVar.CName} = *({valueType.CName} *){nodeTemp}->value;");
+        AddVariable(rawKey, rawKeyVar);
+        AddVariable(rawValue, rawValueVar);
+        _continueTargets.Push(null);
+        _breakTargets.Push(breakLabel);
+        EmitStats([
+            new IlLocal(loop.KVar, new IlVar(rawKey)),
+            new IlLocal(loop.VVar, new IlVar(rawValue)),
+            .. loop.Body.Stats]);
+        _continueTargets.Pop();
+        _breakTargets.Pop();
+        PopScope();
+        _indent--;
+        Line("}");
+        if (_usedBreakLabels.Contains(breakLabel)) Line($"{breakLabel}: ;");
+        PopScope();
+        _indent--;
+        Line("}");
+    }
+
     // IlBreakScope: block の直後に label を置き、スコープ束縛の break は goto で
     // 抜ける (do { } while (0) だと continue が外側ループへ届かない)
     private void EmitBreakScope(IlBreakScope scope)

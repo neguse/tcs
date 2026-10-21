@@ -820,4 +820,29 @@ public partial class TinyCsComplianceAnalyzerTests
             d => d.Id == TinyCsDiagnosticIds.UnsupportedApi);
         Assert.Contains("System.Linq.Enumerable.Where", diagnostic.GetMessage());
     }
+
+    [Fact]
+    public async Task ForeachDeconstruct_OnlyDictionaryPairIsSupported()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            using System.Collections.Generic;
+            public class Demo
+            {
+                public static int Run()
+                {
+                    var pairs = new List<(int, int)> { (1, 2) };
+                    var d = new Dictionary<string, int> { ["a"] = 1 };
+                    var n = 0;
+                    foreach (var (a, b) in pairs) n += a + b;
+                    foreach (var (k, v) in d) n += v;
+                    foreach (var (k, _) in d) n += k.Length;
+                    return n;
+                }
+            }
+            """);
+
+        var unsupported = diagnostics.Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax
+            && d.GetMessage().Contains("ForEachVariableStatement")).ToArray();
+        Assert.Equal(2, unsupported.Length);
+    }
 }

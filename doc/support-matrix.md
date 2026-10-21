@@ -246,7 +246,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `while` ループ | **Y** | `while cond do end` | |
 | `do-while` ループ | **Y** | `repeat ... until not(cond)` | |
 | `for` ループ (C 形式) | **Y** | `for i=s,e do` / while 展開 | 一般 incrementor 対応 |
-| `foreach` ループ | **Y** | `ipairs`/`pairs` | |
+| `foreach` ループ | **Y** | `ipairs`/`pairs` | Dictionary は `foreach (var kv in dict)` の KeyValuePair と `foreach (var (k, v) in dict)` の分解 (§18) |
 | `break` | **Y** | `break` | |
 | `continue` | **Y** | `goto _continue_N` | Lua 5.5 goto |
 | `return` | **Y** | `return expr` | |
@@ -813,6 +813,7 @@ key 型が型 parameter の dict (generic method の中で作るもの) は対�
 | `.Keys` | **Y** | `Dict.Keys(dict)` | T+R |
 | `.Values` | **Y** | `Dict.Values(dict)` | T+R |
 | `.TryGetValue(key, out value)` | **Y** | out 代入 + bool | T |
+| `foreach (var (k, v) in dict)` | **Y** | `for k, v in pairs(dict)` (KeyValuePair を作らない。float key は NaN に戻し、変更可能な struct の値は copy) | T。`var (k, v)` の 2 要素だけ (tuple の形 `(var k, var v)` は tuple が対象外)。List の tuple の分解と discard (`_`) は TCS1001 |
 | `.TryAdd(key, value)` | **-** | | |
 | `.ContainsValue(value)` | **-** | | |
 | `.Clear()` | **Y** | 全 key を nil に (table の同一性は保つ。C は `tcs_dict_clear`) | T |
