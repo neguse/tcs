@@ -468,6 +468,9 @@ public partial class LuaEmitter
         MethodDeclarationSyntax method)
     {
         _headerEmitted = true;
+        // 増分 session の method splice は Visit を通らないので、型 test の派生判定が
+        // 使う compilation をここで設定する (#271)
+        _compilation = model.Compilation as CSharpCompilation;
         var tree = model.SyntaxTree;
         var renamed = RenameKeywordLocals(model.Compilation, model, tree);
         if (renamed.Tree != tree)

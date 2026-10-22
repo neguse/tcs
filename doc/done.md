@@ -2302,4 +2302,5 @@
 ### T258 `__tcs_is` の直接比較化 ✓ (2026-10-21)
 - 派生 class の無い型への `is` / 型 switch を `getmetatable(x) == T` の直接比較で出すようにした (IlIsType に Direct)。user の class は継承できない (q.md Q15) ので派生があるのは `--ref` stub の class だけで、その基底への `is` は従来どおり chain を辿る `__tcs_is` (prelude / `TinySystem.instanceof`) を使う。派生の有無は compilation (user と `--ref` の tree) の class 宣言の基底から引く
 - 検証: `dotnet test` 全通過。派生の無い class の出力に `__tcs_is(` が無く `getmetatable(` があること、`--ref` stub の基底への `is` は `__tcs_is(` のままなこと、直接比較が null / string / int / 別 class を偽にすることをテストで固定。q.md Q19 の計測では分岐の重い loop で約 20% の差
+- 修正 (#270 / #271): `--ref` の class は Lua に定義が無く `getmetatable(nil) == nil` が真になるので直接比較の対象外にした。増分 session の method splice (EmitSingleMethod) は Visit を通らず compilation が無かったので設定し、分からない経路では派生があるものとして扱う
 - 残課題: なし

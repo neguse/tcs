@@ -31,16 +31,27 @@ public partial class LuaEmitter
                 return new IlNullableHasValue(expr);
         }
         return typeRef == null ? null
-            : new IlIsType(expr, typeRef, Direct: !HasDerivedClass(patternType));
+            : new IlIsType(expr, typeRef, Direct: CanCompareMetatableDirectly(patternType));
     }
 
+    // metatable の直接比較で足りるのは、Lua に class table がある user の class で派生が
+    // 無いもの。`--ref` の class は Lua に定義が無く (global は nil)、`getmetatable(nil) == nil`
+    // が真になって null が一致してしまうので、派生の有無に関わらず __tcs_is を使う (#270)
+    private bool CanCompareMetatableDirectly(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { TypeKind: TypeKind.Class }
+        && !IsReferenceOnlyType(type)
+        && !HasDerivedClass(type);
+
     // compilation (user と `--ref` の tree) の中で T を基底にする class があるか。
-    // user の class は継承できない (q.md Q15) ので、派生は `--ref` stub の class だけ
+    // user の class は継承できない (q.md Q15) ので、派生は `--ref` stub の class だけ。
+    // compilation は Visit / EmitSingleMethod が設定する。分からない経路では派生が
+    // あるものとして扱う (直接比較に落とすより chain 走査の方が安全。#271)
     private CSharpCompilation? _compilation;
     private HashSet<string>? _basesWithDerived;
     private bool HasDerivedClass(ITypeSymbol? type)
     {
         if (type is not INamedTypeSymbol { TypeKind: TypeKind.Class } named) return false;
+        if (_compilation == null) return true;
         _basesWithDerived ??= CollectBasesWithDerived();
         return _basesWithDerived.Contains(named.OriginalDefinition.ToDisplayString());
     }

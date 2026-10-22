@@ -308,4 +308,36 @@ public class IncrementalSessionTests
         Assert.Equal(h1, IncrementalCompilationSession.SurfaceHash(commented));
         Assert.NotEqual(h1, IncrementalCompilationSession.SurfaceHash(paramRenamed));
     }
+
+    // method body の splice (EmitSingleMethod) でも、型 test の派生判定は full build と同じ
+    // compilation を見る (#271)。派生のある `--ref` の基底への is は chain 走査のまま
+    [Fact]
+    public void Update_MethodSplice_KeepsTypeTestOfDerivedRefClass()
+    {
+        const string Before = """
+            public class P
+            {
+                public static int Main()
+                {
+                    BaseOptions v = null;
+                    return v is BaseOptions ? 1 : 0;
+                }
+            }
+            """;
+        var after = Before.Replace("? 1 : 0", "? 1 : 2");
+        var session = new IncrementalCompilationSession(["""
+            public class BaseOptions { public int Width; }
+            public class Options : BaseOptions { }
+            """]);
+        session.OpenProject([("game/P.cs", Before)]);
+        Assert.Empty(session.CollectDiagnostics().Errors);
+        Assert.Equal("0", LinkAndRun(session, "P.Main()"));
+
+        var update = session.Update("game/P.cs", after);
+        Assert.True(update.Success, string.Join("\n", update.Errors));
+        Assert.True(update.FastPath);
+        var lua = string.Join("", session.Artifacts.Select(a => a.Lua));
+        Assert.True(lua.Split("__tcs_is(").Length - 1 > 1, "splice 後も chain 走査のまま");
+        Assert.Equal("2", LinkAndRun(session, "P.Main()"));
+    }
 }

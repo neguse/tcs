@@ -239,4 +239,27 @@ public class TypePatternTests
             """, "T.Test()");
         Assert.Equal("true:false:false:false:false", result);
     }
+
+    // `--ref` の class は Lua に定義が無い (global は nil) ので直接比較だと null が一致する (#270)。
+    // 派生の有無に関わらず __tcs_is を使い、null は偽
+    [Fact]
+    public void IsRefClass_WithoutDerived_DoesNotMatchNull()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public class P
+            {
+                public static int Main()
+                {
+                    Options v = null;
+                    return v is Options ? 1 : 0;
+                }
+            }
+            """], null, ["""
+            public class Options { public int Width; }
+            """]);
+
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        Assert.True(result.Lua.Split("__tcs_is(").Length - 1 > 1, "--ref の class への is は chain 走査のまま");
+        Assert.Equal("0", TestHelper.RunLua($"{result.Lua}\nprint(P.Main())").Trim());
+    }
 }
