@@ -912,11 +912,13 @@ public partial class TinyCsComplianceAnalyzerTests
                 public static int A(IShape v) => v switch { Sq s => s.S };
                 public static int B(IShape v) => v switch { Sq s => s.S, Ci c => c.R };
                 public static int C(IShape v) { switch (v) { case Sq s: return s.S; } return 0; }
+                public static int D(IShape v) => v switch { Sq or Ci => 1 };
             }
             """);
 
         var missing = diagnostics.Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax
-            && d.GetMessage().Contains("SwitchNotExhaustive(IShape: Ci)")).ToArray();
+            && d.GetMessage().Contains("SwitchNotExhaustive(")).ToArray();
         Assert.Equal(2, missing.Length);
+        Assert.All(missing, d => Assert.Contains("SwitchNotExhaustive(IShape: Ci)", d.GetMessage()));
     }
 }

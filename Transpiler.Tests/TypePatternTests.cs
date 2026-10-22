@@ -345,12 +345,14 @@ public class TypePatternTests
             {
                 public static int A(IShape v) => v switch { Sq s => s.S, Ci c => c.R };
                 public static int B(IShape v) { switch (v) { case Sq s: return s.S; case Ci c when c.R > 0: return 1; case Tri: return 2; } return 0; }
+                public static int C(IShape v) => v switch { Sq and { S: > 0 } => 1, Ci => 2, Tri => 3 };
             }
             """]);
         var errors = missing.Errors.Where(e => e.Contains("SwitchNotExhaustive(")).ToArray();
-        Assert.Equal(2, errors.Length);
+        Assert.Equal(3, errors.Length);
         Assert.Contains(errors, e => e.Contains("SwitchNotExhaustive(IShape: Tri)"));
         Assert.Contains(errors, e => e.Contains("SwitchNotExhaustive(IShape: Ci)"));
+        Assert.Contains(errors, e => e.Contains("SwitchNotExhaustive(IShape: Sq)"));
 
         var ok = Transpiler.TranspileWithDiagnostics([Types + """
             public class T
@@ -359,6 +361,9 @@ public class TypePatternTests
                 public static int B(IShape v) => v switch { Sq s => s.S, _ => -1 };
                 public static int C(IShape v) { switch (v) { case Sq s: return s.S; default: return 0; } }
                 public static int D(object o) => o switch { Sq s => s.S, _ => 0 };
+                public static int E(IShape v) => v switch { Sq or Ci => 1, Tri => 2 };
+                public static int F(IShape v) { switch (v) { case Sq or Ci: return 1; case Tri: return 2; } return 0; }
+                public static int G(IShape v) => v switch { Sq or Ci or Tri => 1, null => 0 };
             }
             """]);
         Assert.True(ok.Success, string.Join("\n", ok.Errors));

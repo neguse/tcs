@@ -662,23 +662,7 @@ public static partial class TinyCsComplianceFacts
         foreach (var (pattern, conditional) in patterns)
         {
             if (conditional) continue;
-            switch (pattern)
-            {
-                case DiscardPatternSyntax:
-                case VarPatternSyntax:
-                    return false;
-                case DeclarationPatternSyntax dp when model.GetTypeInfo(dp.Type).Type is { } t:
-                    covered.Add(t); break;
-                case TypePatternSyntax tp when model.GetTypeInfo(tp.Type).Type is { } t:
-                    covered.Add(t); break;
-                // switch 文の `case Tri:` は型名の ConstantPattern として parse される
-                case ConstantPatternSyntax cp
-                    when model.GetSymbolInfo(cp.Expression).Symbol is ITypeSymbol ct:
-                    covered.Add(ct); break;
-                case RecursivePatternSyntax { Type: { } rt, PropertyPatternClause: null or { Subpatterns.Count: 0 } }
-                    when model.GetTypeInfo(rt).Type is { } t:
-                    covered.Add(t); break;
-            }
+            if (CoversAll(pattern, model, covered)) return false;
         }
         var missing = new List<string>();
         foreach (var tree in model.Compilation.SyntaxTrees)
@@ -695,6 +679,35 @@ public static partial class TinyCsComplianceFacts
         if (missing.Count == 0) return false;
         syntaxName = $"SwitchNotExhaustive({iface.Name}: {string.Join(", ", missing)})";
         return true;
+    }
+
+    // pattern が覆う実装型を covered に足す。discard / var は全部を覆う (true)。
+    // `Sq or Ci` は両側を覆う。`and` は型を更に絞り、`not` は否定なので足さない。
+    // property pattern 付き (`Sq { S: > 0 }`) も Sq の全部は覆わない
+    private static bool CoversAll(PatternSyntax pattern, SemanticModel model,
+        HashSet<ISymbol> covered)
+    {
+        switch (pattern)
+        {
+            case DiscardPatternSyntax:
+            case VarPatternSyntax:
+                return true;
+            case BinaryPatternSyntax bin when bin.IsKind(SyntaxKind.OrPattern):
+                return CoversAll(bin.Left, model, covered)
+                    | CoversAll(bin.Right, model, covered);
+            case DeclarationPatternSyntax dp when model.GetTypeInfo(dp.Type).Type is { } t:
+                covered.Add(t); break;
+            case TypePatternSyntax tp when model.GetTypeInfo(tp.Type).Type is { } t:
+                covered.Add(t); break;
+            // switch 文の `case Tri:` は型名の ConstantPattern として parse される
+            case ConstantPatternSyntax cp
+                when model.GetSymbolInfo(cp.Expression).Symbol is ITypeSymbol ct:
+                covered.Add(ct); break;
+            case RecursivePatternSyntax { Type: { } rt, PropertyPatternClause: null or { Subpatterns.Count: 0 } }
+                when model.GetTypeInfo(rt).Type is { } t:
+                covered.Add(t); break;
+        }
+        return false;
     }
 
     public static bool IsDictionaryPairDeconstruction(

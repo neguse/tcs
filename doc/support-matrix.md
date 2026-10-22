@@ -340,7 +340,7 @@ C# `int` と一致する。シフトは `__tcs_shl` / `__tcs_shr` (count を 31 
 |---|:----:|--------------|------|
 | ラムダ (式本体) `x => expr` | **Y** | `function(x) return expr end` | |
 | ラムダ (文本体) `(x) => { }` | **Y** | `function(x) ... end` | |
-| switch 式 (C# 8) | **Y** | IIFE if-elseif | interface 型の入力は実装型を全部覆うか default / `_` / `var` の arm が要る (TCS1001 `SwitchNotExhaustive(I: X, Y)`。switch 文も同じ。.NET は実行時例外、Lua は nil で揃えられない。q.md Q19) |
+| switch 式 (C# 8) | **Y** | IIFE if-elseif | interface 型の入力は実装型を全部覆うか default / `_` / `var` の arm が要る (TCS1001 `SwitchNotExhaustive(I: X, Y)`。`Sq or Ci` は両方を覆う。`when` 付き・property pattern 付き・`and` の arm は覆いに数えない。switch 文も同じ。.NET は実行時例外、Lua は nil で揃えられない。q.md Q19) |
 | `this` | **Y** | `self` | |
 | `base.Method()` | **N/A** | | TCS1001 `BaseMemberAccess` (継承は対象外、§8) |
 | メソッドチェーン (LINQ) | **Y** | ネスト呼び出し | |
