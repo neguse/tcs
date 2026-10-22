@@ -44,8 +44,8 @@ public class InterfaceTests
             }
             public class Player : IMovable, IDamageable
             {
-                public int Speed = 10;
-                public int Health = 100;
+                public int Speed { get; } = 10;
+                public int Health { get; } = 100;
             }
             public class T
             {
@@ -61,7 +61,8 @@ public class InterfaceTests
     }
 
     [Fact]
-    public void Interface_GetSetProperty_CanUseMutableField()
+    // interface の property は普通の C# どおり property で実装する (public field による代替は無い)
+    public void Interface_GetSetProperty_AutoProperty()
     {
         var result = TestHelper.TranspileAndRun("""
             public interface ICounter
@@ -70,7 +71,7 @@ public class InterfaceTests
             }
             public class Counter : ICounter
             {
-                public int Value = 1;
+                public int Value { get; set; } = 1;
             }
             public class T
             {
@@ -87,7 +88,7 @@ public class InterfaceTests
     }
 
     [Fact]
-    public void Interface_GetOnlyProperty_CanUseReadonlyField()
+    public void Interface_GetOnlyProperty_AutoProperty()
     {
         var result = TestHelper.TranspileAndRun("""
             public interface IValue
@@ -96,7 +97,7 @@ public class InterfaceTests
             }
             public class T : IValue
             {
-                public readonly int Value = 7;
+                public int Value { get; } = 7;
             }
             """, "T.new().Value");
 

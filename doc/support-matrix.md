@@ -973,14 +973,9 @@ q.md Q18 で外した演算は、添字・copy constructor・foreach で書く�
 | 依存 lock / publish runtime 同梱 | **Y** | package pin + packages.lock.json + runtime/tinysystem.lua |
 | Lua と生成コードの予約と重なる識別子 | **Y** | Lua の予約語、`__` 始まり、非 ASCII、`new` / `ctor`、型名と namespace 名の `_` は error (§28)。analyzer / `tcs check` は TCS1001 `LuaKeywordIdentifier(end)` / `DoubleUnderscoreIdentifier(__x)` 等 |
 
-## 25. 許容される C# エラー (TinyC# 固有)
+## 25. C# エラーの扱い
 
-| エラーコード | 内容 | 理由 |
-|------------|------|------|
-| CS0029 | 暗黙の型変換 | diagnostic位置の式がenum ↔ numeric integerの場合だけ許容 (`char`は除外) |
-| CS0266 | 明示的変換が必要 | diagnostic位置の式がenum ↔ numeric integerの場合だけ許容 (`char`は除外) |
-| CS0019 | 演算子適用不可 | enumとnumeric integer (`char`除外) の`==` / `!=`だけ許容 |
-| CS0535 | interface 未実装 | 未実装memberがすべて、同じclassで宣言した同名・同型のpublic instance fieldで代替できるpropertyの場合だけ許容。setterにはmutable fieldが必要 |
+C# の compile error はすべてそのまま error (objective.md の基準 6)。かつて enum と numeric integer の暗黙変換 (CS0029 / CS0266 / CS0019) と public field による interface property の代替 (CS0535) を tcs だけが許していたが、普通の C# コンパイラが受理しないものは受理しない。
 
 ## 26. 数値型マッピング
 

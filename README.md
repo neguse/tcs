@@ -143,9 +143,7 @@ lub エンジンで動かす実例は `samples/lub/` (`run-lub.sh`) と
 Lua を出力せず、C# compile error と TinyC# 準拠診断だけを返す。
 警告またはエラーがあれば exit 1、問題がなければ exit 0。
 未対応の構文 (TCS1001) と API (TCS1002) は error で、build (`-o` / `--watch` / 増分 session) も Lua を書かずに exit 1 になる。TCS1003 は warning で、build は止めない (`--warnaserror` で止められる)。
-TinyC#固有の例外はenumと数値整数 (`char`を除く) の変換・等値比較、および
-互換public fieldによるinterface property facadeだけで、同じC#エラーIDの
-通常の型不一致は失敗する。
+C# の compile error はそのまま error で、tcs 独自の緩和は無い (enum と int の暗黙変換も通常の C# と同じく error)。
 user の型の member 名は C# の識別子のまま Lua / IL の名前になる (`OnFrame` → `OnFrame`、
 enum メンバ `BigValue` → `BigValue`)。`--ref` 型
 (host) の member だけ host の wire format に写す (`BeginPass` → `begin_pass`、enum

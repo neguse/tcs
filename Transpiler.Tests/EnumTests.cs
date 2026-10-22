@@ -10,7 +10,7 @@ public class EnumTests
 
             public class Nav
             {
-                public static int GetDir() { return Direction.Right; }
+                public static int GetDir() { return (int)Direction.Right; }
             }
             """,
             "Nav.GetDir()");
@@ -25,7 +25,7 @@ public class EnumTests
 
             public class Game
             {
-                public static int Speed(int status)
+                public static int Speed(Status status)
                 {
                     if (status == Status.Idle) { return 0; }
                     else if (status == Status.Walking) { return 10; }
@@ -45,7 +45,7 @@ public class EnumTests
 
             public class Machine
             {
-                public int Current = 0;
+                public State Current = State.Idle;
 
                 public void Activate()
                 {
@@ -68,7 +68,8 @@ public class EnumTests
     }
 
     [Fact]
-    public void IntegerToEnum_AndNotEquals_AreAllowed()
+    // enum と int の変換は普通の C# どおり明示 cast (tcs 独自の緩和は無い。objective.md 基準 6)
+    public void IntegerToEnum_ExplicitCast_AndNotEquals()
     {
         var result = TestHelper.TranspileAndRun("""
             public enum State { Idle, Active, Done }
@@ -77,8 +78,8 @@ public class EnumTests
             {
                 public static bool Test()
                 {
-                    State state = 1;
-                    return state != 0;
+                    State state = (State)1;
+                    return state != State.Idle && (int)state == 1;
                 }
             }
             """, "tostring(T.Test())");

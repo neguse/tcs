@@ -2350,3 +2350,8 @@
 - 検証: `dotnet test` 全通過。transpiler / analyzer のテストを追加 (不足の型名、`_` / default / 全列挙で通ること、object 入力は対象外)
 - 判断: C# の警告 CS8509 を tcs では error に格上げする (基準 6 の「厳しい側に寄る」)。実行時に揃える手は無い (tcs に例外機構が無い)
 - 残課題: なし
+
+### T266 CompilationDiagnosticPolicy の緩和を撤去 ✓ (2026-10-21)
+- enum と numeric integer の暗黙変換 (CS0029 / CS0266 / CS0019) と public field による interface property の代替 (CS0535) を通していた `CompilationDiagnosticPolicy` を消し、transpiler / 増分 session / IlExport は C# の compile error をそのまま error にする (objective.md 基準 6)
+- 検証: `dotnet test` 全通過。緩和に依っていたテスト・sample は普通の C# (明示 cast、property の実装) に直した
+- 残課題: なし

@@ -21,8 +21,7 @@ namespace TinyCs;
 // emit 結果を変え得るため。source hash による絞り込みでは不足する。
 //
 // 診断・compliance は full path (Transpiler.TranspileWithDiagnostics) と同じ
-// 実装 (CompilationDiagnosticPolicy / TinyCsComplianceFacts /
-// LuaEmitter) を呼ぶ。別実装を持たない (§9)。
+// 実装 (TinyCsComplianceFacts / LuaEmitter) を呼ぶ。別実装を持たない (§9)。
 
 public sealed class SessionModuleArtifact
 {
@@ -363,8 +362,7 @@ public sealed partial class IncrementalCompilationSession
         var errors = new List<string>();
         foreach (var diag in comp.GetDiagnostics())
         {
-            if (diag.Severity != DiagnosticSeverity.Error
-                || CompilationDiagnosticPolicy.IsAllowed(comp, diag))
+            if (diag.Severity != DiagnosticSeverity.Error)
                 continue;
             var formatted = FormatError(diag);
             errors.Add(formatted);
@@ -403,8 +401,7 @@ public sealed partial class IncrementalCompilationSession
             ? model.GetDiagnostics(bodySpan) : model.GetDiagnostics();
         foreach (var diag in tree.GetDiagnostics().Concat(semantic))
         {
-            if (diag.Severity != DiagnosticSeverity.Error
-                || CompilationDiagnosticPolicy.IsAllowed(comp, diag))
+            if (diag.Severity != DiagnosticSeverity.Error)
                 continue;
             var formatted = FormatError(diag);
             errors.Add(formatted);

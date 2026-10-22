@@ -50,7 +50,7 @@ public class GameScriptTests
 
             public class Character
             {
-                public int CurrentState;
+                public State CurrentState;
 
                 public Character()
                 {
@@ -66,7 +66,7 @@ public class GameScriptTests
                     else if (input == 99) { this.CurrentState = State.Dead; }
                 }
 
-                public int GetState() { return this.CurrentState; }
+                public int GetState() { return (int)this.CurrentState; }
             }
             """, """
             (function()

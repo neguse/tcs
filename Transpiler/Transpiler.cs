@@ -84,13 +84,10 @@ public static class Transpiler
         var errors = new List<string>();
         var warnings = new List<string>();
 
-        // TinyC# intentionally erases enums to integers and allows public
-        // fields to stand in for interface properties. Suppress only those
-        // exact semantic cases; ordinary C# type errors remain fatal.
+        // C# の compile error はそのまま error。tcs 独自の緩和は無い (objective.md 基準 6)
         foreach (var diag in compilation.GetDiagnostics())
         {
-            if (diag.Severity == DiagnosticSeverity.Error
-                && !CompilationDiagnosticPolicy.IsAllowed(compilation, diag))
+            if (diag.Severity == DiagnosticSeverity.Error)
             {
                 var loc = diag.Location;
                 var span = loc.GetLineSpan();

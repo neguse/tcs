@@ -122,8 +122,7 @@ public static partial class IlExport
         // 基準の compile error で止める
         var errors = compilation.GetDiagnostics()
             // CS8805: top-level 文は library として読むので executable を要求しない
-            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id != "CS8805"
-                && !CompilationDiagnosticPolicy.IsAllowed(compilation, d))
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id != "CS8805")
             .Select(d =>
             {
                 var span = d.Location.GetLineSpan();
