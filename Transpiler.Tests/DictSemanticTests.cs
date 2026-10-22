@@ -308,4 +308,29 @@ public class DictSemanticTests
 
         Assert.Equal(2, result.Errors.Count(e => e.Contains("TCS1001") && e.Contains("ForEachVariableStatement")));
     }
+
+    // Keys / Values は List の LINQ への橋。順序が要るときは OrderBy を通す
+    [Fact]
+    public void Dict_KeysValues_AreLinqReceivers()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var d = new Dictionary<string, int> { ["b"] = 2, ["a"] = 1, ["c"] = 3 };
+                    var keys = d.Keys.OrderBy(k => k);
+                    var big = d.Values.Where(v => v > 1).OrderByDescending(v => v);
+                    var names = d.Keys.Select(k => k + k).OrderBy(s => s);
+                    return string.Join(",", keys) + ":" + d.Values.Sum() + ":" + d.Values.Min() + ":" + d.Keys.Max()
+                        + ":" + big.Count + ":" + big[0] + ":" + (d.Keys.Any(k => k == "c") ? 1 : 0) + ":" + (d.Values.All(v => v > 0) ? 1 : 0)
+                        + ":" + d.Values.Count(v => v >= 2) + ":" + d.Values.MinBy(v => -v) + ":" + names[0]
+                        + ":" + d.Values.Sum(v => v * 10) + ":" + (d.Keys.FirstOrDefault(k => k == "zz") == null ? 1 : 0);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("a,b,c:6:1:c:2:3:1:1:2:3:aa:60:1", result);
+    }
 }

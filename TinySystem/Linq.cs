@@ -219,6 +219,128 @@ public static class List
         }
         return best;
     }
+
+    // Dictionary の Keys / Values (KeyCollection / ValueCollection) は List の LINQ への橋
+    // (q.md Q18)。列挙順は未規定なので、並べるなら OrderBy を通す。Lua / C は
+    // Dict.Keys / Values が最初から copy の List なので同じ List の演算に写る
+    public static global::System.Collections.Generic.List<TKey> Where<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, bool> predicate)
+        where TKey : notnull =>
+        Where(new global::System.Collections.Generic.List<TKey>(xs), predicate);
+    public static global::System.Collections.Generic.List<TResult> Select<TKey, TValue, TResult>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, TResult> selector)
+        where TKey : notnull =>
+        Select(new global::System.Collections.Generic.List<TKey>(xs), selector);
+    public static bool Any<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs)
+        where TKey : notnull =>
+        xs.Count > 0;
+    public static bool Any<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, bool> predicate)
+        where TKey : notnull =>
+        Any(new global::System.Collections.Generic.List<TKey>(xs), predicate);
+    public static bool All<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, bool> predicate)
+        where TKey : notnull =>
+        All(new global::System.Collections.Generic.List<TKey>(xs), predicate);
+    public static int Count<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, bool> predicate)
+        where TKey : notnull =>
+        Count(new global::System.Collections.Generic.List<TKey>(xs), predicate);
+    public static TKey? FirstOrDefault<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs)
+        where TKey : notnull =>
+        FirstOrDefault(new global::System.Collections.Generic.List<TKey>(xs));
+    public static TKey? FirstOrDefault<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, bool> predicate)
+        where TKey : notnull =>
+        FirstOrDefault(new global::System.Collections.Generic.List<TKey>(xs), predicate);
+    public static global::System.Collections.Generic.List<TKey> OrderBy<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, TK> keySelector)
+        where TKey : notnull =>
+        OrderBy(new global::System.Collections.Generic.List<TKey>(xs), keySelector);
+    public static global::System.Collections.Generic.List<TKey> OrderByDescending<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, TK> keySelector)
+        where TKey : notnull =>
+        OrderByDescending(new global::System.Collections.Generic.List<TKey>(xs), keySelector);
+    public static TKey Min<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs)
+        where TKey : notnull =>
+        Min(new global::System.Collections.Generic.List<TKey>(xs));
+    public static TKey Max<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs)
+        where TKey : notnull =>
+        Max(new global::System.Collections.Generic.List<TKey>(xs));
+    public static TK Min<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, TK> selector)
+        where TKey : notnull =>
+        Min(new global::System.Collections.Generic.List<TKey>(xs), selector);
+    public static TK Max<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, TK> selector)
+        where TKey : notnull =>
+        Max(new global::System.Collections.Generic.List<TKey>(xs), selector);
+    public static TKey MinBy<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, TK> keySelector)
+        where TKey : notnull =>
+        MinBy(new global::System.Collections.Generic.List<TKey>(xs), keySelector);
+    public static TKey MaxBy<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, TK> keySelector)
+        where TKey : notnull =>
+        MaxBy(new global::System.Collections.Generic.List<TKey>(xs), keySelector);
+    public static int Sum<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, int> selector)
+        where TKey : notnull =>
+        Sum(new global::System.Collections.Generic.List<TKey>(xs), selector);
+    public static float Sum<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection xs, global::System.Func<TKey, float> selector)
+        where TKey : notnull =>
+        Sum(new global::System.Collections.Generic.List<TKey>(xs), selector);
+    public static global::System.Collections.Generic.List<TValue> Where<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, bool> predicate)
+        where TKey : notnull =>
+        Where(new global::System.Collections.Generic.List<TValue>(xs), predicate);
+    public static global::System.Collections.Generic.List<TResult> Select<TKey, TValue, TResult>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, TResult> selector)
+        where TKey : notnull =>
+        Select(new global::System.Collections.Generic.List<TValue>(xs), selector);
+    public static bool Any<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs)
+        where TKey : notnull =>
+        xs.Count > 0;
+    public static bool Any<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, bool> predicate)
+        where TKey : notnull =>
+        Any(new global::System.Collections.Generic.List<TValue>(xs), predicate);
+    public static bool All<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, bool> predicate)
+        where TKey : notnull =>
+        All(new global::System.Collections.Generic.List<TValue>(xs), predicate);
+    public static int Count<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, bool> predicate)
+        where TKey : notnull =>
+        Count(new global::System.Collections.Generic.List<TValue>(xs), predicate);
+    public static TValue? FirstOrDefault<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs)
+        where TKey : notnull =>
+        FirstOrDefault(new global::System.Collections.Generic.List<TValue>(xs));
+    public static TValue? FirstOrDefault<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, bool> predicate)
+        where TKey : notnull =>
+        FirstOrDefault(new global::System.Collections.Generic.List<TValue>(xs), predicate);
+    public static global::System.Collections.Generic.List<TValue> OrderBy<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, TK> keySelector)
+        where TKey : notnull =>
+        OrderBy(new global::System.Collections.Generic.List<TValue>(xs), keySelector);
+    public static global::System.Collections.Generic.List<TValue> OrderByDescending<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, TK> keySelector)
+        where TKey : notnull =>
+        OrderByDescending(new global::System.Collections.Generic.List<TValue>(xs), keySelector);
+    public static TValue Min<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs)
+        where TKey : notnull =>
+        Min(new global::System.Collections.Generic.List<TValue>(xs));
+    public static TValue Max<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs)
+        where TKey : notnull =>
+        Max(new global::System.Collections.Generic.List<TValue>(xs));
+    public static TK Min<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, TK> selector)
+        where TKey : notnull =>
+        Min(new global::System.Collections.Generic.List<TValue>(xs), selector);
+    public static TK Max<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, TK> selector)
+        where TKey : notnull =>
+        Max(new global::System.Collections.Generic.List<TValue>(xs), selector);
+    public static TValue MinBy<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, TK> keySelector)
+        where TKey : notnull =>
+        MinBy(new global::System.Collections.Generic.List<TValue>(xs), keySelector);
+    public static TValue MaxBy<TKey, TValue, TK>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, TK> keySelector)
+        where TKey : notnull =>
+        MaxBy(new global::System.Collections.Generic.List<TValue>(xs), keySelector);
+    public static int Sum<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, int> selector)
+        where TKey : notnull =>
+        Sum(new global::System.Collections.Generic.List<TValue>(xs), selector);
+    public static float Sum<TKey, TValue>(this global::System.Collections.Generic.Dictionary<TKey, TValue>.ValueCollection xs, global::System.Func<TValue, float> selector)
+        where TKey : notnull =>
+        Sum(new global::System.Collections.Generic.List<TValue>(xs), selector);
+    public static int Sum<TValue>(this global::System.Collections.Generic.Dictionary<int, TValue>.KeyCollection xs) =>
+        Sum(new global::System.Collections.Generic.List<int>(xs));
+    public static float Sum<TValue>(this global::System.Collections.Generic.Dictionary<float, TValue>.KeyCollection xs) =>
+        Sum(new global::System.Collections.Generic.List<float>(xs));
+    public static int Sum<TKey>(this global::System.Collections.Generic.Dictionary<TKey, int>.ValueCollection xs)
+        where TKey : notnull =>
+        Sum(new global::System.Collections.Generic.List<int>(xs));
+    public static float Sum<TKey>(this global::System.Collections.Generic.Dictionary<TKey, float>.ValueCollection xs)
+        where TKey : notnull =>
+        Sum(new global::System.Collections.Generic.List<float>(xs));
 }
 
 // Dictionary<K,V> の演算。結果が key と value の集合だけで決まるものに限る

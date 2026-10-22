@@ -90,7 +90,6 @@
 
 ## Dictionary トラック (q.md Q18)
 
-- [ ] **T261** (P1): Keys / Values 経由で List の LINQ を使えるようにする — `Dictionary<K,V>.KeyCollection` / `ValueCollection` を receiver とする overload を TinySystem に足す (T254 の後)
 - [ ] **T262** (P2): `runtime/lua/tcs_lua.c` が `TCS_LUA_SEED` を読み、あるときだけ固定 seed で `lua_newstate` する。Transpiler.Tests の TestHelper と tcs2c.Tests の Backends が設定する。差分ゲートの sort と fuzz の dict 列挙除外はそのまま
 
 ---

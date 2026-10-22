@@ -2318,3 +2318,9 @@
 - shared facts に「分解 foreach は Dictionary の (key, value) の 2 要素だけ」の規則を足し、List の tuple の分解と discard は TCS1001 `ForEachVariableStatement` (従来は emitter の fallback だけが出していた)
 - 検証: `dotnet test` 全通過。Lua の意味論テスト、analyzer のテスト、tcs2c の差分テスト (closure の捕捉、struct の copy、break / continue) を追加
 - 残課題: T261 (Keys / Values の receiver overload)、T262 (TCS_LUA_SEED)
+
+### T261 Keys / Values を List の LINQ の受け手にする ✓ (2026-10-21)
+- `TinySystem.Linq.List` に `Dictionary<K,V>.KeyCollection` / `ValueCollection` を receiver とする overload を足した (Where / Select / Any / All / Count / FirstOrDefault / OrderBy / OrderByDescending / Min / Max / MinBy / MaxBy / Sum)。dotnet 側は copy の List に写して List の版を呼ぶ。Lua / C は `Dict.Keys` / `Values` が最初から copy の List なので emitter は変更なし
+- 検証: `dotnet test` 全通過。Lua の意味論テスト、tcs2c の差分テスト、allowlist のテストを追加
+- 判断: 配列は受け手にしない (Q18)。`IReadOnlyCollection<T>` を receiver にすると配列が戻るので、KeyCollection / ValueCollection の明示 overload にした
+- 残課題: T262 (TCS_LUA_SEED)

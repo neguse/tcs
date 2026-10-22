@@ -122,7 +122,7 @@ TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味
 - Where, Select, Any, All, FirstOrDefault, Count(predicate)
 - OrderBy, OrderByDescending, Min, Max, MinBy, MaxBy, Sum
 - `List<T>` の `FindIndex(predicate)` / `RemoveAll(predicate)` (BCL のまま)
-- `Dictionary<K,V>` の Where / Any / All / Count / RemoveAll (`(k, v) =>` の述語。結果が key と value の集合だけで決まるもの) と `Clear`。列挙順は未規定
+- `Dictionary<K,V>` の Where / Any / All / Count / RemoveAll (`(k, v) =>` の述語。結果が key と value の集合だけで決まるもの) と `Clear`。列挙順は未規定で、Keys / Values は List の LINQ への橋 (順序が要るときは OrderBy)
 
 添字・copy constructor (`new List<T>(source)`)・foreach で書けるもの (First / Last / Take / Skip / ToList / ToDictionary / Count()) は置かない (q.md Q18)。
 
