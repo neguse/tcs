@@ -2337,3 +2337,8 @@
 - 検証: `dotnet test` 全通過。transpiler / analyzer のテストと、両 backend が IL を作る前に同じ診断で止まる tcs2c のテストを追加
 - 判断: DU の case は record class に限る (q.md Q19)。boxing で対応する案は確保が record class と同じで interface 経由の呼び出しに unbox が入り、struct に metatable を付ける案は plain table の設計を崩す
 - 残課題: T264 (tcs2c の switch 絞り込み)、T265 (網羅性)
+
+### T264 tcs2c が switch で絞った変数の member を解決できない件 ✓ (2026-10-21)
+- switch 文 / 式の class の宣言 pattern の designation を、入力をそのまま前束縛する `IlLocal(name, sw)` から、struct と同じく型だけ前宣言して照合が通った arm の中で絞った型へ cast して束縛する形 (`IlRefCast(sw, T)`) にした。Lua は IlRefCast を素通しするので出力は実質変わらず、tcs2c は interface 型の入力から class の member (`a.S`) を引けるようになった (従来は `unknown field: IShape.S`)。C の IlRefCast は検査付きなので、照合の前に cast する形 (switch 冒頭での前束縛) は一致しない arm で fault する
+- 検証: `dotnet test` 全通過。switch 文と switch 式の両方で絞った変数の member を読む差分テストを追加
+- 残課題: T265 (網羅性)

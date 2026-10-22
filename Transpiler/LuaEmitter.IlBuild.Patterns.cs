@@ -40,6 +40,9 @@ public partial class LuaEmitter
             when StructDesignation(model, dp) is (var inputType, var declType) =>
             BuildStructDeclarationIs(new IlVar(sv.Identifier.ValueText), governing,
                 inputType, declType),
+        DeclarationPatternSyntax { Designation: SingleVariableDesignationSyntax sv } dp
+            when model.GetTypeInfo(dp.Type).Type is { TypeKind: TypeKind.Class } classType =>
+            BuildClassDeclarationIs(model, governing, dp, sv.Identifier.ValueText, classType),
         DeclarationPatternSyntax dp =>
             BuildTypeCheck(governing, PatternInputType(model, dp),
                 model.GetTypeInfo(dp.Type).Type, FormatTypeReference(model, dp.Type)),

@@ -91,14 +91,32 @@ public partial class LuaEmitter
         && SymbolEqualityComparer.Default.Equals(UnwrapNullable(inputType), declType)
             ? (inputType, declType) : null;
 
-    // switch の designation の前宣言。class は入力をそのまま束縛する (照合が
-    // 外れた arm では使われない)。struct は arm ごとに照合の中で copy を束縛する
-    // (同名の designation を持つ arm 同士で値を共有しない) ので型だけ宣言する
+    // switch の designation の前宣言。struct と class は型だけ宣言し、arm ごとに
+    // 照合の中で束縛する (struct は copy、class は絞った型への cast。照合が通った
+    // 後なので C の検査付き cast は fault しない)。それ以外は入力をそのまま束縛する
     private IlLocal SwitchDesignationLocal(SemanticModel model,
-        DeclarationPatternSyntax dp, string name, IlExpr sw) =>
-        StructDesignation(model, dp) is (_, var declType)
+        DeclarationPatternSyntax dp, string name, IlExpr sw)
+    {
+        if (StructDesignation(model, dp) is (_, var structType))
+            return new IlLocal(name, null, structType.ToDisplayString());
+        var declType = model.GetTypeInfo(dp.Type).Type;
+        return declType is { TypeKind: TypeKind.Class }
             ? new IlLocal(name, null, declType.ToDisplayString())
             : new IlLocal(name, sw);
+    }
+
+    // class の宣言 pattern: 型照合が通ったら designation に絞った型で束縛する
+    // (IlRefCast。Lua は素通し、C は interface 型の入力から class の member を引ける)
+    private IlExpr? BuildClassDeclarationIs(SemanticModel model, IlExpr governing,
+        DeclarationPatternSyntax dp, string name, ITypeSymbol declType)
+    {
+        var check = BuildTypeCheck(governing, PatternInputType(model, dp), declType,
+            FormatTypeReference(model, dp.Type));
+        if (check == null) return null;
+        return new IlBin(IlBinOp.And, check, new IlIife([
+            new IlAssign(new IlVar(name), new IlRefCast(governing, declType.ToDisplayString())),
+            new IlReturn(new IlLit("true"))]));
+    }
 
     // `and` の右辺の入力は左辺が絞った型。`S?` の入力を左辺が struct `S` に
     // 絞ったら (値があると判っているので) 右辺は中の値を照合する

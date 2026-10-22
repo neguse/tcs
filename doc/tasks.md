@@ -90,7 +90,6 @@
 
 ## DU / パターンマッチ (q.md Q19)
 
-- [ ] **T264** (P1): tcs2c が `switch` 文 / 式で絞ったパターン変数の member を解決できない (`unknown field: IShape.S`) を修正
 - [ ] **T265** (P2): interface 型の入力の switch 式 / 文の網羅性を準拠 error に (default / `_` なしで実装型を覆っていないとき)
 
 ---
