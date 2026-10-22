@@ -810,8 +810,8 @@ key 型が型 parameter の dict (generic method の中で作るもの) は対�
 | `.Add(key, value)` | **Y** | `dict[key] = value` | T |
 | `.Remove(key)` | **Y** | `Dict.Remove(dict, key)` | T+R |
 | `.ContainsKey(key)` | **Y** | `(dict[key] ~= nil)` | T |
-| `.Keys` | **Y** | `Dict.Keys(dict)` (copy の List。順序は未規定) | T+R。List の LINQ (§19) の受け手になる。順序が要るときは `Keys.OrderBy(k => k)` |
-| `.Values` | **Y** | `Dict.Values(dict)` (copy の List。順序は未規定) | T+R。List の LINQ (§19) の受け手になる |
+| `.Keys` | **Y** | `Dict.Keys(dict)` (copy の List。順序は未規定) | T+R。List の LINQ (§19) の受け手になる。順序が要るときは `Keys.OrderBy(k => k)`。変数・field・property・引数・戻り値には持てない (TCS1001 KeysValuesStored。dotnet は live view で copy の時点が分かれる)。持ち越すなら `new List<K>(dict.Keys)` で写す |
+| `.Values` | **Y** | `Dict.Values(dict)` (copy の List。順序は未規定) | T+R。List の LINQ (§19) の受け手になる。持ち越しの制約は `.Keys` と同じ |
 | `.TryGetValue(key, out value)` | **Y** | out 代入 + bool | T |
 | `foreach (var (k, v) in dict)` | **Y** | `for k, v in pairs(dict)` (KeyValuePair を作らない。float key は NaN に戻し、変更可能な struct の値は copy) | T。`var (k, v)` の 2 要素だけ (tuple の形 `(var k, var v)` は tuple が対象外)。List の tuple の分解と discard (`_`) は TCS1001 |
 | `.TryAdd(key, value)` | **-** | | |
@@ -830,7 +830,7 @@ LINQ は `TinySystem.Linq` namespace の `List<T>` 拡張メソッドとして�
 `System.Linq` は namespace ごと TCS1002 で、`TinySystem.Linq` の using が無い呼び出しは `Enumerable` に束縛されて止まる。
 dotnet 側の TinySystem も同じ即時評価の実装なので、遅延評価との差異はない。
 述語 / selector は要素ごとに 1 回・順序どおりに呼び、走査は呼び出し時点の Count まで、要素は callback の前に読む (callback が受け手に足した要素は結果に出ない。OrderBy は全要素を写してから key を計算する。q.md Q18)。callback が受け手を縮めて添字が範囲外になれば 3 経路とも fault (.NET は ArgumentOutOfRangeException、C は bounds、Lua は nil の要素を範囲外とみなす error)。
-受け手は `List<T>` と Dictionary の Keys / Values (`KeyCollection` / `ValueCollection`。Lua / C では copy の List) で、列を返す演算は `List<T>` を返す。配列は受け手にならない (q.md Q18)。
+受け手は `List<T>` と Dictionary の Keys / Values (`KeyCollection` / `ValueCollection`。Lua / C では copy の List で、式の中でだけ使える — §18) で、列を返す演算は `List<T>` を返す。配列は受け手にならない (q.md Q18)。
 static の形 `List.Where(xs, f)` も拡張の形と同じ写像。メソッドチェーン形式のみ対応で、クエリ構文 (`from x in ...`) は未対応。
 下の未対応の演算は、`System.Linq` の using があれば TCS1002、無ければ C# の CS1061 になる。
 struct 要素の LINQ は lambda の parameter と foreach 変数を値 copy するので、data を運ぶ struct は `readonly record struct` を既定にする (readonly は copy を省き、Lua で約 8 倍の差。§8 の struct 行)。

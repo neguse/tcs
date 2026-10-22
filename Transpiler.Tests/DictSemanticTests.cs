@@ -48,8 +48,7 @@ public class DictSemanticTests
                 public static int Test()
                 {
                     var dict = new Dictionary<string, int> { { "x", 1 }, { "y", 2 } };
-                    var keys = dict.Keys;
-                    return keys.Count;
+                    return dict.Keys.Count;
                 }
             }
             """, "T.Test()");
@@ -67,8 +66,7 @@ public class DictSemanticTests
                 public static int Test()
                 {
                     var dict = new Dictionary<string, int> { { "x", 10 }, { "y", 20 } };
-                    var vals = dict.Values;
-                    return vals.Count;
+                    return dict.Values.Count;
                 }
             }
             """, "T.Test()");
@@ -332,5 +330,55 @@ public class DictSemanticTests
             }
             """, "T.Test()");
         Assert.Equal("a,b,c:6:1:c:2:3:1:1:2:3:aa:60:1", result);
+    }
+
+    // Keys / Values を持ち越したいときは copy constructor で写す。写した List は
+    // Dictionary を変えても変わらない (3 経路とも同じ時点の copy)
+    [Fact]
+    public void Dict_KeysValues_SnapshotViaCopyConstructor()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var snap = new List<int>(d.Values);
+                    d.Clear();
+                    return snap.Count + ":" + (snap.Any() ? 1 : 0) + ":" + d.Values.Count;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("1:1:0", result);
+    }
+
+    // Keys / Values は変数・field・property・引数・戻り値に持てない。Lua / C は取得時の
+    // copy、dotnet は live view なので、保存して Dictionary を変えた後に使うと結果が分かれる
+    [Fact]
+    public void Dict_KeysValues_CannotBeStored()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                static Dictionary<int, int>.ValueCollection Field;
+                static Dictionary<int, int>.KeyCollection Prop { get; set; }
+                static Dictionary<int, int>.KeyCollection Ret(Dictionary<int, int> d) => d.Keys;
+                static int Take(Dictionary<int, int>.ValueCollection vs) => vs.Count;
+                public static int Test()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var values = d.Values;
+                    d.Clear();
+                    return values.Any() ? 1 : 0;
+                }
+            }
+            """]);
+
+        Assert.Equal(5, result.Errors.Count(e => e.Contains("TCS1001") && e.Contains("KeysValuesStored(")));
+        Assert.Contains(result.Errors, e => e.Contains("KeysValuesStored(Dictionary<int, int>.ValueCollection)"));
     }
 }

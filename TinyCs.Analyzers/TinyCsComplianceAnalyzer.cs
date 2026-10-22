@@ -72,6 +72,8 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
             SyntaxKind.PrimaryConstructorBaseType);
         context.RegisterSyntaxNodeAction(AnalyzeForEachDeconstruction,
             SyntaxKind.ForEachVariableStatement);
+        context.RegisterSyntaxNodeAction(AnalyzeKeysValuesStorage,
+            TinyCsComplianceFacts.KeysValuesStorageSyntaxKinds);
         context.RegisterOperationAction(AnalyzeOperation,
             OperationKind.Invocation,
             OperationKind.PropertyReference,
@@ -112,6 +114,18 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeForEachDeconstruction(SyntaxNodeAnalysisContext context)
     {
         if (!TinyCsComplianceFacts.TryGetUnsupportedForEachDeconstruction(context.Node,
+            context.SemanticModel, out var syntaxName))
+        {
+            return;
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(UnsupportedSyntaxRule,
+            context.Node.GetLocation(), syntaxName));
+    }
+
+    private static void AnalyzeKeysValuesStorage(SyntaxNodeAnalysisContext context)
+    {
+        if (!TinyCsComplianceFacts.TryGetUnsupportedKeysValuesStorage(context.Node,
             context.SemanticModel, out var syntaxName))
         {
             return;

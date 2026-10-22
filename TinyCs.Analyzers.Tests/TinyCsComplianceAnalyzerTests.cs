@@ -846,4 +846,32 @@ public partial class TinyCsComplianceAnalyzerTests
             && d.GetMessage().Contains("ForEachVariableStatement")).ToArray();
         Assert.Equal(2, unsupported.Length);
     }
+
+    [Fact]
+    public async Task KeysValues_CannotBeStored()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class Demo
+            {
+                static Dictionary<int, int>.ValueCollection Field;
+                static Dictionary<int, int>.KeyCollection Prop { get; set; }
+                static Dictionary<int, int>.KeyCollection Ret(Dictionary<int, int> d) => d.Keys;
+                static int Take(Dictionary<int, int>.ValueCollection vs) => vs.Count;
+                public static int Run()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var values = d.Values;
+                    d.Clear();
+                    foreach (var k in d.Keys) values = d.Values;
+                    return values.Any() ? d.Keys.Count : new List<int>(d.Values).Count;
+                }
+            }
+            """);
+
+        var unsupported = diagnostics.Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax
+            && d.GetMessage().Contains("KeysValuesStored(")).ToArray();
+        Assert.Equal(5, unsupported.Length);
+    }
 }

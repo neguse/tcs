@@ -27,4 +27,57 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("a,b,c:3,2,1\n6:1:3:a:c\n2:true:false:2\n3:1:60:a!,b!,c!\n4:2:1,3", output);
     }
+    // Keys / Values を持ち越すときは copy constructor で写す (同じ時点の copy)
+    [CFact]
+    public void Dict_ValuesSnapshot_ViaCopyConstructor()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                public static void Main()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var snap = new List<int>(d.Values);
+                    d.Clear();
+                    Console.WriteLine(snap.Count + ":" + (snap.Any() ? 1 : 0) + ":" + d.Values.Count);
+                }
+            }
+            """, "P");
+        Assert.Equal("1:1:0", output);
+    }
+
+    // Keys / Values を変数に持つと、Lua / C の copy と dotnet の live view で結果が
+    // 分かれるので、両 backend が shared facts の診断で IL を作る前に止まる
+    [Fact]
+    public void Dict_StoredValues_BothBackendsStopWithDiagnostic()
+    {
+        const string program = """
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                public static void Main()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var values = d.Values;
+                    d.Clear();
+                    Console.WriteLine(values.Any() ? 1 : 0);
+                }
+            }
+            """;
+        foreach (var run in new Func<string>[]
+                 {
+                     () => Backends.RunLua([program], "P"),
+                     () => Backends.EmitC([program], "P"),
+                 })
+        {
+            var ex = Assert.Throws<InvalidOperationException>(run);
+            Assert.Contains("(9,9): error TCS1001: unsupported syntax: KeysValuesStored(Dictionary<int, int>.ValueCollection)",
+                ex.Message);
+        }
+    }
 }

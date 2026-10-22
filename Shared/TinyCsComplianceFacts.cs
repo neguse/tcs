@@ -425,6 +425,9 @@ public static partial class TinyCsComplianceFacts
         if (TryGetUnsupportedForEachDeconstruction(node, model, out syntaxName))
             return true;
 
+        if (TryGetUnsupportedKeysValuesStorage(node, model, out syntaxName))
+            return true;
+
         // top-level statements の暗黙パラメータ args。Lua 出力に定義が存在せず
         // 実行時 nil になる (command line は host の責務)。lambda 等の自前
         // parameter args は synthesized Main 判定で除外される。
@@ -522,6 +525,51 @@ public static partial class TinyCsComplianceFacts
         syntaxName = "ForEachVariableStatement";
         return true;
     }
+
+    // Dictionary の Keys / Values (KeyCollection / ValueCollection) は変数・field・
+    // property・引数・戻り値に持てない。Lua / C は取得時の copy、dotnet は live view
+    // なので、保存して Dictionary を変えた後に使うと結果が分かれる。持ち越すなら
+    // `new List<T>(d.Keys)` で写す。analyzer は宣言の node action でこれを呼ぶ
+    public static readonly SyntaxKind[] KeysValuesStorageSyntaxKinds =
+    [
+        SyntaxKind.VariableDeclaration,
+        SyntaxKind.Parameter,
+        SyntaxKind.MethodDeclaration,
+        SyntaxKind.PropertyDeclaration,
+        SyntaxKind.DeclarationExpression,
+    ];
+
+    public static bool TryGetUnsupportedKeysValuesStorage(SyntaxNode node,
+        SemanticModel model, out string syntaxName)
+    {
+        syntaxName = "";
+        var typeSyntax = node switch
+        {
+            VariableDeclarationSyntax v => v.Type,
+            ParameterSyntax p => p.Type,
+            MethodDeclarationSyntax m => m.ReturnType,
+            PropertyDeclarationSyntax p => p.Type,
+            DeclarationExpressionSyntax d => d.Type,
+            _ => null,
+        };
+        if (typeSyntax == null) return false;
+        var type = model.GetTypeInfo(typeSyntax).Type;
+        if (!ContainsKeysValuesCollection(type)) return false;
+        syntaxName = $"KeysValuesStored({type!.ToMinimalDisplayString(model, node.SpanStart)})";
+        return true;
+    }
+
+    private static bool ContainsKeysValuesCollection(ITypeSymbol? type) => type switch
+    {
+        IArrayTypeSymbol array => ContainsKeysValuesCollection(array.ElementType),
+        INamedTypeSymbol
+        {
+            Name: "KeyCollection" or "ValueCollection",
+            ContainingType: { Name: "Dictionary", ContainingType: null } dict,
+        } when dict.ContainingNamespace.ToDisplayString() == "System.Collections.Generic" => true,
+        INamedTypeSymbol named => named.TypeArguments.Any(ContainsKeysValuesCollection),
+        _ => false,
+    };
 
     public static bool IsDictionaryPairDeconstruction(
         ForEachVariableStatementSyntax deconstruct, SemanticModel model) =>
