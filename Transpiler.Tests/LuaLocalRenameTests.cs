@@ -136,6 +136,26 @@ public class LuaLocalRenameTests
         Assert.Equal("10", output);
     }
 
+    // 別々の arm の同名 designation は symbol ごとに別名 (前宣言が 1 つの scope に出るため)
+    [Fact]
+    public void SwitchDesignations_SameNameInArms_GetDistinctNames()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public interface IShape { }
+            public class Sq : IShape { public int S; }
+            public class Ci : IShape { public int R; }
+            public class Runner
+            {
+                public static int Run(IShape v) => v switch { Sq x => x.S, Ci x => x.R, _ => 0 };
+            }
+            """]);
+
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        Assert.Matches(@"\blocal x\b", result.Lua);
+        Assert.Matches(@"\blocal x_\b", result.Lua);
+        Assert.Matches(@"\bx_\.R\b", result.Lua);
+    }
+
     [Fact]
     public void KeywordLocalInExpressionBodiedAndBlockBodies_Runs()
     {

@@ -15,6 +15,8 @@ namespace TinyCs;
 /// ユーザ型と同名のローカル束縛も写す。emit は型を裸の型名で参照する
 /// (`V.new(...)` / operator の `V.__add(a, b)` / 型内の static member) ので、
 /// 同名のローカルが Lua でそれを隠す。namespace 衝突時の修飾名も対象。
+/// switch の arm / section で同じ名前の designation は、前宣言が 1 つの scope に
+/// 出るので 2 つ目以降を symbol ごとの別名に写す (C# では arm ごとに別の変数)。
 ///
 /// 写し方: `x` → `x_`。写した先が同じ member body (lambda 連鎖を含む)
 /// に識別子として現れる場合やユーザ型名と同じ場合は、そうでない名前になるまで
@@ -35,7 +37,23 @@ public static class LuaLocalRenamer
             || typeNames.Contains(token.ValueText)
             || EmittedGlobals.Contains(token.ValueText)
             || token.ValueText == MathModuleGlobal
-            || TinyCsComplianceFacts.IsRuntimeGlobalName(token.ValueText));
+            || TinyCsComplianceFacts.IsRuntimeGlobalName(token.ValueText)
+            || IsRepeatedSwitchDesignation(token));
+
+    // switch の arm / section の designation は switch の前に 1 つの scope へ
+    // 前宣言されるので、同じ switch の先行する designation と同名なら別名に写す
+    // (C# では arm ごとに別の変数。C backend は型付きの local を name で引く)
+    private static bool IsRepeatedSwitchDesignation(SyntaxToken token)
+    {
+        if (token.Parent is not SingleVariableDesignationSyntax designation)
+            return false;
+        var sw = designation.Ancestors().FirstOrDefault(a =>
+            a is SwitchExpressionSyntax or SwitchStatementSyntax);
+        return sw != null && sw.DescendantNodes()
+            .OfType<SingleVariableDesignationSyntax>()
+            .Any(d => d.SpanStart < designation.SpanStart
+                && d.Identifier.ValueText == token.ValueText);
+    }
 
     /// <summary>Math の超越関数を持つ global の table (runtime/lua/tcs_math_lua.c
     /// を host が登録する)。生成コードはこれを素の名前で呼ぶ。</summary>
@@ -81,15 +99,20 @@ public static class LuaLocalRenamer
                 takenByScope[scope] = taken;
                 scopes.Add(scope);
             }
+            // 同じ綴りの束縛は scope 内で同じ別名を共有する (block が別なら衝突
+            // しない)。switch の同名 designation だけは symbol ごとに別名にする
             var key = (scope, token.ValueText);
-            if (!chosen.TryGetValue(key, out var name))
+            var perSymbol = IsRepeatedSwitchDesignation(token);
+            if (!perSymbol && chosen.TryGetValue(key, out var shared))
             {
-                name = token.ValueText + "_";
-                while (taken.Contains(name) || typeNames.Contains(name))
-                    name += "_";
-                chosen[key] = name;
-                taken.Add(name);
+                renames[symbol] = shared;
+                continue;
             }
+            var name = token.ValueText + "_";
+            while (taken.Contains(name) || typeNames.Contains(name))
+                name += "_";
+            if (!perSymbol) chosen[key] = name;
+            taken.Add(name);
             renames[symbol] = name;
         }
         if (renames.Count == 0) return null;

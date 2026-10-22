@@ -2341,4 +2341,5 @@
 ### T264 tcs2c が switch で絞った変数の member を解決できない件 ✓ (2026-10-21)
 - switch 文 / 式の class の宣言 pattern の designation を、入力をそのまま前束縛する `IlLocal(name, sw)` から、struct と同じく型だけ前宣言して照合が通った arm の中で絞った型へ cast して束縛する形 (`IlRefCast(sw, T)`) にした。Lua は IlRefCast を素通しするので出力は実質変わらず、tcs2c は interface 型の入力から class の member (`a.S`) を引けるようになった (従来は `unknown field: IShape.S`)。C の IlRefCast は検査付きなので、照合の前に cast する形 (switch 冒頭での前束縛) は一致しない arm で fault する
 - 検証: `dotnet test` 全通過。switch 文と switch 式の両方で絞った変数の member を読む差分テストを追加
+- 判断: 別々の arm が同じ designation 名を使うと前宣言が 1 つの型付き local に潰れて tcs2c が止まる (#276 のレビュー) ので、LuaLocalRenamer が同じ switch の 2 つ目以降の同名 designation を symbol ごとの別名 (`x_`) に写す。前宣言の形は変えない
 - 残課題: T265 (網羅性)

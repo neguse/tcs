@@ -299,4 +299,34 @@ public class TypePatternTests
         Assert.Contains(boxing, e => e.Contains("StructToReference(Sq?)"));
         Assert.Empty(result.Lua);
     }
+    // 別々の arm が同じ designation 名を使っても arm ごとに別の変数 (C# のスコープどおり)
+    [Fact]
+    public void Switch_SameDesignationNameInArms_BindsPerArm()
+    {
+        var result = TestHelper.TranspileAndRun("""
+            public interface IShape { }
+            public class Sq : IShape { public int S; }
+            public class Ci : IShape { public int R; }
+            public class T
+            {
+                static int Size(IShape v) => v switch { Sq x => x.S, Ci x => x.R * 10, _ => -1 };
+                static int Area(IShape v)
+                {
+                    switch (v)
+                    {
+                        case Sq x: return x.S * x.S;
+                        case Ci x: return x.R * 3;
+                        default: return 0;
+                    }
+                }
+                public static string Test()
+                {
+                    IShape a = new Sq { S = 7 };
+                    IShape b = new Ci { R = 9 };
+                    return Size(a) + ":" + Size(b) + ":" + Area(a) + ":" + Area(b);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("7:90:49:27", result);
+    }
 }
