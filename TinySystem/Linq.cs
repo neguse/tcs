@@ -103,18 +103,20 @@ public static class List
     public static int Count<T>(
         this global::System.Collections.Generic.List<T> list) => list.Count;
     // Enumerable.Min(selector) は NaN を見ても残りの要素に selector を当てる。
-    // Lua / C runtime は NaN で打ち切るので、selector の副作用まで合わせる
+    // Lua / C runtime は NaN で打ち切り、長さは呼び出し時点で固定するので、
+    // selector の副作用まで合わせる
     public static TKey Min<T, TKey>(
         this global::System.Collections.Generic.List<T> list,
         global::System.Func<T, TKey> selector)
     {
-        if (list.Count == 0)
+        var count = list.Count;
+        if (count == 0)
             throw new global::System.InvalidOperationException(
                 "Sequence contains no elements");
         var best = selector(list[0]);
         if (IsNaN(best)) return best;
         var comparer = global::System.Collections.Generic.Comparer<TKey>.Default;
-        for (var i = 1; i < list.Count; i++)
+        for (var i = 1; i < count; i++)
         {
             var key = selector(list[i]);
             if (IsNaN(key)) return key;

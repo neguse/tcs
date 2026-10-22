@@ -122,6 +122,31 @@ public class LinqSemanticTests
         Assert.Equal("12", result);
     }
 
+    // 結果は呼び出し時点の内容で確定する (q.md Q18)。selector が受け手に足した要素は
+    // 走査しない
+    [Fact]
+    public void Linq_Min_Selector_IgnoresElementsAddedBySelector()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static int Test()
+                {
+                    var xs = new List<int> { 2, 1 };
+                    int m = xs.Min(x =>
+                    {
+                        if (x == 1) xs.Add(0);
+                        return x;
+                    });
+                    return m * 10 + xs.Count;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("13", result);
+    }
+
     [Fact]
     public void Linq_Max()
     {
