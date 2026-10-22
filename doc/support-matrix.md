@@ -36,7 +36,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | if / switch / loop / lambda / pattern | **Core** | ゲームロジックと小さな業務ロジックの表現力として必要 |
 | 演算子オーバーロード (算術) | **Core** | ベクトル/行列など math 型の表現に必要。二項 `+ - * / %` と単項 `-` だけを class table 上の static 関数へ写像し (呼び出し箇所で overload を静的解決)、変換演算子と `==`/`!=`/比較系は対象外 |
 | LINQ メソッドチェーン | **Core** | `Where`/`Select`/`Any`/`All`/`FirstOrDefault`/`OrderBy`/集計の小核だけ即時評価で提供 |
-| ユーザー定義ジェネリクス | **Out** | 型消去 runtime と複雑さが釣り合わない。組み込み generic 型に限定 |
+| ユーザー定義ジェネリクス | **Core** | 型消去で class / method とも動く。制約は interface / struct (q.md Q20) |
 | reflection / dynamic / expression tree | **Out** | Lua 5.5 backend と compact baseline に合わない |
 | async / Task / threading | **Out** | ホットリロード可能なシングルスレッド Lua 実行を基本にする |
 | unsafe / Span / pointer | **Out** | 組み込み backend の低レベル最適化フェーズまで扱わない |
@@ -275,7 +275,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `bool` (`true`/`false`) | **Y** | そのまま | |
 | `null` | **Y** | `nil` | |
 | 文字列 (`"hello"`) | **Y** | そのまま | |
-| 補間文字列 (`$"...{x}..."`) | **Y** | `tostring` + `..` | 書式指定子は enum の G / F / D、float の G / E (桁数つき可) と桁数つきの F、整数の D / X / x (桁数つき可) だけ。それ以外 (N / C / P / R / 桁数なしの F / custom / string への書式) は TCS1001 `FormatSpecifier(N2)`。object の hole は `__tcs_nstr` (値が float なら .NET と同じ文字列、null は `""`。C backend は object の補間を受けない)。書式 `D` の精度は符号を除いた桁数 (`%.Nd`。精度 0 は精度なしと同じ `%d` で、値 0 も `0`)。float (と `float?`) の書式 `G` / `E` (小文字・精度つきも) は .NET の `float.ToString(format)` と同じ文字列 (`String.FormatFloat`、il-spec §13。`float?` の null は空文字列)。他の書式は printf の書式に写す。raw 補間 (`$$"""..."""`) の `$` の個数より短い brace の連続は文字のまま |
+| 補間文字列 (`$"...{x}..."`) | **Y** | `tostring` + `..` | 書式指定子は enum の G / F / D、float の G / E (桁数つき可) と桁数つきの F、整数の D / X (桁数つき可、大文字小文字どちらも) だけ。それ以外 (N / C / P / R / 桁数なしの F / custom / string への書式) は TCS1001 `FormatSpecifier(N2)`。object の hole は `__tcs_nstr` (値が float なら .NET と同じ文字列、null は `""`。C backend は object の補間を受けない)。書式 `D` の精度は符号を除いた桁数 (`%.Nd`。精度 0 は精度なしと同じ `%d` で、値 0 も `0`)。float (と `float?`) の書式 `G` / `E` (小文字・精度つきも) は .NET の `float.ToString(format)` と同じ文字列 (`String.FormatFloat`、il-spec §13。`float?` の null は空文字列)。他の書式は printf の書式に写す。raw 補間 (`$$"""..."""`) の `$` の個数より短い brace の連続は文字のまま |
 | 文字 (`'A'`) | **Y** | 1文字 string | |
 | 2進数 (`0b1010`, C# 7) | **Y** | 10進数へ変換 | |
 | 16進数 (`0xFF`) | **Y** | `_` 除去して出力 | |
@@ -445,9 +445,9 @@ C# `int` と一致する。シフトは `__tcs_shl` / `__tcs_shr` (count を 31 
 |------|:----:|------|
 | 組み込み `List<T>`, `Dictionary<K,V>` | **Y** | 型消去 |
 | `Action<T>` / `Func<T,R>` | **P** | 型消去して Lua function |
-| ユーザー定義ジェネリッククラス | **-** | |
-| ジェネリックメソッド | **-** | |
-| 型制約 (`where T : ...`) | **-** | |
+| ユーザー定義ジェネリッククラス | **Y** | 型消去 (Lua は型引数を持たず、C backend は単相化) |
+| ジェネリックメソッド | **Y** | 型消去 |
+| 型制約 (`where T : ...`) | **Y** | interface 制約 (制約の member を呼べる) と struct 制約。Roslyn が検査し、出力には現れない |
 | 共変性/反変性 (`in`/`out`, C# 4) | **-** | |
 | 静的抽象/仮想インターフェースメンバー (C# 11) | **-** | interface の operator 宣言は TCS1001 `InterfaceOperatorDeclaration` (Lua は制約付き generic の演算を実装 class の metamethod に委ねるだけで overload / 継承を解決できない。tcs2c は TCS1001 で停止) |
 

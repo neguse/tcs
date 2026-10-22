@@ -88,12 +88,6 @@
 
 ---
 
-## 選定基準の適用 (q.md Q20)
-
-- [ ] **T268** (P2): ユーザー定義ジェネリクスの docs を実態に揃える — support-matrix の Out 行と §7、objective.md の切るもの / ジェネリクス方針
-
----
-
 ## Conformance / fuzz トラック（spec-conformance-design.md C4 の継続拡張）
 
 方針 (ユーザー決定 2026-08-07): C# compat の differential fuzz を先に育てる。

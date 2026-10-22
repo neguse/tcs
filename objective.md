@@ -92,7 +92,6 @@ TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味
 
 - async / await / Task系全般
 - LINQ クエリ構文（`from x in y select`）
-- ユーザー定義ジェネリクス（class / struct / method）
 - reflection, dynamic, Expression Tree
 - unsafe, Span, ref struct
 - イベント / デリゲートのマルチキャスト
@@ -107,7 +106,7 @@ TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味
 - 出力時：Lua 5.5 tableとして型パラメータを消去
 - ランタイム：Lua 5.5 VM上、型情報なし
 
-対応範囲は組み込み型のみ：`List<T>`, `Dictionary<TKey, TValue>` および TinySystem の提供する型。ユーザー定義ジェネリクスは対象外。
+組み込み型 (`List<T>`, `Dictionary<TKey, TValue>`、TinySystem の型) に加えて、ユーザー定義の generic class / method も型消去で対応する (制約は interface / struct)。
 
 ### LINQメソッドチェーン
 

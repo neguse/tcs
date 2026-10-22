@@ -2361,3 +2361,8 @@
 - 検証: `dotnet test` 全通過。transpiler / analyzer のテストを追加
 - 判断: N の桁区切りや C / P の実装は足さない (必要なら別途)。桁数なしの F は .NET の既定精度 2 と Lua の `%.6f` が合わないので対象外にし、桁数つきだけ通す
 - 残課題: なし
+
+### T268 ユーザー定義ジェネリクスの docs を実態に揃える ✓ (2026-10-21)
+- support-matrix の Out 行と §7 (generic class / method / 型制約)、objective.md の切るものとジェネリクス方針を、check を通り Lua / C とも型消去で動く実態 (interface 制約の member 呼び出しと struct 制約も可。2026-10-20 / 21 に probe) に揃えた
+- 検証: docs のみ。`bash run-tests.sh` 全通過
+- 残課題: なし
