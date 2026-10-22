@@ -2343,3 +2343,10 @@
 - 検証: `dotnet test` 全通過。switch 文と switch 式の両方で絞った変数の member を読む差分テストを追加
 - 判断: 別々の arm が同じ designation 名を使うと前宣言が 1 つの型付き local に潰れて tcs2c が止まる (#276 のレビュー) ので、LuaLocalRenamer が同じ switch の 2 つ目以降の同名 designation を symbol ごとの別名 (`x_`) に写す。前宣言の形は変えない
 - 残課題: T265 (網羅性)
+
+### T265 interface 型の switch の網羅性を準拠 error に ✓ (2026-10-21)
+- interface 型の入力に対する switch 式 / 文が default / `_` / `var` の arm を持たず実装型を覆っていないとき、shared facts が TCS1001 `SwitchNotExhaustive(I: X, Y)` を出す。実装型の集合は compilation (user と `--ref` の tree) の class 宣言の AllInterfaces から引く。`when` 付きの arm と property pattern 付きの arm は覆いに数えない
+- analyzer は SwitchExpression / SwitchStatement の node action、transpiler は model 付きの規則で同じ判定
+- 検証: `dotnet test` 全通過。transpiler / analyzer のテストを追加 (不足の型名、`_` / default / 全列挙で通ること、object 入力は対象外)
+- 判断: C# の警告 CS8509 を tcs では error に格上げする (基準 6 の「厳しい側に寄る」)。実行時に揃える手は無い (tcs に例外機構が無い)
+- 残課題: なし

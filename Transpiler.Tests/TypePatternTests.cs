@@ -329,4 +329,38 @@ public class TypePatternTests
             """, "T.Test()");
         Assert.Equal("7:90:49:27", result);
     }
+
+    // interface 型の switch は実装型を覆うか default / `_` を持つ (.NET は実行時例外、Lua は nil。q.md Q19)
+    [Fact]
+    public void SwitchOnInterface_MustBeExhaustive()
+    {
+        const string Types = """
+            public interface IShape { }
+            public class Sq : IShape { public int S; }
+            public class Ci : IShape { public int R; }
+            public class Tri : IShape { }
+            """;
+        var missing = Transpiler.TranspileWithDiagnostics([Types + """
+            public class T
+            {
+                public static int A(IShape v) => v switch { Sq s => s.S, Ci c => c.R };
+                public static int B(IShape v) { switch (v) { case Sq s: return s.S; case Ci c when c.R > 0: return 1; case Tri: return 2; } return 0; }
+            }
+            """]);
+        var errors = missing.Errors.Where(e => e.Contains("SwitchNotExhaustive(")).ToArray();
+        Assert.Equal(2, errors.Length);
+        Assert.Contains(errors, e => e.Contains("SwitchNotExhaustive(IShape: Tri)"));
+        Assert.Contains(errors, e => e.Contains("SwitchNotExhaustive(IShape: Ci)"));
+
+        var ok = Transpiler.TranspileWithDiagnostics([Types + """
+            public class T
+            {
+                public static int A(IShape v) => v switch { Sq s => s.S, Ci c => c.R, Tri => 3 };
+                public static int B(IShape v) => v switch { Sq s => s.S, _ => -1 };
+                public static int C(IShape v) { switch (v) { case Sq s: return s.S; default: return 0; } }
+                public static int D(object o) => o switch { Sq s => s.S, _ => 0 };
+            }
+            """]);
+        Assert.True(ok.Success, string.Join("\n", ok.Errors));
+    }
 }

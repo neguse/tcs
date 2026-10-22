@@ -899,4 +899,24 @@ public partial class TinyCsComplianceAnalyzerTests
             && d.GetMessage().Contains("StructToReference(Sq)")).ToArray();
         Assert.Equal(2, boxing.Length);
     }
+
+    [Fact]
+    public async Task SwitchOnInterface_ReportsMissingImplementations()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            public interface IShape { }
+            public class Sq : IShape { public int S; }
+            public class Ci : IShape { public int R; }
+            public class Demo
+            {
+                public static int A(IShape v) => v switch { Sq s => s.S };
+                public static int B(IShape v) => v switch { Sq s => s.S, Ci c => c.R };
+                public static int C(IShape v) { switch (v) { case Sq s: return s.S; } return 0; }
+            }
+            """);
+
+        var missing = diagnostics.Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax
+            && d.GetMessage().Contains("SwitchNotExhaustive(IShape: Ci)")).ToArray();
+        Assert.Equal(2, missing.Length);
+    }
 }

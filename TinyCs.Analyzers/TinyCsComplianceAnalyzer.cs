@@ -74,6 +74,9 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
             SyntaxKind.ForEachVariableStatement);
         context.RegisterSyntaxNodeAction(AnalyzeKeysValuesStorage,
             TinyCsComplianceFacts.KeysValuesStorageSyntaxKinds);
+        context.RegisterSyntaxNodeAction(AnalyzeSwitchExhaustiveness,
+            SyntaxKind.SwitchExpression,
+            SyntaxKind.SwitchStatement);
         context.RegisterOperationAction(AnalyzeOperation,
             OperationKind.Invocation,
             OperationKind.PropertyReference,
@@ -103,6 +106,18 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
     {
         if (!TinyCsComplianceFacts.TryGetUnsupportedSyntax(context.Node,
             out var syntaxName))
+        {
+            return;
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(UnsupportedSyntaxRule,
+            context.Node.GetLocation(), syntaxName));
+    }
+
+    private static void AnalyzeSwitchExhaustiveness(SyntaxNodeAnalysisContext context)
+    {
+        if (!TinyCsComplianceFacts.TryGetUnsupportedSwitchExhaustiveness(context.Node,
+            context.SemanticModel, out var syntaxName))
         {
             return;
         }

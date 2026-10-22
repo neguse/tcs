@@ -88,12 +88,6 @@
 
 ---
 
-## DU / パターンマッチ (q.md Q19)
-
-- [ ] **T265** (P2): interface 型の入力の switch 式 / 文の網羅性を準拠 error に (default / `_` なしで実装型を覆っていないとき)
-
----
-
 ## 選定基準の適用 (q.md Q20)
 
 - [ ] **T266** (P1): `CompilationDiagnosticPolicy` の緩和 (CS0266 / CS0029 / CS0019 の enum↔int、CS0535 の field-backed interface facade) を撤去し、sample とテストを普通の C# として通る形に直す

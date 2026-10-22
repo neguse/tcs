@@ -466,6 +466,8 @@ public static partial class TinyCsComplianceFacts
 
         if (TryGetUnsupportedForEachDeconstruction(node, model, out syntaxName))
             return true;
+        if (TryGetUnsupportedSwitchExhaustiveness(node, model, out syntaxName))
+            return true;
 
         if (TryGetUnsupportedKeysValuesStorage(node, model, out syntaxName))
             return true;
@@ -612,6 +614,88 @@ public static partial class TinyCsComplianceFacts
         INamedTypeSymbol named => named.TypeArguments.Any(ContainsKeysValuesCollection),
         _ => false,
     };
+
+    // interface 型の値に対する switch 式 / 文は、実装型を覆うか default / `_` / `var`
+    // の arm を持たなければならない。.NET は実行時に SwitchExpressionException、
+    // Lua は nil を返して使用箇所で停止するので、実行時には揃えられない (q.md Q19)。
+    // 実装型の集合は compilation (user と `--ref` の tree) の class 宣言から引く。
+    // analyzer は SwitchExpression / SwitchStatement の node action でこれを呼ぶ
+    public static bool TryGetUnsupportedSwitchExhaustiveness(SyntaxNode node,
+        SemanticModel model, out string syntaxName)
+    {
+        syntaxName = "";
+        ExpressionSyntax governing;
+        var patterns = new List<(PatternSyntax Pattern, bool Conditional)>();
+        // switch 文の `case Tri:` は pattern ではなく型名の定数 label として parse される
+        var labelTypes = new List<ITypeSymbol>();
+        switch (node)
+        {
+            case SwitchExpressionSyntax sw:
+                governing = sw.GoverningExpression;
+                foreach (var arm in sw.Arms)
+                    patterns.Add((arm.Pattern, arm.WhenClause != null));
+                break;
+            case SwitchStatementSyntax st:
+                governing = st.Expression;
+                foreach (var section in st.Sections)
+                {
+                    foreach (var label in section.Labels)
+                    {
+                        if (label is DefaultSwitchLabelSyntax) return false;
+                        if (label is CasePatternSwitchLabelSyntax cp)
+                            patterns.Add((cp.Pattern, cp.WhenClause != null));
+                        else if (label is CaseSwitchLabelSyntax constant
+                            && model.GetSymbolInfo(constant.Value).Symbol is ITypeSymbol labelType)
+                            labelTypes.Add(labelType);
+                    }
+                }
+                break;
+            default:
+                return false;
+        }
+        if (model.GetTypeInfo(governing).Type is not INamedTypeSymbol
+            { TypeKind: TypeKind.Interface } iface
+            || iface.DeclaringSyntaxReferences.Length == 0)
+            return false;
+        var covered = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        foreach (var labelType in labelTypes) covered.Add(labelType);
+        foreach (var (pattern, conditional) in patterns)
+        {
+            if (conditional) continue;
+            switch (pattern)
+            {
+                case DiscardPatternSyntax:
+                case VarPatternSyntax:
+                    return false;
+                case DeclarationPatternSyntax dp when model.GetTypeInfo(dp.Type).Type is { } t:
+                    covered.Add(t); break;
+                case TypePatternSyntax tp when model.GetTypeInfo(tp.Type).Type is { } t:
+                    covered.Add(t); break;
+                // switch 文の `case Tri:` は型名の ConstantPattern として parse される
+                case ConstantPatternSyntax cp
+                    when model.GetSymbolInfo(cp.Expression).Symbol is ITypeSymbol ct:
+                    covered.Add(ct); break;
+                case RecursivePatternSyntax { Type: { } rt, PropertyPatternClause: null or { Subpatterns.Count: 0 } }
+                    when model.GetTypeInfo(rt).Type is { } t:
+                    covered.Add(t); break;
+            }
+        }
+        var missing = new List<string>();
+        foreach (var tree in model.Compilation.SyntaxTrees)
+        {
+            var treeModel = tree == model.SyntaxTree ? model : model.Compilation.GetSemanticModel(tree);
+            foreach (var decl in tree.GetRoot().DescendantNodes().OfType<TypeDeclarationSyntax>())
+            {
+                if (decl is not (ClassDeclarationSyntax or RecordDeclarationSyntax)) continue;
+                if (treeModel.GetDeclaredSymbol(decl) is not INamedTypeSymbol { TypeKind: TypeKind.Class } cls) continue;
+                if (!cls.AllInterfaces.Contains(iface, SymbolEqualityComparer.Default)) continue;
+                if (!covered.Contains(cls) && !missing.Contains(cls.Name)) missing.Add(cls.Name);
+            }
+        }
+        if (missing.Count == 0) return false;
+        syntaxName = $"SwitchNotExhaustive({iface.Name}: {string.Join(", ", missing)})";
+        return true;
+    }
 
     public static bool IsDictionaryPairDeconstruction(
         ForEachVariableStatementSyntax deconstruct, SemanticModel model) =>
