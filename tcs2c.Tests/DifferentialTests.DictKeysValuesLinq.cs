@@ -131,4 +131,34 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("0\n0\n0", output);
     }
+    // user 定義の単項演算子を含む引数と、`??` の receiver でも copy は呼び出し時
+    [CFact]
+    public void Dict_KeysValues_CopyAfterArguments_UnaryOperatorAndCoalesceReceiver()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class Number
+            {
+                public static int operator -(Number x) { P.s.Clear(); return 0; }
+            }
+            public class P
+            {
+                public static Dictionary<int, int> s = new Dictionary<int, int> { [1] = 10 };
+                static Func<int, bool> Clear(Dictionary<int, int> d) { d.Clear(); return x => true; }
+                public static void Main()
+                {
+                    var n = new Number();
+                    Func<int, bool> yes = x => true;
+                    Func<int, bool> no = x => false;
+                    Console.WriteLine(s.Values.Any(-n == 0 ? yes : no) ? 1 : 0);
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var e = new Dictionary<int, int> { [2] = 20 };
+                    Console.WriteLine((d.Values ?? e.Values).Any(Clear(d)) ? 1 : 0);
+                }
+            }
+            """, "P");
+        Assert.Equal("0\n0", output);
+    }
 }

@@ -140,7 +140,8 @@ public partial class LuaEmitter
     }
 
     // receiver の IL から view (Dict.Keys / FloatKeys / Values の呼び出し) を剥がして
-    // dict 側の式にする。括弧は透過し、三項は両側が同じ view のときだけ dict の三項にする
+    // dict 側の式にする。括弧は透過し、三項と `??` (Or) は両側が同じ view のときだけ
+    // dict 側の三項 / Or にする
     private static bool TryStripView(IlExpr recv, out string view, out IlExpr dict)
     {
         view = "";
@@ -159,6 +160,13 @@ public partial class LuaEmitter
                     || view != viewF)
                     return false;
                 dict = new IlTernary(ternary.Cond, t, f);
+                return true;
+            case IlBin { Op: IlBinOp.Or } coalesce:
+                if (!TryStripView(coalesce.L, out view, out var l)
+                    || !TryStripView(coalesce.R, out var viewR, out var r)
+                    || view != viewR)
+                    return false;
+                dict = new IlBin(IlBinOp.Or, l, r);
                 return true;
             default:
                 return false;

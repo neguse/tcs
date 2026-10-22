@@ -452,4 +452,35 @@ public class DictSemanticTests
             """, "T.Test()");
         Assert.Equal("0:0:0", result);
     }
+    // user 定義の単項演算子を含む引数と、`??` の receiver でも copy は呼び出し時
+    [Fact]
+    public void Dict_KeysValues_CopyAfterArguments_UnaryOperatorAndCoalesceReceiver()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class Number
+            {
+                public static int operator -(Number x) { T.s.Clear(); return 0; }
+            }
+            public class T
+            {
+                public static Dictionary<int, int> s = new Dictionary<int, int> { [1] = 10 };
+                static Func<int, bool> Clear(Dictionary<int, int> d) { d.Clear(); return x => true; }
+                public static string Test()
+                {
+                    var n = new Number();
+                    Func<int, bool> yes = x => true;
+                    Func<int, bool> no = x => false;
+                    var a = s.Values.Any(-n == 0 ? yes : no) ? 1 : 0;
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var e = new Dictionary<int, int> { [2] = 20 };
+                    var b = (d.Values ?? e.Values).Any(Clear(d)) ? 1 : 0;
+                    return a + ":" + b;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("0:0", result);
+    }
 }

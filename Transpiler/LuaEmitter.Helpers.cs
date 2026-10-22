@@ -224,7 +224,10 @@ public partial class LuaEmitter
             RawKind: (int)SyntaxKind.UnaryMinusExpression
                 or (int)SyntaxKind.LogicalNotExpression
                 or (int)SyntaxKind.BitwiseNotExpression
-        } u => IsSideEffectFreeArgument(model, u.Operand),
+        } u =>
+            model.GetSymbolInfo(u).Symbol is not IMethodSymbol
+                { MethodKind: MethodKind.UserDefinedOperator }
+            && IsSideEffectFreeArgument(model, u.Operand),
         BinaryExpressionSyntax b =>
             model.GetSymbolInfo(b).Symbol is not IMethodSymbol
                 { MethodKind: MethodKind.UserDefinedOperator }
