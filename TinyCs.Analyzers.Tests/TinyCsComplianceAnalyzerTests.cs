@@ -921,4 +921,22 @@ public partial class TinyCsComplianceAnalyzerTests
         Assert.Equal(2, missing.Length);
         Assert.All(missing, d => Assert.Contains("SwitchNotExhaustive(IShape: Ci)", d.GetMessage()));
     }
+
+    [Fact]
+    public async Task InterpolationFormat_ReportsUnsupportedSpecifiers()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            public class Demo
+            {
+                public static string Run(int i, float f)
+                {
+                    return $"{f:N2} {i:P0} {f:F2} {i:D3}";
+                }
+            }
+            """);
+
+        var formats = diagnostics.Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax
+            && d.GetMessage().Contains("FormatSpecifier(")).ToArray();
+        Assert.Equal(2, formats.Length);
+    }
 }

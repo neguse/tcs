@@ -77,6 +77,8 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
         context.RegisterSyntaxNodeAction(AnalyzeSwitchExhaustiveness,
             SyntaxKind.SwitchExpression,
             SyntaxKind.SwitchStatement);
+        context.RegisterSyntaxNodeAction(AnalyzeInterpolationFormat,
+            SyntaxKind.Interpolation);
         context.RegisterOperationAction(AnalyzeOperation,
             OperationKind.Invocation,
             OperationKind.PropertyReference,
@@ -106,6 +108,18 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
     {
         if (!TinyCsComplianceFacts.TryGetUnsupportedSyntax(context.Node,
             out var syntaxName))
+        {
+            return;
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(UnsupportedSyntaxRule,
+            context.Node.GetLocation(), syntaxName));
+    }
+
+    private static void AnalyzeInterpolationFormat(SyntaxNodeAnalysisContext context)
+    {
+        if (!TinyCsComplianceFacts.TryGetUnsupportedInterpolationFormat(context.Node,
+            context.SemanticModel, out var syntaxName))
         {
             return;
         }

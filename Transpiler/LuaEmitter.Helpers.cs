@@ -64,8 +64,7 @@ public partial class LuaEmitter
         var precision = fmt.Length > 1 ? fmt[1..] : "";
         return c switch
         {
-            'F' => string.IsNullOrEmpty(precision) ? "%.6f" : $"%.{precision}f",
-            'N' => string.IsNullOrEmpty(precision) ? "%.2f" : $"%.{precision}f",
+            'F' => $"%.{precision}f",
             // D の精度は符号を除いた最小桁数 (printf の %.Nd と同じ。%0Nd は
             // 符号込みの幅なので負数で 1 桁足りない)。精度 0 は C# では精度なし
             // と同じ (値 0 も "0") だが、%.0d は値 0 で数字を出さない

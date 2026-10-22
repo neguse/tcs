@@ -681,4 +681,29 @@ public class DiagnosticTests
             w => w.Contains("T[] cannot store null elements")));
         Assert.Single(collectionNulls, w => w.Contains("List<T> cannot store"));
     }
+
+    // 補間の書式指定子は実装のあるものだけ。N / C / P / 桁数なしの F / string への書式は
+    // 既定の文字列化に黙って落ちていたので TCS1001
+    [Fact]
+    public void InterpolationFormat_UnsupportedSpecifiersAreTcs1001()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public enum E { A, B }
+            public class T
+            {
+                public static string Test(int i, float f, string s, E e, float? m)
+                {
+                    var bad = $"{f:N2} {f:C} {i:P0} {f:F} {s:X} {e:X} {i:E2}";
+                    var ok = $"{f:F2} {f:G} {f:E3} {f:g5} {i:D3} {i:X2} {i:x} {e:G} {e:D} {m:F1} {i} {s}";
+                    return bad + ok;
+                }
+            }
+            """]);
+
+        var formats = result.Errors.Where(e => e.Contains("FormatSpecifier(")).ToArray();
+        Assert.Equal(7, formats.Length);
+        Assert.Contains(formats, e => e.Contains("FormatSpecifier(N2)"));
+        Assert.Contains(formats, e => e.Contains("FormatSpecifier(F)"));
+        Assert.Contains(formats, e => e.Contains("FormatSpecifier(E2)"));
+    }
 }

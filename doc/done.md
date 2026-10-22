@@ -2355,3 +2355,9 @@
 - enum と numeric integer の暗黙変換 (CS0029 / CS0266 / CS0019) と public field による interface property の代替 (CS0535) を通していた `CompilationDiagnosticPolicy` を消し、transpiler / 増分 session / IlExport は C# の compile error をそのまま error にする (objective.md 基準 6)
 - 検証: `dotnet test` 全通過。緩和に依っていたテスト・sample は普通の C# (明示 cast、property の実装) に直した
 - 残課題: なし
+
+### T267 未対応の書式指定子を TCS1001 に ✓ (2026-10-21)
+- 補間の書式指定子で実装のあるもの (enum の G / F / D、float の G / E と桁数つきの F、整数の D / X / x) だけを通し、それ以外 (N / C / P / R / 桁数なしの F / custom / string への書式) は shared facts の規則で TCS1001 `FormatSpecifier(fmt)` にした。従来は `string.format` の既定の `%s` や `%.2f` に黙って落ち、`{x:N2}` は桁区切り無しの `1234.50` を出していた。emitter の N の写しは消した
+- 検証: `dotnet test` 全通過。transpiler / analyzer のテストを追加
+- 判断: N の桁区切りや C / P の実装は足さない (必要なら別途)。桁数なしの F は .NET の既定精度 2 と Lua の `%.6f` が合わないので対象外にし、桁数つきだけ通す
+- 残課題: なし

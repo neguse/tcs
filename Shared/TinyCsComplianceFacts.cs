@@ -468,6 +468,8 @@ public static partial class TinyCsComplianceFacts
             return true;
         if (TryGetUnsupportedSwitchExhaustiveness(node, model, out syntaxName))
             return true;
+        if (TryGetUnsupportedInterpolationFormat(node, model, out syntaxName))
+            return true;
 
         if (TryGetUnsupportedKeysValuesStorage(node, model, out syntaxName))
             return true;
@@ -708,6 +710,55 @@ public static partial class TinyCsComplianceFacts
                 covered.Add(t); break;
         }
         return false;
+    }
+
+    // 補間の書式指定子は実装のあるものだけ: enum は G / F / D、float は G / E (桁数つき可)
+    // と桁数つきの F、整数は D / X (桁数つき可)。大文字小文字はどちらも可。それ以外 (N / C / P / R / 桁数なしの
+    // F / custom) は Lua で既定の文字列化に黙って落ちていたので TCS1001。
+    // analyzer は Interpolation の node action でこれを呼ぶ
+    public static bool TryGetUnsupportedInterpolationFormat(SyntaxNode node,
+        SemanticModel model, out string syntaxName)
+    {
+        syntaxName = "";
+        if (node is not InterpolationSyntax { FormatClause: { } clause } hole)
+            return false;
+        var format = clause.FormatStringToken.ValueText;
+        if (IsSupportedInterpolationFormat(model.GetTypeInfo(hole.Expression).Type, format))
+            return false;
+        syntaxName = $"FormatSpecifier({format})";
+        return true;
+    }
+
+    private static bool IsSupportedInterpolationFormat(ITypeSymbol? type, string format)
+    {
+        if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable
+            && nullable.TypeArguments.Length == 1)
+            type = nullable.TypeArguments[0];
+        if (type == null || format.Length == 0 || format.Length > 10) return false;
+        if (type.TypeKind == TypeKind.Enum)
+            return format is "G" or "g" or "F" or "f" or "D" or "d";
+        var digits = true;
+        for (var i = 1; i < format.Length; i++)
+            if (format[i] < '0' || format[i] > '9') digits = false;
+        var hasDigits = format.Length > 1 && digits;
+        var noDigits = format.Length == 1;
+        switch (type.SpecialType)
+        {
+            case SpecialType.System_Single:
+            case SpecialType.System_Double:
+                return (format[0] is 'G' or 'g' or 'E' or 'e') && (noDigits || hasDigits)
+                    || (format[0] is 'F' or 'f') && hasDigits;
+            case SpecialType.System_Int32:
+            case SpecialType.System_Int64:
+            case SpecialType.System_Int16:
+            case SpecialType.System_Byte:
+            case SpecialType.System_SByte:
+            case SpecialType.System_UInt32:
+            case SpecialType.System_UInt16:
+                return (format[0] is 'D' or 'd' or 'X' or 'x') && (noDigits || hasDigits);
+            default:
+                return false;
+        }
     }
 
     public static bool IsDictionaryPairDeconstruction(
