@@ -140,8 +140,8 @@ public partial class LuaEmitter
     }
 
     // receiver の IL から view (Dict.Keys / FloatKeys / Values の呼び出し) を剥がして
-    // dict 側の式にする。括弧は透過し、三項と `??` (Or) は両側が同じ view のときだけ
-    // dict 側の三項 / Or にする
+    // dict 側の式にする。括弧は透過し、三項と `??` (Or) は両側が同じ view (片側は
+    // null でもよい) のときだけ dict 側の三項 / Or にする
     private static bool TryStripView(IlExpr recv, out string view, out IlExpr dict)
     {
         view = "";
@@ -155,22 +155,31 @@ public partial class LuaEmitter
             case IlParen paren:
                 return TryStripView(paren.E, out view, out dict);
             case IlTernary ternary:
-                if (!TryStripView(ternary.T, out view, out var t)
-                    || !TryStripView(ternary.F, out var viewF, out var f)
-                    || view != viewF)
+                if (!TryStripViewArms(ternary.T, ternary.F, out view, out var t, out var f))
                     return false;
                 dict = new IlTernary(ternary.Cond, t, f);
                 return true;
             case IlBin { Op: IlBinOp.Or } coalesce:
-                if (!TryStripView(coalesce.L, out view, out var l)
-                    || !TryStripView(coalesce.R, out var viewR, out var r)
-                    || view != viewR)
+                if (!TryStripViewArms(coalesce.L, coalesce.R, out view, out var l, out var r))
                     return false;
                 dict = new IlBin(IlBinOp.Or, l, r);
                 return true;
             default:
                 return false;
         }
+    }
+
+    // null の側は nil のまま残す。選ばれたときは view が nil で止まり、C# の
+    // NullReferenceException と同じく fault になる
+    private static bool TryStripViewArms(IlExpr a, IlExpr b, out string view,
+        out IlExpr dictA, out IlExpr dictB)
+    {
+        var strippedA = TryStripView(a, out view, out dictA);
+        var strippedB = TryStripView(b, out var viewB, out dictB);
+        if (strippedA && strippedB) return view == viewB;
+        if (strippedA) return b is IlLit { LuaText: "nil" };
+        view = viewB;
+        return strippedB && a is IlLit { LuaText: "nil" };
     }
 
     // 拡張 method の static の形 `Ext.M(x, ...)`: receiver は第 1 引数で、

@@ -483,4 +483,30 @@ public class DictSemanticTests
             """, "T.Test()");
         Assert.Equal("0:0", result);
     }
+    // 三項 / `??` の receiver の片側が null でも、他方の view の copy は呼び出し時
+    [Fact]
+    public void Dict_KeysValues_CopyAfterArguments_NullArmReceiver()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                static Func<int, bool> Clear(Dictionary<int, int> d) { d.Clear(); return x => true; }
+                public static string Test()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    bool flag = d.Count == 1;
+                    var a = (flag ? d.Values : null).Any(Clear(d)) ? 1 : 0;
+                    var e = new Dictionary<int, int> { [1] = 10 };
+                    var b = (!flag ? null : e.Keys).Any(Clear(e)) ? 1 : 0;
+                    var f = new Dictionary<int, int> { [1] = 10 };
+                    var c = (f.Values ?? null).Any(Clear(f)) ? 1 : 0;
+                    return a + ":" + b + ":" + c;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("0:0:0", result);
+    }
 }

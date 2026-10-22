@@ -161,4 +161,29 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("0\n0", output);
     }
+    // 三項 / `??` の receiver の片側が null でも、他方の view の copy は呼び出し時
+    [CFact]
+    public void Dict_KeysValues_CopyAfterArguments_NullArmReceiver()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                static Func<int, bool> Clear(Dictionary<int, int> d) { d.Clear(); return x => true; }
+                public static void Main()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    bool flag = d.Count == 1;
+                    Console.WriteLine((flag ? d.Values : null).Any(Clear(d)) ? 1 : 0);
+                    var e = new Dictionary<int, int> { [1] = 10 };
+                    Console.WriteLine((!flag ? null : e.Keys).Any(Clear(e)) ? 1 : 0);
+                    var f = new Dictionary<int, int> { [1] = 10 };
+                    Console.WriteLine((f.Values ?? null).Any(Clear(f)) ? 1 : 0);
+                }
+            }
+            """, "P");
+        Assert.Equal("0\n0\n0", output);
+    }
 }
