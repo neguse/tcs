@@ -102,10 +102,28 @@ public static class List
             valueSelector);
     public static int Count<T>(
         this global::System.Collections.Generic.List<T> list) => list.Count;
+    // Enumerable.Min(selector) は NaN を見ても残りの要素に selector を当てる。
+    // Lua / C runtime は NaN で打ち切るので、selector の副作用まで合わせる
     public static TKey Min<T, TKey>(
         this global::System.Collections.Generic.List<T> list,
-        global::System.Func<T, TKey> selector) =>
-        global::System.Linq.Enumerable.Min(list, selector)!;
+        global::System.Func<T, TKey> selector)
+    {
+        if (list.Count == 0)
+            throw new global::System.InvalidOperationException(
+                "Sequence contains no elements");
+        var best = selector(list[0]);
+        if (IsNaN(best)) return best;
+        var comparer = global::System.Collections.Generic.Comparer<TKey>.Default;
+        for (var i = 1; i < list.Count; i++)
+        {
+            var key = selector(list[i]);
+            if (IsNaN(key)) return key;
+            if (comparer.Compare(key, best) < 0) best = key;
+        }
+        return best;
+    }
+    private static bool IsNaN<TKey>(TKey key) =>
+        key is float f && float.IsNaN(f);
     public static TKey Max<T, TKey>(
         this global::System.Collections.Generic.List<T> list,
         global::System.Func<T, TKey> selector) =>

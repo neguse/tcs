@@ -94,6 +94,34 @@ public class LinqSemanticTests
         Assert.Equal("1", result);
     }
 
+    // float の selector が NaN を返したら以降の selector は呼ばない (support-matrix §19
+    // の短絡)。Lua / C は元から短絡し、TinySystem facade は dotnet differential で
+    // 呼出し回数まで比べる (#261)
+    [Fact]
+    public void Linq_Min_Selector_StopsAtNaN()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static int Test()
+                {
+                    var list = new List<int> { 1, 2, 3 };
+                    int calls = 0;
+                    float m = list.Min(x =>
+                    {
+                        calls++;
+                        float z = x - x;
+                        return x == 2 ? z / z : (float)x;
+                    });
+                    return (m != m ? 10 : 0) + calls;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("12", result);
+    }
+
     [Fact]
     public void Linq_Max()
     {
