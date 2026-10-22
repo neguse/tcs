@@ -383,6 +383,7 @@ public sealed partial class IncrementalCompilationSession
             var tree = _trees[p];
             var model = comp.GetSemanticModel(tree);
             bucket.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedSyntaxes(tree, model, _refTrees.Contains));
+            bucket.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedOperations(tree, model));
             bucket.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedCollectionNulls(tree, model));
             bucket.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedApis(tree, model));
             // 未対応 (TCS1001 / TCS1002) は error 行で bucket に入る。
@@ -413,6 +414,7 @@ public sealed partial class IncrementalCompilationSession
             return 0;
         var sw = Stopwatch.StartNew();
         bucket.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedSyntaxes(tree, model, _refTrees.Contains));
+        bucket.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedOperations(tree, model));
         bucket.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedCollectionNulls(tree, model));
         bucket.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedApis(tree, model));
         errors.AddRange(bucket.Where(TinyCsComplianceFacts.IsErrorDiagnostic));

@@ -2331,3 +2331,9 @@
 - 検証: `dotnet test` 全通過。同じ seed で 2 回走らせた pairs の順が一致するテストを追加
 - 判断: 固定 seed は落ちた fuzz / 差分を同じ状態で再現するためのもので、列挙順を expected に書く根拠にはしない。差分ゲートの sort と fuzz の dict 列挙除外は残す
 - 残課題: なし
+
+### T263 struct → interface / object の変換を TCS1001 に ✓ (2026-10-21)
+- user (と `--ref`) の struct / record struct (`T?` も) を interface / object に入れる boxing を shared facts の operation 規則 `StructToReference(S)` にした。analyzer は Conversion の operation action、transpiler / 増分 session / IlExport は tree の式ごとに自分と親の変換を見る walk で同じ判定を出す。従来は Lua で `is` が黙って false、tcs2c は `IlIsType target is not a class` の error だった
+- 検証: `dotnet test` 全通過。transpiler / analyzer のテストと、両 backend が IL を作る前に同じ診断で止まる tcs2c のテストを追加
+- 判断: DU の case は record class に限る (q.md Q19)。boxing で対応する案は確保が record class と同じで interface 経由の呼び出しに unbox が入り、struct に metatable を付ける案は plain table の設計を崩す
+- 残課題: T264 (tcs2c の switch 絞り込み)、T265 (網羅性)

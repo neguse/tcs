@@ -90,7 +90,6 @@
 
 ## DU / パターンマッチ (q.md Q19)
 
-- [ ] **T263** (P1): struct → interface / object の変換を TCS1001 (analyzer / check / transpiler 共通の facts)。Lua で黙って false になる経路を塞ぐ
 - [ ] **T264** (P1): tcs2c が `switch` 文 / 式で絞ったパターン変数の member を解決できない (`unknown field: IShape.S`) を修正
 - [ ] **T265** (P2): interface 型の入力の switch 式 / 文の網羅性を準拠 error に (default / `_` なしで実装型を覆っていないとき)
 

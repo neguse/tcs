@@ -80,7 +80,7 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
             OperationKind.FieldReference,
             OperationKind.ObjectCreation);
         context.RegisterOperationAction(AnalyzeUnsupportedOperationSyntax,
-            OperationKind.NameOf);
+            OperationKind.NameOf, OperationKind.Conversion);
         context.RegisterOperationAction(AnalyzeDotnetMath,
             OperationKind.Invocation);
     }

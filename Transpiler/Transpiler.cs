@@ -109,6 +109,7 @@ public static class Transpiler
             var model = compilation.GetSemanticModel(tree);
             errors.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedSyntaxes(
                 tree, model, refTrees.Contains));
+            errors.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedOperations(tree, model));
             warnings.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedCollectionNulls(
                 tree, model));
             errors.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedApis(

@@ -407,11 +407,53 @@ public static partial class TinyCsComplianceFacts
     public static bool TryGetUnsupportedSyntax(IOperation? operation,
         out string syntaxName)
     {
-        // nameof は C# の定数式 (識別子名) で、両 backend が定数文字列に畳む
-        // (T250)。operation 単位の未対応構文は現状なし
-        _ = operation;
         syntaxName = "";
+        // nameof は C# の定数式 (識別子名) で、両 backend が定数文字列に畳む (T250)。
+        // struct を interface / object に入れる boxing は対象外: Lua の struct は
+        // metatable の無い plain table で実行時の型 tag を持たず `is` が黙って外れる
+        // (C は型 id を持たず error)。DU の case は record class に限る (q.md Q19)
+        if (operation is IConversionOperation conversion
+            && conversion.GetConversion().IsBoxing
+            && IsSourceStruct(conversion.Operand.Type))
+        {
+            syntaxName = $"StructToReference({conversion.Operand.Type!.ToDisplayString()})";
+            return true;
+        }
         return false;
+    }
+
+    // user (または `--ref`) が宣言した struct / record struct と、その `T?`
+    private static bool IsSourceStruct(ITypeSymbol? type)
+    {
+        if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable
+            && nullable.TypeArguments.Length == 1)
+            type = nullable.TypeArguments[0];
+        return type is INamedTypeSymbol { TypeKind: TypeKind.Struct, SpecialType: SpecialType.None }
+            && type.DeclaringSyntaxReferences.Length > 0;
+    }
+
+    // operation 単位の規則 (boxing) を tree 全体に当てる。暗黙の変換は operand と
+    // 同じ syntax に付くので、式ごとに自分と親の変換を見る (明示 cast は自分)
+    public static IEnumerable<string> AnalyzeUnsupportedOperations(
+        SyntaxTree tree, SemanticModel model)
+    {
+        var seen = new HashSet<Microsoft.CodeAnalysis.Text.TextSpan>();
+        foreach (var node in tree.GetRoot().DescendantNodes().OfType<ExpressionSyntax>())
+        {
+            var operation = model.GetOperation(node);
+            if (operation == null) continue;
+            foreach (var candidate in new[] { operation, operation.Parent })
+            {
+                if (candidate is IConversionOperation conversion
+                    && conversion.Syntax == node
+                    && TryGetUnsupportedSyntax(conversion, out var syntaxName)
+                    && seen.Add(node.Span))
+                {
+                    yield return FormatDiagnostic(node, TinyCsDiagnosticIds.UnsupportedSyntax,
+                        $"unsupported syntax: {syntaxName}", "error");
+                }
+            }
+        }
     }
 
     /// <param name="isReferenceTree">`--ref` (参照専用) の tree の判定。transpiler /

@@ -262,4 +262,41 @@ public class TypePatternTests
         Assert.True(result.Lua.Split("__tcs_is(").Length - 1 > 1, "--ref の class への is は chain 走査のまま");
         Assert.Equal("0", TestHelper.RunLua($"{result.Lua}\nprint(P.Main())").Trim());
     }
+
+    // struct を interface / object に入れる boxing は TCS1001 (Lua の struct は型 tag を持たず
+    // `is` が黙って外れる。q.md Q19)。class → interface と int → object は従来どおり
+    [Fact]
+    public void StructToReference_IsUnsupported()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using System.Collections.Generic;
+            public interface IShape { }
+            public struct Sq : IShape { public int S; }
+            public record struct Ci(float R) : IShape;
+            public class Tri : IShape { }
+            public class T
+            {
+                static IShape Make() => new Sq { S = 1 };
+                static int Area(object o) => 0;
+                public static int Test()
+                {
+                    IShape a = new Sq { S = 2 };
+                    object b = new Ci(1f);
+                    Sq? maybe = new Sq();
+                    object c = maybe;
+                    var list = new List<IShape> { new Ci(2f) };
+                    IShape ok = new Tri();
+                    object n = 5;
+                    return Area(new Sq()) + Area(n) + list.Count + (ok == null ? 1 : 0) + (a == null ? 1 : 0) + (b == null ? 1 : 0) + (c == null ? 1 : 0);
+                }
+            }
+            """]);
+
+        var boxing = result.Errors.Where(e => e.Contains("StructToReference(")).ToArray();
+        Assert.Equal(6, boxing.Length);
+        Assert.Contains(boxing, e => e.Contains("StructToReference(Sq)"));
+        Assert.Contains(boxing, e => e.Contains("StructToReference(Ci)"));
+        Assert.Contains(boxing, e => e.Contains("StructToReference(Sq?)"));
+        Assert.Empty(result.Lua);
+    }
 }

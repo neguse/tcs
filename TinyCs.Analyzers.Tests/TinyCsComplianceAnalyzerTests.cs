@@ -874,4 +874,29 @@ public partial class TinyCsComplianceAnalyzerTests
             && d.GetMessage().Contains("KeysValuesStored(")).ToArray();
         Assert.Equal(5, unsupported.Length);
     }
+
+    [Fact]
+    public async Task StructToReference_ReportsUnsupportedSyntax()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            public interface IShape { }
+            public struct Sq : IShape { public int S; }
+            public class Tri : IShape { }
+            public class Demo
+            {
+                static int Area(object o) => 0;
+                public static int Run()
+                {
+                    IShape a = new Sq { S = 2 };
+                    IShape ok = new Tri();
+                    object n = 5;
+                    return Area(new Sq()) + Area(n) + (ok == null ? 1 : 0) + (a == null ? 1 : 0);
+                }
+            }
+            """);
+
+        var boxing = diagnostics.Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax
+            && d.GetMessage().Contains("StructToReference(Sq)")).ToArray();
+        Assert.Equal(2, boxing.Length);
+    }
 }
