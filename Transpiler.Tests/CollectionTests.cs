@@ -358,4 +358,25 @@ public class CollectionTests
             """, "T.Test()");
         Assert.Equal("3:9:1:4:8", result);
     }
+
+    // copy constructor と collection initializer の併用は、写した List に initializer
+    // の項を順に足す (initializer があるとコピー元を落としていた退行の再現)
+    [Fact]
+    public void List_CopyConstructor_WithInitializer_AppendsAfterCopy()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            public class T
+            {
+                public static string Test()
+                {
+                    var src = new List<int> { 1, 2 };
+                    var copy = new List<int>(src) { 3, 4 };
+                    copy[0] = 9;
+                    return copy.Count + ":" + copy[0] + ":" + copy[2] + ":" + copy[3] + ":" + src.Count + ":" + src[0];
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("4:9:3:4:2:1", result);
+    }
 }

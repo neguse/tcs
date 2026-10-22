@@ -733,15 +733,28 @@ public partial class LuaEmitter
             // 変更可能な struct 要素なら型別 __copy を渡す (C backend は要素を
             // 値で写すので読まない)
             var ctorArgs = argumentList?.ToList() ?? [];
-            if (ctorArgs.Count == 1 && initializer == null)
+            if (ctorArgs.Count == 1)
             {
                 if (!ctorArgs[0].RefKindKeyword.IsKind(SyntaxKind.None)) return null;
                 var source = BuildExpr(model, ctorArgs[0].Expression);
                 if (source == null) return null;
                 var elem = (typeSymbol as INamedTypeSymbol)?.TypeArguments.FirstOrDefault();
-                return new IlCall("List.Copy", elem != null && IsMutableStruct(elem)
+                var copy = new IlCall("List.Copy", elem != null && IsMutableStruct(elem)
                     ? [source, new IlField(new IlVar(TypeName(elem)), "__copy")]
                     : [source]);
+                if (initializer == null) return copy;
+                // collection initializer を併用: 写した List に項を順に足す
+                var list = new IlVar("__tcs_list");
+                List<IlStat> stats = [new IlLocal(list.Name, copy)];
+                foreach (var e in initializer.Expressions)
+                {
+                    var built = BuildExpr(model, e);
+                    if (built == null) return null;
+                    stats.Add(new IlCallStat(new IlCall("table.insert",
+                        [list, WrapStructCopy(model, e, built)])));
+                }
+                stats.Add(new IlReturn(list));
+                return new IlIife([.. stats]);
             }
             if (initializer == null) return new IlTable([], TypeArg(0));
             var items = new List<IlTableEntry>();
