@@ -381,4 +381,47 @@ public class DictSemanticTests
         Assert.Equal(5, result.Errors.Count(e => e.Contains("TCS1001") && e.Contains("KeysValuesStored(")));
         Assert.Contains(result.Errors, e => e.Contains("KeysValuesStored(Dictionary<int, int>.ValueCollection)"));
     }
+    // Keys / Values を受け手にした LINQ の copy は .NET facade と同じく呼び出し時
+    // (引数を評価した後)。引数の評価が Dictionary を変えても結果が一致し、
+    // dict の式は引数より先に評価する (C# の評価順)
+    [Fact]
+    public void Dict_KeysValues_CopyAfterArguments()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                static Dictionary<int, int> Pick(Dictionary<int, int> d, List<string> log) { log.Add("r"); return d; }
+                static Func<int, bool> Clearing(Dictionary<int, int> d, List<string> log) { log.Add("a"); d.Clear(); return x => true; }
+                public static string Test()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var log = new List<string>();
+                    var any = Pick(d, log).Values.Any(Clearing(d, log));
+                    var d2 = new Dictionary<int, int> { [1] = 1, [2] = 2 };
+                    var keep = d2.Keys.Where(k => k > 1);
+                    return (any ? 1 : 0) + ":" + string.Join(",", log) + ":" + keep.Count;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("0:r,a:1", result);
+    }
+
+    // lambda だけの引数は評価に副作用が無いので、copy を遅らせる形にしない
+    [Fact]
+    public void Dict_KeysValues_PureArguments_CopyDirectly()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static int Test(Dictionary<int, int> d) => d.Values.Count(v => v > 1) + d.Keys.Where(k => k > 0).Count;
+            }
+            """]);
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        Assert.DoesNotContain("__tcs_dict", result.Lua);
+    }
 }

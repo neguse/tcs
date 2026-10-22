@@ -60,18 +60,14 @@ public partial class LuaEmitter
                 var recvExt = BuildExpr(model, receiver);
                 if (recvExt == null) return true; // fallback
                 // FirstOrDefault は List receiver 分岐と同様に default(T) を渡す
-                if (methodName is "FirstOrDefault")
-                {
-                    var predicateExt = args.Length > 0
-                        ? args[0]
-                        : new IlLit("nil");
-                    result = new IlCall($"List.{methodName}",
-                        [recvExt, predicateExt, DefaultIl(methodSym.ReturnType)]);
-                    return true;
-                }
-                result = new IlCall($"List.{TypedListMethod(methodName, methodSym)}",
-                    [recvExt, .. WithStructElementOps(
-                        model.GetTypeInfo(receiver).Type, methodSym, methodName, args)]);
+                var call = methodName is "FirstOrDefault"
+                    ? new IlCall($"List.{methodName}",
+                        [recvExt, args.Length > 0 ? args[0] : new IlLit("nil"),
+                            DefaultIl(methodSym.ReturnType)])
+                    : new IlCall($"List.{TypedListMethod(methodName, methodSym)}",
+                        [recvExt, .. WithStructElementOps(
+                            model.GetTypeInfo(receiver).Type, methodSym, methodName, args)]);
+                result = DeferKeysValuesCopy(call, recvExt, receiver, args);
                 return true;
             }
             return false;
@@ -114,6 +110,33 @@ public partial class LuaEmitter
             return true;
         }
         return false;
+    }
+
+    // Keys / Values を受け手にした LINQ の copy は、.NET facade と同じく引数を評価した
+    // 後 (呼び出し時) に取る。引数の評価が Dictionary を変えうるとき (method 呼び出し
+    // 等を含むとき) だけ、dict と引数を順に評価してから copy して呼ぶ形にする。
+    // lambda だけの引数は評価が副作用を持たないので直接の形のまま
+    private static IlExpr DeferKeysValuesCopy(IlCall call, IlExpr recv,
+        ExpressionSyntax receiver, ImmutableArray<IlExpr> args)
+    {
+        if (recv is not IlCall { Callee: "Dict.Keys" or "Dict.FloatKeys" or "Dict.Values" } view
+            || receiver.FirstAncestorOrSelf<InvocationExpressionSyntax>() is not { } invocation
+            || !invocation.ArgumentList.Arguments.Any(a =>
+                a.Expression != receiver && MayHaveSideEffectBeforeCall(a.Expression)))
+            return call;
+        var dict = new IlVar("__tcs_dict");
+        List<IlStat> stats = [new IlLocal(dict.Name, view.Args[0])];
+        var callArgs = call.Args.ToArray();
+        callArgs[0] = view with { Args = [dict] };
+        for (var i = 0; i < args.Length; i++)
+        {
+            var temp = new IlVar($"__tcs_a{i}");
+            stats.Add(new IlLocal(temp.Name, args[i]));
+            for (var j = 1; j < callArgs.Length; j++)
+                if (ReferenceEquals(callArgs[j], args[i])) callArgs[j] = temp;
+        }
+        stats.Add(new IlReturn(call with { Args = [.. callArgs] }));
+        return new IlIife([.. stats]);
     }
 
     // 拡張 method の static の形 `Ext.M(x, ...)`: receiver は第 1 引数で、

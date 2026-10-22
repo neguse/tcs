@@ -191,22 +191,29 @@ public partial class LuaEmitter
         || model.GetTypeInfo(bin.Right).Type?.SpecialType == SpecialType.System_Boolean;
 
     private static bool HasSideEffectSyntax(SyntaxNode node) =>
-        node.DescendantNodesAndSelf().Any(n =>
-            n is InvocationExpressionSyntax
-                or BaseObjectCreationExpressionSyntax
-                or ConditionalAccessExpressionSyntax
-                or AssignmentExpressionSyntax
-                or WithExpressionSyntax
-                or PostfixUnaryExpressionSyntax
-                {
-                    RawKind: (int)SyntaxKind.PostIncrementExpression
-                        or (int)SyntaxKind.PostDecrementExpression
-                }
-                or PrefixUnaryExpressionSyntax
-                {
-                    RawKind: (int)SyntaxKind.PreIncrementExpression
-                        or (int)SyntaxKind.PreDecrementExpression
-                });
+        node.DescendantNodesAndSelf().Any(IsSideEffectNode);
+
+    // 引数の評価だけで副作用が起きうるか。lambda の本体は呼ばれるまで走らないので見ない
+    private static bool MayHaveSideEffectBeforeCall(ExpressionSyntax arg) =>
+        arg.DescendantNodesAndSelf(n => n is not AnonymousFunctionExpressionSyntax)
+            .Any(IsSideEffectNode);
+
+    private static bool IsSideEffectNode(SyntaxNode n) =>
+        n is InvocationExpressionSyntax
+            or BaseObjectCreationExpressionSyntax
+            or ConditionalAccessExpressionSyntax
+            or AssignmentExpressionSyntax
+            or WithExpressionSyntax
+            or PostfixUnaryExpressionSyntax
+            {
+                RawKind: (int)SyntaxKind.PostIncrementExpression
+                    or (int)SyntaxKind.PostDecrementExpression
+            }
+            or PrefixUnaryExpressionSyntax
+            {
+                RawKind: (int)SyntaxKind.PreIncrementExpression
+                    or (int)SyntaxKind.PreDecrementExpression
+            };
 
     private static bool IsAssignedWithin(SyntaxNode scope, string name) =>
         scope.DescendantNodes().Any(n => n switch

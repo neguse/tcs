@@ -810,7 +810,7 @@ key 型が型 parameter の dict (generic method の中で作るもの) は対�
 | `.Add(key, value)` | **Y** | `dict[key] = value` | T |
 | `.Remove(key)` | **Y** | `Dict.Remove(dict, key)` | T+R |
 | `.ContainsKey(key)` | **Y** | `(dict[key] ~= nil)` | T |
-| `.Keys` | **Y** | `Dict.Keys(dict)` (copy の List。順序は未規定) | T+R。List の LINQ (§19) の受け手になる。順序が要るときは `Keys.OrderBy(k => k)`。変数・field・property・引数・戻り値には持てない (TCS1001 KeysValuesStored。dotnet は live view で copy の時点が分かれる)。持ち越すなら `new List<K>(dict.Keys)` で写す |
+| `.Keys` | **Y** | `Dict.Keys(dict)` (copy の List。順序は未規定) | T+R。List の LINQ (§19) の受け手になる。順序が要るときは `Keys.OrderBy(k => k)`。変数・field・property・引数・戻り値には持てない (TCS1001 KeysValuesStored。dotnet は live view で copy の時点が分かれる)。持ち越すなら `new List<K>(dict.Keys)` で写す。LINQ の受け手では copy を呼び出し時 (引数を評価した後) に取り、.NET facade と同じ時点にする |
 | `.Values` | **Y** | `Dict.Values(dict)` (copy の List。順序は未規定) | T+R。List の LINQ (§19) の受け手になる。持ち越しの制約は `.Keys` と同じ |
 | `.TryGetValue(key, out value)` | **Y** | out 代入 + bool | T |
 | `foreach (var (k, v) in dict)` | **Y** | `for k, v in pairs(dict)` (KeyValuePair を作らない。float key は NaN に戻し、変更可能な struct の値は copy) | T。`var (k, v)` の 2 要素だけ (tuple の形 `(var k, var v)` は tuple が対象外)。List の tuple の分解と discard (`_`) は TCS1001 |

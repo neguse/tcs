@@ -80,4 +80,28 @@ public partial class DifferentialTests
                 ex.Message);
         }
     }
+    // Keys / Values の copy は呼び出し時 (引数を評価した後)。引数の評価で Dictionary を
+    // 変えても 3 経路で一致する (期待値は CoreCLR の stdout)
+    [CFact]
+    public void Dict_KeysValues_CopyAfterArguments()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                static Dictionary<int, int> Pick(Dictionary<int, int> d, List<string> log) { log.Add("r"); return d; }
+                static Func<int, bool> Clearing(Dictionary<int, int> d, List<string> log) { log.Add("a"); d.Clear(); return x => true; }
+                public static void Main()
+                {
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var log = new List<string>();
+                    Console.WriteLine(Pick(d, log).Values.Any(Clearing(d, log)) ? 1 : 0);
+                    Console.WriteLine(string.Join(",", log) + ":" + d.Values.Count);
+                }
+            }
+            """, "P");
+        Assert.Equal("0\nr,a:0", output);
+    }
 }
