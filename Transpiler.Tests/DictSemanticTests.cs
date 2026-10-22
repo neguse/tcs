@@ -424,4 +424,32 @@ public class DictSemanticTests
         Assert.True(result.Success, string.Join("\n", result.Errors));
         Assert.DoesNotContain("__tcs_dict", result.Lua);
     }
+    // 副作用のある getter の引数、括弧付き / 三項の receiver でも copy は呼び出し時
+    [Fact]
+    public void Dict_KeysValues_CopyAfterArguments_GetterAndWrappedReceiver()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                static Dictionary<int, int> s = new Dictionary<int, int> { [1] = 10 };
+                static Func<int, bool> ClearingPredicate { get { s.Clear(); return x => true; } }
+                static Func<int, bool> Clear(Dictionary<int, int> d) { d.Clear(); return x => true; }
+                public static string Test()
+                {
+                    var a = s.Values.Any(ClearingPredicate) ? 1 : 0;
+                    var d = new Dictionary<int, int> { [1] = 10 };
+                    var b = (d.Values).Any(Clear(d)) ? 1 : 0;
+                    var e = new Dictionary<int, int> { [2] = 20 };
+                    var f = new Dictionary<int, int> { [3] = 30 };
+                    var flag = e.Count == 1;
+                    var c = (flag ? e.Keys : f.Keys).Count(Clear(e));
+                    return a + ":" + b + ":" + c;
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("0:0:0", result);
+    }
 }

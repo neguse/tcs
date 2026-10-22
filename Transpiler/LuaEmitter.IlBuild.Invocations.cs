@@ -67,7 +67,7 @@ public partial class LuaEmitter
                     : new IlCall($"List.{TypedListMethod(methodName, methodSym)}",
                         [recvExt, .. WithStructElementOps(
                             model.GetTypeInfo(receiver).Type, methodSym, methodName, args)]);
-                result = DeferKeysValuesCopy(call, recvExt, receiver, args);
+                result = DeferKeysValuesCopy(model, call, recvExt, receiver, args);
                 return true;
             }
             return false;
@@ -113,21 +113,21 @@ public partial class LuaEmitter
     }
 
     // Keys / Values を受け手にした LINQ の copy は、.NET facade と同じく引数を評価した
-    // 後 (呼び出し時) に取る。引数の評価が Dictionary を変えうるとき (method 呼び出し
-    // 等を含むとき) だけ、dict と引数を順に評価してから copy して呼ぶ形にする。
-    // lambda だけの引数は評価が副作用を持たないので直接の形のまま
-    private static IlExpr DeferKeysValuesCopy(IlCall call, IlExpr recv,
-        ExpressionSyntax receiver, ImmutableArray<IlExpr> args)
+    // 後 (呼び出し時) に取る。引数の評価が副作用を持ちうるとき (呼び出し、new、user の
+    // property の getter 等を含むとき) だけ、dict と引数を順に評価してから copy して
+    // 呼ぶ形にする。lambda だけの引数は評価が副作用を持たないので直接の形のまま
+    private static IlExpr DeferKeysValuesCopy(SemanticModel model, IlCall call,
+        IlExpr recv, ExpressionSyntax receiver, ImmutableArray<IlExpr> args)
     {
-        if (recv is not IlCall { Callee: "Dict.Keys" or "Dict.FloatKeys" or "Dict.Values" } view
+        if (!TryStripView(recv, out var view, out var dictIl)
             || receiver.FirstAncestorOrSelf<InvocationExpressionSyntax>() is not { } invocation
-            || !invocation.ArgumentList.Arguments.Any(a =>
-                a.Expression != receiver && MayHaveSideEffectBeforeCall(a.Expression)))
+            || invocation.ArgumentList.Arguments.All(a =>
+                a.Expression == receiver || IsSideEffectFreeArgument(model, a.Expression)))
             return call;
         var dict = new IlVar("__tcs_dict");
-        List<IlStat> stats = [new IlLocal(dict.Name, view.Args[0])];
+        List<IlStat> stats = [new IlLocal(dict.Name, dictIl)];
         var callArgs = call.Args.ToArray();
-        callArgs[0] = view with { Args = [dict] };
+        callArgs[0] = new IlCall(view, [dict]);
         for (var i = 0; i < args.Length; i++)
         {
             var temp = new IlVar($"__tcs_a{i}");
@@ -137,6 +137,32 @@ public partial class LuaEmitter
         }
         stats.Add(new IlReturn(call with { Args = [.. callArgs] }));
         return new IlIife([.. stats]);
+    }
+
+    // receiver の IL から view (Dict.Keys / FloatKeys / Values の呼び出し) を剥がして
+    // dict 側の式にする。括弧は透過し、三項は両側が同じ view のときだけ dict の三項にする
+    private static bool TryStripView(IlExpr recv, out string view, out IlExpr dict)
+    {
+        view = "";
+        dict = recv;
+        switch (recv)
+        {
+            case IlCall { Callee: "Dict.Keys" or "Dict.FloatKeys" or "Dict.Values", Args.Length: 1 } call:
+                view = call.Callee;
+                dict = call.Args[0];
+                return true;
+            case IlParen paren:
+                return TryStripView(paren.E, out view, out dict);
+            case IlTernary ternary:
+                if (!TryStripView(ternary.T, out view, out var t)
+                    || !TryStripView(ternary.F, out var viewF, out var f)
+                    || view != viewF)
+                    return false;
+                dict = new IlTernary(ternary.Cond, t, f);
+                return true;
+            default:
+                return false;
+        }
     }
 
     // 拡張 method の static の形 `Ext.M(x, ...)`: receiver は第 1 引数で、

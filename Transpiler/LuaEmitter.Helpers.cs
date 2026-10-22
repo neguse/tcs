@@ -191,29 +191,65 @@ public partial class LuaEmitter
         || model.GetTypeInfo(bin.Right).Type?.SpecialType == SpecialType.System_Boolean;
 
     private static bool HasSideEffectSyntax(SyntaxNode node) =>
-        node.DescendantNodesAndSelf().Any(IsSideEffectNode);
+        node.DescendantNodesAndSelf().Any(n =>
+            n is InvocationExpressionSyntax
+                or BaseObjectCreationExpressionSyntax
+                or ConditionalAccessExpressionSyntax
+                or AssignmentExpressionSyntax
+                or WithExpressionSyntax
+                or PostfixUnaryExpressionSyntax
+                {
+                    RawKind: (int)SyntaxKind.PostIncrementExpression
+                        or (int)SyntaxKind.PostDecrementExpression
+                }
+                or PrefixUnaryExpressionSyntax
+                {
+                    RawKind: (int)SyntaxKind.PreIncrementExpression
+                        or (int)SyntaxKind.PreDecrementExpression
+                });
 
-    // 引数の評価だけで副作用が起きうるか。lambda の本体は呼ばれるまで走らないので見ない
-    private static bool MayHaveSideEffectBeforeCall(ExpressionSyntax arg) =>
-        arg.DescendantNodesAndSelf(n => n is not AnonymousFunctionExpressionSyntax)
-            .Any(IsSideEffectNode);
+    // 評価に副作用が無いと言える引数: lambda / method group / local / parameter /
+    // field / 定数 / 型名 / this / literal と、それらの演算 (user 定義 operator 以外)・
+    // cast・括弧・三項。それ以外 (呼び出し、new、代入、user の property の getter 等)
+    // は副作用を持ちうるとみなす。lambda の本体は呼ばれるまで走らないので見ない
+    private static bool IsSideEffectFreeArgument(SemanticModel model,
+        ExpressionSyntax e) => e switch
+    {
+        AnonymousFunctionExpressionSyntax or LiteralExpressionSyntax
+            or ThisExpressionSyntax or DefaultExpressionSyntax => true,
+        ParenthesizedExpressionSyntax p => IsSideEffectFreeArgument(model, p.Expression),
+        CastExpressionSyntax c => IsSideEffectFreeArgument(model, c.Expression),
+        PrefixUnaryExpressionSyntax
+        {
+            RawKind: (int)SyntaxKind.UnaryMinusExpression
+                or (int)SyntaxKind.LogicalNotExpression
+                or (int)SyntaxKind.BitwiseNotExpression
+        } u => IsSideEffectFreeArgument(model, u.Operand),
+        BinaryExpressionSyntax b =>
+            model.GetSymbolInfo(b).Symbol is not IMethodSymbol
+                { MethodKind: MethodKind.UserDefinedOperator }
+            && IsSideEffectFreeArgument(model, b.Left)
+            && IsSideEffectFreeArgument(model, b.Right),
+        ConditionalExpressionSyntax t =>
+            IsSideEffectFreeArgument(model, t.Condition)
+            && IsSideEffectFreeArgument(model, t.WhenTrue)
+            && IsSideEffectFreeArgument(model, t.WhenFalse),
+        MemberAccessExpressionSyntax m =>
+            IsSideEffectFreeArgument(model, m.Expression)
+            && IsSideEffectFreeSymbol(model.GetSymbolInfo(m).Symbol),
+        IdentifierNameSyntax => IsSideEffectFreeSymbol(model.GetSymbolInfo(e).Symbol),
+        _ => false,
+    };
 
-    private static bool IsSideEffectNode(SyntaxNode n) =>
-        n is InvocationExpressionSyntax
-            or BaseObjectCreationExpressionSyntax
-            or ConditionalAccessExpressionSyntax
-            or AssignmentExpressionSyntax
-            or WithExpressionSyntax
-            or PostfixUnaryExpressionSyntax
-            {
-                RawKind: (int)SyntaxKind.PostIncrementExpression
-                    or (int)SyntaxKind.PostDecrementExpression
-            }
-            or PrefixUnaryExpressionSyntax
-            {
-                RawKind: (int)SyntaxKind.PreIncrementExpression
-                    or (int)SyntaxKind.PreDecrementExpression
-            };
+    // user が宣言した property の getter は任意のコードを走らせうる。BCL の property
+    // (Count / Length 等) は値を読むだけ
+    private static bool IsSideEffectFreeSymbol(ISymbol? symbol) => symbol switch
+    {
+        ILocalSymbol or IParameterSymbol or IFieldSymbol or IMethodSymbol
+            or ITypeSymbol or INamespaceSymbol => true,
+        IPropertySymbol p => p.DeclaringSyntaxReferences.Length == 0,
+        _ => false,
+    };
 
     private static bool IsAssignedWithin(SyntaxNode scope, string name) =>
         scope.DescendantNodes().Any(n => n switch
