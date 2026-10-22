@@ -264,6 +264,9 @@ internal static class Backends
             CreateNoWindow = true,
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
+        // Lua の string key の hash seed を固定し、差分の再現を実行間で同じにする
+        // (C の process は読まない)
+        psi.Environment["TCS_LUA_SEED"] = "20261020";
         return psi;
     }
 

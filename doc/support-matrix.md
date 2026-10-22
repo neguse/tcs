@@ -775,7 +775,7 @@ Lua hash table は `nil` 代入を key 削除として扱うため、`null` 値�
 直接の `null` / 参照型 `default` は TCS1003 として報告する。
 
 列挙順は未規定。foreach / Keys / Values の順は backend ごとに異なり (Lua は string key の hash seed が process ごとに変わる、C は chained hash の順、.NET は挿入順)、順序に依存するコードは書かない。
-順序が要るときは `Keys.OrderBy(k => k)` のように List にしてから並べる。Dictionary 自身の演算 (Where / Any / All / Count / RemoveAll) は結果が key と value の集合だけで決まるものに限り、述語は `(k, v) =>` の 2 引数 lambda で KeyValuePair を値として持たない (q.md Q18)。述語は呼び出し時点の entry の写しに対して呼ぶので、述語が Dictionary を変えても結果は呼び出し時点の内容で決まる (List の LINQ と同じ規則。§19)。
+順序が要るときは `Keys.OrderBy(k => k)` のように List にしてから並べる。tcs のテスト interpreter (`deps/lua/lua`, `lua32`) は環境変数 `TCS_LUA_SEED` があるときだけ string key の hash seed を固定し、テストの harness が設定して落ちた fuzz / 差分を同じ状態で再現する (perf / samples / host は Lua 既定の seed)。Dictionary 自身の演算 (Where / Any / All / Count / RemoveAll) は結果が key と value の集合だけで決まるものに限り、述語は `(k, v) =>` の 2 引数 lambda で KeyValuePair を値として持たない (q.md Q18)。述語は呼び出し時点の entry の写しに対して呼ぶので、述語が Dictionary を変えても結果は呼び出し時点の内容で決まる (List の LINQ と同じ規則。§19)。
 
 wire format 契約: Dictionary は素の Lua table (`{[k]=v, ...}`) であり、
 metatable も bookkeeping フィールドも持たない。`--ref` (host) 関数へ渡すと、

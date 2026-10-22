@@ -72,6 +72,8 @@ public static class TestHelper
         }
     }
 
+    public const string LuaSeed = "20261020";
+
     private static string GetLuaVersion(string luaPath)
     {
         try
@@ -188,6 +190,9 @@ public static class TestHelper
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            // string key の hash seed を固定し、Dictionary の pairs の順を実行間で同じにする
+            // (再現用。順序は未規定のままで、expected に順序を書く根拠にはしない)
+            psi.Environment["TCS_LUA_SEED"] = LuaSeed;
             psi.ArgumentList.Add(tmpFile);
             var result = TestProcessRunner.Run(
                 psi, timeout ?? LuaProcessTimeout, script);

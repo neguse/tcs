@@ -2325,3 +2325,9 @@
 - 判断: 配列は受け手にしない (Q18)。`IReadOnlyCollection<T>` を receiver にすると配列が戻るので、KeyCollection / ValueCollection の明示 overload にした
 - 判断: KeyCollection / ValueCollection は変数・field・property・引数・戻り値に持てない (TCS1001 KeysValuesStored)。Lua / C は取得時の copy、dotnet facade は live view で、保存して Dictionary を変えた後に使うと copy の時点が分かれる (#273 のレビュー)。持ち越しは `new List<T>(d.Keys)` で写す。LINQ の受け手の copy は引数を評価した後 (呼び出し時) に取り、`d.Values.Any(Clearing(d))` のように引数の評価が Dictionary を変えても .NET facade と一致させる (副作用を持ちうる引数 — 呼び出し、new、user の property の getter、user 定義 operator 等 — のときだけ dict と引数を先に評価する IIFE にする。receiver は IL の結果経路 — 括弧・cast・三項・`??`・switch 式や `?.` の IIFE の return — を辿って view を剥がし、null の側は括弧や cast が付いていても nil のまま残す)
 - 残課題: T262 (TCS_LUA_SEED)
+
+### T262 TCS_LUA_SEED ✓ (2026-10-21)
+- `runtime/lua/tcs_lua.c` が環境変数 `TCS_LUA_SEED` を読み、あるときだけ `lua_newstate` に固定 seed を渡す (`luaL_newstate` を macro で差し替え。lauxlib の panic / warn handler は付かないが、lua.c は全部 pcall 下で動き、テストは -W を使わない)。Transpiler.Tests の TestHelper と tcs2c.Tests の Backends が設定する。perf / samples / host は Lua 既定の seed のまま
+- 検証: `dotnet test` 全通過。同じ seed で 2 回走らせた pairs の順が一致するテストを追加
+- 判断: 固定 seed は落ちた fuzz / 差分を同じ状態で再現するためのもので、列挙順を expected に書く根拠にはしない。差分ゲートの sort と fuzz の dict 列挙除外は残す
+- 残課題: なし

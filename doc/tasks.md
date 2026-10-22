@@ -88,12 +88,6 @@
 
 ---
 
-## Dictionary トラック (q.md Q18)
-
-- [ ] **T262** (P2): `runtime/lua/tcs_lua.c` が `TCS_LUA_SEED` を読み、あるときだけ固定 seed で `lua_newstate` する。Transpiler.Tests の TestHelper と tcs2c.Tests の Backends が設定する。差分ゲートの sort と fuzz の dict 列挙除外はそのまま
-
----
-
 ## DU / パターンマッチ (q.md Q19)
 
 - [ ] **T263** (P1): struct → interface / object の変換を TCS1001 (analyzer / check / transpiler 共通の facts)。Lua で黙って false になる経路を塞ぐ

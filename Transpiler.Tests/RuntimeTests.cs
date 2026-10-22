@@ -157,4 +157,46 @@ public class RuntimeTests
             """);
         Assert.Equal("5.0", result);
     }
+
+    // TCS_LUA_SEED があると string key の pairs の順が実行間で同じになる (再現用)
+    [Fact]
+    public void LuaInterpreter_SeedEnv_MakesPairsOrderRepeatable()
+    {
+        const string script = """
+            local t = {}
+            for i = 1, 40 do t["k" .. i] = i end
+            local order = {}
+            for k in pairs(t) do order[#order + 1] = k end
+            print(table.concat(order, ","))
+            """;
+        string Run(string seed)
+        {
+            var tmp = Path.GetTempFileName();
+            try
+            {
+                File.WriteAllText(tmp, script);
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = TestHelper.LuaExecutablePath,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                psi.Environment["TCS_LUA_SEED"] = seed;
+                psi.ArgumentList.Add(tmp);
+                var result = TestProcessRunner.Run(psi, TimeSpan.FromSeconds(10), script);
+                Assert.Equal(0, result.ExitCode);
+                return result.Stdout.Trim();
+            }
+            finally
+            {
+                File.Delete(tmp);
+            }
+        }
+
+        var first = Run("7");
+        Assert.Equal(first, Run("7"));
+        Assert.Equal(40, first.Split(',').Length);
+    }
 }
