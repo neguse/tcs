@@ -509,4 +509,42 @@ public class DictSemanticTests
             """, "T.Test()");
         Assert.Equal("0:0:0", result);
     }
+    // null の側に括弧 / cast が付いても、`?? (null)`、switch 式、`?.` (IIFE) の receiver でも、
+    // view の copy は呼び出し時
+    [Fact]
+    public void Dict_KeysValues_CopyAfterArguments_WrappedNullAndIifeReceiver()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                static Func<int, bool> Clear(Dictionary<int, int> d) { d.Clear(); return x => true; }
+                static Dictionary<int, int>? Get(Dictionary<int, int> d) => d;
+                static Dictionary<int, int> New() => new Dictionary<int, int> { [1] = 10 };
+                public static string Test()
+                {
+                    var d = New();
+                    bool flag = d.Count == 1;
+                    var parts = new List<int>();
+                    parts.Add((flag ? d.Values : (null)).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    parts.Add((flag ? d.Values : (Dictionary<int, int>.ValueCollection?)null).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    parts.Add((d.Values ?? (null)).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    parts.Add((Get(d)?.Values).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    parts.Add(Get(d)?.Values.Any(Clear(d)) == true ? 1 : 0);
+                    d = New();
+                    parts.Add((flag switch { true => d.Values, _ => null }).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    parts.Add((flag ? (flag ? d.Values : null) : null).Any(Clear(d)) ? 1 : 0);
+                    return string.Join(",", parts);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("0,0,0,0,0,0,0", result);
+    }
 }

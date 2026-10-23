@@ -186,4 +186,40 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("0\n0\n0", output);
     }
+    // null の側に括弧 / cast が付いても、`?? (null)`、switch 式、`?.` (IIFE) の receiver でも、
+    // view の copy は呼び出し時
+    [CFact]
+    public void Dict_KeysValues_CopyAfterArguments_WrappedNullAndIifeReceiver()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                static Func<int, bool> Clear(Dictionary<int, int> d) { d.Clear(); return x => true; }
+                static Dictionary<int, int>? Get(Dictionary<int, int> d) => d;
+                static Dictionary<int, int> New() => new Dictionary<int, int> { [1] = 10 };
+                public static void Main()
+                {
+                    var d = New();
+                    bool flag = d.Count == 1;
+                    Console.WriteLine((flag ? d.Values : (null)).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    Console.WriteLine((flag ? d.Values : (Dictionary<int, int>.ValueCollection?)null).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    Console.WriteLine((d.Values ?? (null)).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    Console.WriteLine((Get(d)?.Values).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    Console.WriteLine(Get(d)?.Values.Any(Clear(d)) == true ? 1 : 0);
+                    d = New();
+                    Console.WriteLine((flag switch { true => d.Values, _ => null }).Any(Clear(d)) ? 1 : 0);
+                    d = New();
+                    Console.WriteLine((flag ? (flag ? d.Values : null) : null).Any(Clear(d)) ? 1 : 0);
+                }
+            }
+            """, "P");
+        Assert.Equal("0\n0\n0\n0\n0\n0\n0", output);
+    }
 }

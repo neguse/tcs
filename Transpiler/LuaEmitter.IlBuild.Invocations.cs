@@ -140,46 +140,84 @@ public partial class LuaEmitter
     }
 
     // receiver の IL から view (Dict.Keys / FloatKeys / Values の呼び出し) を剥がして
-    // dict 側の式にする。括弧は透過し、三項と `??` (Or) は両側が同じ view (片側は
-    // null でもよい) のときだけ dict 側の三項 / Or にする
+    // dict 側の式にする。括弧・cast は透過し、三項 / `??` / IIFE (switch 式、`?.`) は
+    // 結果になる式が全て同じ view か null のとき dict 側の同じ形にする。null の側は
+    // nil のまま残す (選ばれたときは view が nil で止まり、C# の NullReferenceException
+    // と同じく fault)
     private static bool TryStripView(IlExpr recv, out string view, out IlExpr dict)
     {
-        view = "";
-        dict = recv;
-        switch (recv)
-        {
-            case IlCall { Callee: "Dict.Keys" or "Dict.FloatKeys" or "Dict.Values", Args.Length: 1 } call:
-                view = call.Callee;
-                dict = call.Args[0];
-                return true;
-            case IlParen paren:
-                return TryStripView(paren.E, out view, out dict);
-            case IlTernary ternary:
-                if (!TryStripViewArms(ternary.T, ternary.F, out view, out var t, out var f))
-                    return false;
-                dict = new IlTernary(ternary.Cond, t, f);
-                return true;
-            case IlBin { Op: IlBinOp.Or } coalesce:
-                if (!TryStripViewArms(coalesce.L, coalesce.R, out view, out var l, out var r))
-                    return false;
-                dict = new IlBin(IlBinOp.Or, l, r);
-                return true;
-            default:
-                return false;
-        }
+        var stripper = new ViewStripper();
+        var stripped = stripper.Strip(recv);
+        view = stripper.View ?? "";
+        dict = stripped ?? recv;
+        return stripped != null && stripper.View != null;
     }
 
-    // null の側は nil のまま残す。選ばれたときは view が nil で止まり、C# の
-    // NullReferenceException と同じく fault になる
-    private static bool TryStripViewArms(IlExpr a, IlExpr b, out string view,
-        out IlExpr dictA, out IlExpr dictB)
+    private sealed class ViewStripper
     {
-        var strippedA = TryStripView(a, out view, out dictA);
-        var strippedB = TryStripView(b, out var viewB, out dictB);
-        if (strippedA && strippedB) return view == viewB;
-        if (strippedA) return b is IlLit { LuaText: "nil" };
-        view = viewB;
-        return strippedB && a is IlLit { LuaText: "nil" };
+        public string? View;
+
+        // 剥がせなければ null
+        public IlExpr? Strip(IlExpr e) => e switch
+        {
+            IlCall { Callee: "Dict.Keys" or "Dict.FloatKeys" or "Dict.Values", Args.Length: 1 } call =>
+                Use(call.Callee) ? call.Args[0] : null,
+            IlLit { LuaText: "nil" } => e,
+            IlParen paren => Strip(paren.E) is { } inner ? new IlParen(inner) : null,
+            IlRefCast cast => Strip(cast.Value),
+            IlTernary ternary => Strip(ternary.T) is { } t && Strip(ternary.F) is { } f
+                ? new IlTernary(ternary.Cond, t, f) : null,
+            IlBin { Op: IlBinOp.Or } coalesce => Strip(coalesce.L) is { } l && Strip(coalesce.R) is { } r
+                ? new IlBin(IlBinOp.Or, l, r) : null,
+            IlIife iife => StripStats(iife.Stats) is { } stats ? new IlIife(stats) : null,
+            _ => null,
+        };
+
+        private bool Use(string callee)
+        {
+            if (View != null && View != callee) return false;
+            View = callee;
+            return true;
+        }
+
+        // IIFE の return の値を剥がす。文は local / 代入 / 呼び出し / return / if / do だけ
+        // 辿り、他 (ループ等) が現れたら剥がさない
+        private ImmutableArray<IlStat>? StripStats(ImmutableArray<IlStat> stats)
+        {
+            var result = ImmutableArray.CreateBuilder<IlStat>(stats.Length);
+            foreach (var stat in stats)
+            {
+                IlStat? stripped = stat switch
+                {
+                    IlReturn { Value: null } => stat,
+                    IlReturn ret => Strip(ret.Value!) is { } v ? new IlReturn(v) : null,
+                    IlIf cond => StripIf(cond),
+                    IlDo d => StripBlock(d.Body) is { } b ? new IlDo(b) : null,
+                    IlBreakScope scope => StripBlock(scope.Body) is { } b ? new IlBreakScope(b) : null,
+                    IlLocal or IlAssign or IlCallStat or IlMultiAssign => stat,
+                    _ => null,
+                };
+                if (stripped == null) return null;
+                result.Add(stripped);
+            }
+            return result.MoveToImmutable();
+        }
+
+        private IlBlock? StripBlock(IlBlock block) =>
+            StripStats(block.Stats) is { } stats ? new IlBlock(stats) : null;
+
+        private IlIf? StripIf(IlIf cond)
+        {
+            var arms = ImmutableArray.CreateBuilder<(IlExpr Cond, IlBlock Body)>(cond.Arms.Length);
+            foreach (var (c, body) in cond.Arms)
+            {
+                if (StripBlock(body) is not { } b) return null;
+                arms.Add((c, b));
+            }
+            IlBlock? elseBlock = null;
+            if (cond.Else != null && (elseBlock = StripBlock(cond.Else)) == null) return null;
+            return new IlIf(arms.MoveToImmutable(), elseBlock);
+        }
     }
 
     // 拡張 method の static の形 `Ext.M(x, ...)`: receiver は第 1 引数で、
