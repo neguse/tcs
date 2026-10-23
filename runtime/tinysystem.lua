@@ -231,12 +231,14 @@ function List.Sort(list, comparison)
   end
 end
 
--- LINQ-style methods
+-- LINQ-style methods。走査は呼び出し時点の長さまで、要素は callback の前に
+-- 読む (callback が list を変えても結果は呼び出し時点の内容。q.md Q18)
 function List.Where(list, predicate)
   local result = {}
   for i = 1, #list do
-    if predicate(list[i]) then
-      result[#result + 1] = list[i]
+    local v = list[i]
+    if predicate(v) then
+      result[#result + 1] = v
     end
   end
   return result
@@ -284,19 +286,22 @@ function List.FirstOrDefault(list, predicate, default)
     return list[1]
   end
   for i = 1, #list do
-    if predicate(list[i]) then return list[i] end
+    local v = list[i]
+    if predicate(v) then return v end
   end
   return default
 end
 
 -- OrderBy は安定 sort (同じ key の要素は元の順)。table.sort は不安定なので
 -- 元の位置を同値時の比較に使う。key に NaN があるときだけ nan 側の比較を使う。
--- key が string なら string の比較を使う
+-- key が string なら string の比較を使う。要素は全て写してから key を計算する
+-- (C の list copy と同じ。key selector が list を変えても結果は呼び出し時点の要素)
 local function orderby(list, keySelector, before, nanOrder, stringOrder)
   local n = #list
+  local items = table.move(list, 1, n, 1, {})
   local keys, index = {}, {}
   for i = 1, n do
-    keys[i] = keySelector(list[i])
+    keys[i] = keySelector(items[i])
     index[i] = i
   end
   if type(keys[1]) == "string" then
@@ -311,7 +316,7 @@ local function orderby(list, keySelector, before, nanOrder, stringOrder)
     return a < b
   end)
   local result = {}
-  for i = 1, n do result[i] = list[index[i]] end
+  for i = 1, n do result[i] = items[index[i]] end
   return result
 end
 

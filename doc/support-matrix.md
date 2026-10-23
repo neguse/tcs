@@ -819,6 +819,7 @@ key 型が型 parameter の dict (generic method の中で作るもの) は対�
 LINQ は `TinySystem.Linq` namespace の `List<T>` 拡張メソッドとして提供する (`using TinySystem.Linq;` が `using System.Linq;` の置き換え)。
 `System.Linq` は namespace ごと TCS1002 で、`TinySystem.Linq` の using が無い呼び出しは `Enumerable` に束縛されて止まる。
 dotnet 側の TinySystem も同じ即時評価の実装なので、遅延評価との差異はない。
+述語 / selector は要素ごとに 1 回・順序どおりに呼び、走査は呼び出し時点の Count まで、要素は callback の前に読む (callback が受け手に足した要素は結果に出ない。OrderBy は全要素を写してから key を計算する。q.md Q18)。
 受け手は `List<T>` だけで、列を返す演算は `List<T>` を返す。配列と Dictionary の Keys / Values (`KeyCollection` / `ValueCollection`) は受け手にならない (q.md Q18)。
 static の形 `List.Where(xs, f)` も拡張の形と同じ写像。メソッドチェーン形式のみ対応で、クエリ構文 (`from x in ...`) は未対応。
 下の未対応の演算は、`System.Linq` の using があれば TCS1002、無ければ C# の CS1061 になる。

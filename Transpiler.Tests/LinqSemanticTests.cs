@@ -147,6 +147,90 @@ public class LinqSemanticTests
         Assert.Equal("13", result);
     }
 
+    // callback (述語 / selector / key selector) が受け手に要素を足しても、走査は
+    // 呼び出し時点の Count まで (q.md Q18)。facade が Enumerable に委譲していると
+    // dotnet だけ「Collection was modified」で止まる
+    [Fact]
+    public void Linq_Callbacks_IgnoreElementsAddedByCallback()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var parts = new List<string>();
+                    var xs = new List<int> { 1, 2 };
+                    parts.Add(xs.Max(x => { if (x == 1) xs.Add(3); return x; }).ToString());
+                    xs = new List<int> { 1, 2 };
+                    parts.Add(xs.Sum(x => { if (x == 1) xs.Add(3); return x; }).ToString());
+                    xs = new List<int> { 1, 2 };
+                    parts.Add(xs.Where(x => { if (x == 1) xs.Add(3); return x > 0; }).Count.ToString());
+                    xs = new List<int> { 1, 2 };
+                    parts.Add(xs.Select(x => { if (x == 1) xs.Add(3); return x * 10; }).Count.ToString());
+                    xs = new List<int> { 1, 2 };
+                    parts.Add(xs.Any(x => { if (x == 1) xs.Add(3); return x == 3; }) ? "t" : "f");
+                    xs = new List<int> { 1, 2 };
+                    parts.Add(xs.All(x => { if (x == 1) xs.Add(3); return x < 3; }) ? "t" : "f");
+                    xs = new List<int> { 1, 2 };
+                    parts.Add(xs.Count(x => { if (x == 1) xs.Add(3); return true; }).ToString());
+                    xs = new List<int> { 1, 2 };
+                    parts.Add(xs.FirstOrDefault(x => { if (x == 1) xs.Add(3); return x == 3; }).ToString());
+                    xs = new List<int> { 2, 1 };
+                    parts.Add(xs.OrderBy(x => { if (x == 2) xs.Add(0); return x; }).Count.ToString());
+                    return string.Join(",", parts);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("2,3,2,2,f,t,2,0,2", result);
+    }
+
+    // 要素を返す演算は callback の前に読んだ要素を返す (callback が要素を書き換えても
+    // 結果は呼び出し時点の要素)
+    [Fact]
+    public void Linq_Callbacks_ReadElementsBeforeCallback()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var xs = new List<int> { 1 };
+                    var a = xs.FirstOrDefault(x => { xs[0] = 9; return true; });
+                    xs = new List<int> { 1 };
+                    var b = xs.Where(x => { xs[0] = 9; return true; })[0];
+                    xs = new List<int> { 2, 1 };
+                    var c = xs.OrderBy(x => { xs[0] = 9; xs[1] = 8; return x; });
+                    return a + ":" + b + ":" + c[0] + "," + c[1];
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("1:1:1,2", result);
+    }
+
+    // string の順は ordinal (Lua / C runtime と同じ。culture の比較ではない)
+    [Fact]
+    public void Linq_StringKeys_CompareOrdinal()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var xs = new List<string> { "b", "B", "a" };
+                    return xs.Min() + xs.Max() + xs.OrderBy(s => s)[0] + xs.OrderByDescending(s => s)[0]
+                        + xs.Min(s => s) + xs.Max(s => s);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("BbBbBb", result);
+    }
+
     [Fact]
     public void Linq_Max()
     {
