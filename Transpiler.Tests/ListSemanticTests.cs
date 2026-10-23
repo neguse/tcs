@@ -199,4 +199,55 @@ public class ListSemanticTests
             """, "T.Test()");
         Assert.Equal("3:0:6:1,3,5:0:123:2:0", result);
     }
+
+    // FindIndex / RemoveAll は BCL の List<T> の実装に揃える: FindIndex の走査は呼び出し時点の
+    // Count まで (述語が足した要素は見ない)。RemoveAll は生きた Count まで走り (述語が足した
+    // 要素も述語に渡す)、残す要素は述語の後に読み直す (述語が書き換えた値が残る)
+    [Fact]
+    public void List_FindIndexRemoveAll_CallbacksMutateReceiver()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            public class T
+            {
+                public static string Test()
+                {
+                    var xs = new List<int> { 1, 2, 3 };
+                    var calls = 0;
+                    var found = xs.FindIndex(x => { calls++; xs.Add(9); return x == 9; });
+                    var ys = new List<int> { 1, 2 };
+                    var removedAdded = ys.RemoveAll(x => { if (x == 1) ys.Add(3); return x == 3; });
+                    var ws = new List<int> { 1, 2, 3 };
+                    var removedRewritten = ws.RemoveAll(x => { if (x == 3) ws[2] = 8; return x == 1; });
+                    var vs = new List<int> { 1, 2, 3, 4 };
+                    var removedShrunk = vs.RemoveAll(x => { if (x == 2) vs.RemoveAt(vs.Count - 1); return x % 2 == 1; });
+                    return found + ":" + calls + ":" + removedAdded + ":" + string.Join(",", ys)
+                        + ":" + removedRewritten + ":" + string.Join(",", ws) + ":" + removedShrunk + ":" + string.Join(",", vs);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("-1:3:1:1,2:1:2,8:2:2", result);
+    }
+
+    // FindIndex の述語が受け手を縮めて添字が範囲外になれば Lua / C は fault (List の他の演算と
+    // 同じ)。.NET の List<T>.FindIndex は配列の残骸を読んで続けるので、ここだけ dotnet とは揃わない
+    // (support-matrix §17)
+    [Fact]
+    public void List_FindIndex_ShrinkingReceiver_Fault()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            TestHelper.TranspileAndRunWithRuntime("""
+                using System.Collections.Generic;
+                public class T
+                {
+                    public static int Test()
+                    {
+                        var xs = new List<int> { 1, 2, 3 };
+                        return xs.FindIndex(x => { xs.RemoveAt(xs.Count - 1); return false; });
+                    }
+                }
+                """, "T.Test()"));
+        Assert.Contains("Lua exited", ex.Message);
+        Assert.Contains("Index was out of range", ex.Message);
+    }
 }

@@ -389,6 +389,7 @@ function List.MinBy(list, keySelector)
   local bestKey = keySelector(best)
   for i = 2, n do
     local v = list[i]
+    if v == nil then outOfRange() end
     local k = keySelector(v)
     if keyLess(k, bestKey) then best, bestKey = v, k end
   end
@@ -402,6 +403,7 @@ function List.MaxBy(list, keySelector)
   local bestKey = keySelector(best)
   for i = 2, n do
     local v = list[i]
+    if v == nil then outOfRange() end
     local k = keySelector(v)
     if keyLess(bestKey, k) then best, bestKey = v, k end
   end
@@ -451,23 +453,28 @@ end
 -- 0-based の位置か -1 (List<T>.FindIndex)
 function List.FindIndex(list, predicate)
   for i = 1, #list do
-    if predicate(list[i]) then return i - 1 end
+    local v = list[i]
+    if v == nil then outOfRange() end
+    if predicate(v) then return i - 1 end
   end
   return -1
 end
 
 -- 述語が真の要素をその場で消し、消した数を返す (List<T>.RemoveAll)。述語は
--- 要素ごとに 1 回、要素の順。残る要素の順は保つ
+-- 要素ごとに 1 回、要素の順。残る要素の順は保つ。BCL と同じく走査は生きた長さまで
+-- (述語が足した要素も述語に渡す) で、残す要素は述語の後に読み直す (述語が書き換えた
+-- 値が残る)
 function List.RemoveAll(list, predicate)
-  local n, w = #list, 0
-  for i = 1, n do
-    local v = list[i]
-    if not predicate(v) then
+  local i, w = 1, 0
+  while i <= #list do
+    if not predicate(list[i]) and i <= #list then
       w = w + 1
-      list[w] = v
+      list[w] = list[i]
     end
+    i = i + 1
   end
-  for i = w + 1, n do list[i] = nil end
+  local n = #list
+  for j = w + 1, n do list[j] = nil end
   return n - w
 end
 

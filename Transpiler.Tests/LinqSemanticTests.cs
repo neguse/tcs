@@ -455,4 +455,33 @@ public class LinqSemanticTests
 
         Assert.Contains("Sequence contains no elements", ex.Message);
     }
+
+    // key selector が受け手を縮めて添字が範囲外になれば fault (List の他の演算と同じ。.NET の
+    // list[i] は ArgumentOutOfRangeException、Lua は nil の要素を範囲外とみなす)
+    [Theory]
+    [InlineData("xs.MinBy(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.MaxBy(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    public void Linq_MinByMaxBy_ShrinkingReceiver_Fault(string op)
+    {
+        var source = $$"""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static int Test()
+                {
+                    var xs = new List<int> { 1, 2, 3 };
+                    return {{op}};
+                }
+            }
+            """;
+        var lua = Assert.Throws<InvalidOperationException>(() =>
+            TestHelper.TranspileAndRunWithRuntime(source, "T.Test()"));
+        Assert.Contains("Lua exited", lua.Message);
+        Assert.Contains("Index was out of range", lua.Message);
+        if (!SpecConformance.CorpusDifferential.Enabled) return;
+        var dotnet = Assert.Throws<InvalidOperationException>(() =>
+            SpecConformance.CorpusDifferential.Check(source, "T.Test()", ""));
+        Assert.Contains("Index was out of range", dotnet.Message);
+    }
 }

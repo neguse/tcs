@@ -750,9 +750,9 @@ Lua sequence table は `nil` 要素を保持できないため、`null` 要素�
 | `.Insert(index, item)` | **-** | | |
 | `.InsertRange(index, collection)` | **-** | | |
 | `.RemoveRange(index, count)` | **-** | | |
-| `.RemoveAll(predicate)` | **Y** | `List.RemoveAll(list, fn)` (残す要素を前に詰めて末尾を切る) | T+R。述語は要素ごとに 1 回・要素の順、残る順は保つ、消した数を返す |
+| `.RemoveAll(predicate)` | **Y** | `List.RemoveAll(list, fn)` (残す要素を前に詰めて末尾を切る) | T+R。述語は要素ごとに 1 回・要素の順、残る順は保つ、消した数を返す。BCL と同じく走査は生きた Count まで (述語が足した要素も述語に渡す) で、残す要素は述語の後に読み直す (述語が書き換えた値が残る) |
 | `.Find(predicate)` / `.FindLast()` / `.FindAll()` | **-** | | |
-| `.FindIndex(predicate)` | **Y** | `List.FindIndex(list, fn)` | T+R。0-based の位置か -1。見つけた時点で止まる |
+| `.FindIndex(predicate)` | **Y** | `List.FindIndex(list, fn)` | T+R。0-based の位置か -1。見つけた時点で止まる。走査は呼び出し時点の Count まで (述語が足した要素は見ない)。述語が受け手を縮めて添字が範囲外になれば Lua / C は fault で、.NET の `List<T>.FindIndex` だけは配列の残骸を読んで続ける (BCL の実装で、揃えない唯一の差) |
 | `.FindLastIndex()` | **-** | | |
 | `.Sort()` / `.Sort(comparison)` | **Y** | `List.Sort(list, comparison)` | T+R。比較なしの順序は .NET の既定の comparer と同じく NaN が最小。string の順序は .NET の ordinal (UTF-16 の code unit の順。大文字が小文字より先)。.NET と同じ introsort で、同値の要素の並びと比較関数の呼び出し列も同じ |
 | `.Reverse()` | **-** | | |

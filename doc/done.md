@@ -2290,5 +2290,6 @@
 - `TinySystem.Linq` に `MinBy` / `MaxBy` を足した。key の比較は Min / Max と同じく NaN を最小とみなし、同じ key は先の要素、string の key は ordinal。空列は Lua / C / dotnet とも fault (.NET の MinBy が参照型で null を返す挙動には揃えない)
 - 検証: `dotnet test` 全通過。Lua の意味論テスト (述語と key selector の呼び出し回数と順、残る順、struct 要素の copy、空列) と tcs2c の差分テスト (同じ program の Lua / C 出力一致) を追加
 - 判断: 見つける原始は FindIndex (-1)。`Find` は `T?` を generic 1 本で返せないので足さない (q.md Q18)
-- 判断: MinBy / MaxBy の facade も Enumerable に委譲せず添字で走る (走査は呼び出し時点の Count まで、要素は callback の前に読む、string の key は ordinal。T254 と同じ)。Lua runtime は最初の key selector の後に `#list` を評価し、callback 後の `list[i]` を要素として返していたので、長さを先に取り要素を先に読むようにした
+- 判断: MinBy / MaxBy の facade も Enumerable に委譲せず添字で走る (走査は呼び出し時点の Count まで、要素は callback の前に読む、string の key は ordinal。T254 と同じ)。Lua runtime は最初の key selector の後に `#list` を評価し、callback 後の `list[i]` を要素として返していたので、長さを先に取り要素を先に読むようにした。callback が受け手を縮めて添字が範囲外になれば MinBy / MaxBy / FindIndex も fault (Lua は nil の要素を範囲外とみなす。T254 と同じ)
+- 判断: FindIndex / RemoveAll は BCL の `List<T>` の実装に揃える (dotnet 側は BCL そのもので変えられない)。FindIndex は呼び出し時点の Count まで、RemoveAll は生きた Count まで走って述語が足した要素も述語に渡し、残す要素は述語の後に読み直す (Lua / C は固定長で callback 前の要素を写していた)。FindIndex の述語が受け手を縮めたときだけ .NET は配列の残骸を読んで続け、Lua / C は fault する — BCL の内部配列は再現しないので、この差だけは揃えずに support-matrix §17 と q.md Q18 に書いた
 - 残課題: T257 (readonly record struct の記載)

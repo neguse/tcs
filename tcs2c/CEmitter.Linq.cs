@@ -458,14 +458,20 @@ internal sealed partial class CEmitter
                 sb.Append(Loop($"if ({Closure(1, CType.Bool, elem)}) {{ {r} = {i}; break; }}"));
                 return $"({{ {sb}{r}; }})";
             }
-            // 残す要素を前に詰めて末尾を切る (述語は要素ごとに 1 回、要素の順)
+            // 残す要素を前に詰めて末尾を切る (述語は要素ごとに 1 回、要素の順)。BCL の
+            // List<T>.RemoveAll と同じく走査は生きた長さまで (述語が足した要素も述語に
+            // 渡す) で、残す要素は述語の後に読み直す (述語が書き換えた値が残る)
             case "RemoveAll":
             {
                 var w = Temp("w");
+                var data = $"(({elem.CName} *){s}->data)";
+                var pred = Closure(1, CType.Bool, elem);
                 sb.Append($"int32_t {w} = 0; ");
-                sb.Append(Loop($"if (!({Closure(1, CType.Bool, elem)})) {{ " +
-                    $"if ({w} != {i}) (({elem.CName} *){s}->data)[{w}] = {v}; {w}++; }}"));
-                sb.Append($"tcs_list_truncate({s}, {w}); ");
+                sb.Append($"for (int32_t {i} = 0; {i} < {len}({s}); {i}++) {{ " +
+                    $"{elem.CName} {v} = *({elem.CName} *){at}({s}, {i}); " +
+                    $"if (!({pred}) && {i} < {len}({s})) {{ " +
+                    $"if ({w} != {i}) {data}[{w}] = {data}[{i}]; {w}++; }} }} ");
+                sb.Append($"int32_t {n} = {len}({s}); tcs_list_truncate({s}, {w}); ");
                 return $"({{ {sb}{n} - {w}; }})";
             }
             // key の比較は Min / Max と同じく NaN を最小とみなす (Comparer<float>.Default)。

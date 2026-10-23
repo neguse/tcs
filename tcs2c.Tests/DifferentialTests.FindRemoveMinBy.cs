@@ -71,4 +71,57 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("1\n2\n1\n2", output);
     }
+
+    // key selector / 述語が受け手を縮めて添字が範囲外になれば Lua / C とも fault。fault までの
+    // stdout は一致する
+    [CTheory]
+    [InlineData("xs.MinBy(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.MaxBy(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.FindIndex(x => { xs.RemoveAt(xs.Count - 1); return false; })")]
+    public void Linq_MinByMaxByFindIndex_ShrinkingReceiver_BothBackendsFault(string op)
+    {
+        var output = Backends.AssertFaultParity($$"""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                public static void Main()
+                {
+                    var xs = new List<int> { 1, 2, 3 };
+                    Console.WriteLine("before");
+                    Console.WriteLine({{op}});
+                    Console.WriteLine("after");
+                }
+            }
+            """, "P");
+        Assert.Equal("before", output);
+    }
+
+    // FindIndex は呼び出し時点の Count まで、RemoveAll は生きた Count まで走って残す要素を述語の
+    // 後に読み直す (BCL の List<T> と同じ)
+    [CFact]
+    public void List_FindIndexRemoveAll_CallbacksMutateReceiver()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            public class P
+            {
+                public static void Main()
+                {
+                    var xs = new List<int> { 1, 2, 3 };
+                    var calls = 0;
+                    Console.WriteLine(xs.FindIndex(x => { calls++; xs.Add(9); return x == 9; }) + ":" + calls);
+                    var ys = new List<int> { 1, 2 };
+                    Console.WriteLine(ys.RemoveAll(x => { if (x == 1) ys.Add(3); return x == 3; }) + ":" + string.Join(",", ys));
+                    var ws = new List<int> { 1, 2, 3 };
+                    Console.WriteLine(ws.RemoveAll(x => { if (x == 3) ws[2] = 8; return x == 1; }) + ":" + string.Join(",", ws));
+                    var vs = new List<int> { 1, 2, 3, 4 };
+                    Console.WriteLine(vs.RemoveAll(x => { if (x == 2) vs.RemoveAt(vs.Count - 1); return x % 2 == 1; }) + ":" + string.Join(",", vs));
+                }
+            }
+            """, "P");
+        Assert.Equal("-1:3\n1:1,2\n1:2,8\n2:2", output);
+    }
 }
