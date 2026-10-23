@@ -54,4 +54,37 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("1\n1\n1,2", output);
     }
+
+    // callback が受け手を縮めて添字が範囲外になれば Lua / C とも fault (C は bounds、
+    // Lua は nil の要素を範囲外とみなす)。fault までの stdout は一致する
+    [CTheory]
+    [InlineData("xs.Where(x => { xs.RemoveAt(xs.Count - 1); return true; }).Count")]
+    [InlineData("xs.Select(x => { xs.RemoveAt(xs.Count - 1); return x; }).Count")]
+    [InlineData("xs.Any(x => { xs.RemoveAt(xs.Count - 1); return false; })")]
+    [InlineData("xs.All(x => { xs.RemoveAt(xs.Count - 1); return true; })")]
+    [InlineData("xs.Count(x => { xs.RemoveAt(xs.Count - 1); return true; })")]
+    [InlineData("xs.FirstOrDefault(x => { xs.RemoveAt(xs.Count - 1); return false; })")]
+    [InlineData("xs.Min(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.Max(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.Sum(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.Sum(x => { xs.RemoveAt(xs.Count - 1); return x * 0.5f; })")]
+    public void Linq_Callbacks_ShrinkingReceiver_BothBackendsFault(string op)
+    {
+        var output = Backends.AssertFaultParity($$"""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                public static void Main()
+                {
+                    var xs = new List<int> { 1, 2, 3 };
+                    Console.WriteLine("before");
+                    Console.WriteLine({{op}});
+                    Console.WriteLine("after");
+                }
+            }
+            """, "P");
+        Assert.Equal("before", output);
+    }
 }

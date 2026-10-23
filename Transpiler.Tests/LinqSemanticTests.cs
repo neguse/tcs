@@ -572,4 +572,42 @@ public class LinqSemanticTests
 
         Assert.Equal("0", result);
     }
+
+    // callback が受け手を縮めて添字が範囲外になれば fault (.NET の list[i] は
+    // ArgumentOutOfRangeException、C は bounds、Lua は nil の要素を範囲外とみなす error。
+    // 要素は null を持てない (TCS1003) ので nil は範囲外にしか現れない)
+    [Theory]
+    [InlineData("xs.Where(x => { xs.RemoveAt(xs.Count - 1); return true; }).Count")]
+    [InlineData("xs.Select(x => { xs.RemoveAt(xs.Count - 1); return x; }).Count")]
+    [InlineData("xs.Any(x => { xs.RemoveAt(xs.Count - 1); return false; }) ? 1 : 0")]
+    [InlineData("xs.All(x => { xs.RemoveAt(xs.Count - 1); return true; }) ? 1 : 0")]
+    [InlineData("xs.Count(x => { xs.RemoveAt(xs.Count - 1); return true; })")]
+    [InlineData("xs.FirstOrDefault(x => { xs.RemoveAt(xs.Count - 1); return false; })")]
+    [InlineData("xs.Min(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.Max(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.Sum(x => { xs.RemoveAt(xs.Count - 1); return x; })")]
+    [InlineData("xs.Sum(x => { xs.RemoveAt(xs.Count - 1); return x * 0.5f; }) > 0 ? 1 : 0")]
+    public void Linq_Callbacks_ShrinkingReceiver_Fault(string op)
+    {
+        var source = $$"""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static int Test()
+                {
+                    var xs = new List<int> { 1, 2, 3 };
+                    return {{op}};
+                }
+            }
+            """;
+        var lua = Assert.Throws<InvalidOperationException>(() =>
+            TestHelper.TranspileAndRunWithRuntime(source, "T.Test()"));
+        Assert.Contains("Lua exited", lua.Message);
+        Assert.Contains("Index was out of range", lua.Message);
+        if (!SpecConformance.CorpusDifferential.Enabled) return;
+        var dotnet = Assert.Throws<InvalidOperationException>(() =>
+            SpecConformance.CorpusDifferential.Check(source, "T.Test()", ""));
+        Assert.Contains("Index was out of range", dotnet.Message);
+    }
 }

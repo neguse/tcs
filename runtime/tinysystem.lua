@@ -46,11 +46,20 @@ function List.RemoveAt(list, index)
   table.remove(list, index + 1) -- 0-indexed to 1-indexed
 end
 
+-- callback 付きの走査で添字が範囲外になったとき (callback が受け手を縮めた)。要素は
+-- null を持てない (TCS1003) ので nil の要素は範囲外。.NET の list[i] の
+-- ArgumentOutOfRangeException、C の bounds と同じく fault にする
+local function outOfRange()
+  error("Index was out of range. Must be non-negative and less than the size of the collection.")
+end
+
 function List.Count(list, predicate)
   if predicate then
     local n = 0
     for i = 1, #list do
-      if predicate(list[i]) then n = n + 1 end
+      local v = list[i]
+      if v == nil then outOfRange() end
+      if predicate(v) then n = n + 1 end
     end
     return n
   end
@@ -232,11 +241,13 @@ function List.Sort(list, comparison)
 end
 
 -- LINQ-style methods。走査は呼び出し時点の長さまで、要素は callback の前に
--- 読む (callback が list を変えても結果は呼び出し時点の内容。q.md Q18)
+-- 読む (callback が list を変えても結果は呼び出し時点の内容。q.md Q18)。callback
+-- が受け手を縮めて添字が範囲外になれば fault (outOfRange)
 function List.Where(list, predicate)
   local result = {}
   for i = 1, #list do
     local v = list[i]
+    if v == nil then outOfRange() end
     if predicate(v) then
       result[#result + 1] = v
     end
@@ -247,7 +258,9 @@ end
 function List.Select(list, selector)
   local result = {}
   for i = 1, #list do
-    result[i] = selector(list[i])
+    local v = list[i]
+    if v == nil then outOfRange() end
+    result[i] = selector(v)
   end
   return result
 end
@@ -255,14 +268,18 @@ end
 function List.Any(list, predicate)
   if not predicate then return #list > 0 end
   for i = 1, #list do
-    if predicate(list[i]) then return true end
+    local v = list[i]
+    if v == nil then outOfRange() end
+    if predicate(v) then return true end
   end
   return false
 end
 
 function List.All(list, predicate)
   for i = 1, #list do
-    if not predicate(list[i]) then return false end
+    local v = list[i]
+    if v == nil then outOfRange() end
+    if not predicate(v) then return false end
   end
   return true
 end
@@ -287,6 +304,7 @@ function List.FirstOrDefault(list, predicate, default)
   end
   for i = 1, #list do
     local v = list[i]
+    if v == nil then outOfRange() end
     if predicate(v) then return v end
   end
   return default
@@ -384,7 +402,9 @@ function List.Min(list, selector)
   selector = selector or function(x) return x end
   local minVal = nil
   for i = 1, #list do
-    local v = selector(list[i])
+    local item = list[i]
+    if item == nil then outOfRange() end
+    local v = selector(item)
     if v ~= v then return v end
     if minVal == nil or lessThan(v, minVal) then minVal = v end
   end
@@ -396,7 +416,9 @@ function List.Max(list, selector)
   selector = selector or function(x) return x end
   local maxVal = nil
   for i = 1, #list do
-    local v = selector(list[i])
+    local item = list[i]
+    if item == nil then outOfRange() end
+    local v = selector(item)
     if maxVal == nil or lessThan(maxVal, v) or maxVal ~= maxVal then maxVal = v end
   end
   if maxVal == nil then error("Sequence contains no elements") end
@@ -408,7 +430,9 @@ function List.Sum(list, selector)
   selector = selector or function(x) return x end
   local total = 0.0
   for i = 1, #list do
-    total = total + selector(list[i])
+    local item = list[i]
+    if item == nil then outOfRange() end
+    total = total + selector(item)
   end
   return total
 end
@@ -422,7 +446,9 @@ function List.SumInt(list, selector)
   local total = 0
   if selector then
     for i = 1, #list do
-      local v = selector(list[i])
+      local item = list[i]
+      if item == nil then outOfRange() end
+      local v = selector(item)
       local s = total + v
       if (v < 0) ~= (s < total) or s > 2147483647 or s < -2147483647 - 1 then sum_overflow() end
       total = s
