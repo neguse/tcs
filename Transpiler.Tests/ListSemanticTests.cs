@@ -250,4 +250,27 @@ public class ListSemanticTests
         Assert.Contains("Lua exited", ex.Message);
         Assert.Contains("Index was out of range", ex.Message);
     }
+
+    // RemoveAll の述語が受け手を、既に残した要素数より短く縮める (Clear など) と、残す要素の
+    // 書き込み位置が長さを超える。Lua / C は fault (FindIndex の shrink と同じ)。.NET の
+    // List<T>.RemoveAll は負の数を返して配列の残骸の要素を Count に戻すので、ここは dotnet とは
+    // 揃わない (support-matrix §17)
+    [Fact]
+    public void List_RemoveAll_ShrinkingBelowKept_Fault()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            TestHelper.TranspileAndRunWithRuntime("""
+                using System.Collections.Generic;
+                public class T
+                {
+                    public static int Test()
+                    {
+                        var xs = new List<int> { 1, 2, 3 };
+                        return xs.RemoveAll(x => { if (x == 3) xs.Clear(); return x == 2; });
+                    }
+                }
+                """, "T.Test()"));
+        Assert.Contains("Lua exited", ex.Message);
+        Assert.Contains("Index was out of range", ex.Message);
+    }
 }

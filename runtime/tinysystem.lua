@@ -463,7 +463,8 @@ end
 -- 述語が真の要素をその場で消し、消した数を返す (List<T>.RemoveAll)。述語は
 -- 要素ごとに 1 回、要素の順。残る要素の順は保つ。BCL と同じく走査は生きた長さまで
 -- (述語が足した要素も述語に渡す) で、残す要素は述語の後に読み直す (述語が書き換えた
--- 値が残る)
+-- 値が残る)。述語が受け手を既に残した数より短く縮めれば範囲外 (C の truncate の
+-- bounds と同じ。.NET は負の数を返して残骸の要素を復活させるので、そこは揃えない)
 function List.RemoveAll(list, predicate)
   local i, w = 1, 0
   while i <= #list do
@@ -474,6 +475,7 @@ function List.RemoveAll(list, predicate)
     i = i + 1
   end
   local n = #list
+  if n < w then outOfRange() end
   for j = w + 1, n do list[j] = nil end
   return n - w
 end

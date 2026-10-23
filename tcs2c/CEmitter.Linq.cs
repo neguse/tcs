@@ -460,7 +460,8 @@ internal sealed partial class CEmitter
             }
             // 残す要素を前に詰めて末尾を切る (述語は要素ごとに 1 回、要素の順)。BCL の
             // List<T>.RemoveAll と同じく走査は生きた長さまで (述語が足した要素も述語に
-            // 渡す) で、残す要素は述語の後に読み直す (述語が書き換えた値が残る)
+            // 渡す) で、残す要素は述語の後に読み直す (述語が書き換えた値が残る)。述語が
+            // 受け手を既に残した数より短く縮めれば tcs_list_truncate の bounds で fault
             case "RemoveAll":
             {
                 var w = Temp("w");

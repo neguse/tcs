@@ -124,4 +124,26 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("-1:3\n1:1,2\n1:2,8\n2:2", output);
     }
+
+    // RemoveAll の述語が受け手を既に残した要素数より短く縮めると Lua / C とも fault (C は
+    // tcs_list_truncate の bounds)。fault までの stdout は一致する
+    [CFact]
+    public void List_RemoveAll_ShrinkingBelowKept_BothBackendsFault()
+    {
+        var output = Backends.AssertFaultParity("""
+            using System;
+            using System.Collections.Generic;
+            public class P
+            {
+                public static void Main()
+                {
+                    var xs = new List<int> { 1, 2, 3 };
+                    Console.WriteLine("before");
+                    Console.WriteLine(xs.RemoveAll(x => { if (x == 3) xs.Clear(); return x == 2; }));
+                    Console.WriteLine("after");
+                }
+            }
+            """, "P");
+        Assert.Equal("before", output);
+    }
 }
