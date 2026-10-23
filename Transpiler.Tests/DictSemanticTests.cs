@@ -223,4 +223,37 @@ public class DictSemanticTests
             """, "T.Test()");
         Assert.Equal("1:1:1", result);
     }
+
+    // 述語は呼び出し時点の entry の写しに対して呼ぶ: 述語が Dictionary を変えても (追加 / 上書き /
+    // 削除 / Clear)、呼ばれる entry と渡る値は変わらず、結果は呼び出し時点の内容で決まる。
+    // RemoveAll は述語が真でまだ在る entry を消し、その数を返す
+    [Fact]
+    public void Dict_PredicateOps_UseCallTimeEntries()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var d = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3 };
+                    var count = d.Count((k, v) => { d["x" + k] = v; return true; });
+                    var e = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3, ["d"] = 4 };
+                    var even = e.Where((k, v) => { e[k] = 0; return v % 2 == 0; });
+                    var f = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3 };
+                    var allCalls = 0;
+                    var all = f.All((k, v) => { allCalls++; f.Clear(); return v > 0; });
+                    var g = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3 };
+                    var removed = g.RemoveAll((k, v) => { g.Remove("c"); return v >= 2; });
+                    var h = new Dictionary<int, int> { [1] = 10, [2] = 20 };
+                    var any = h.Any((k, v) => { h[k + 10] = v; h.Remove(k); return v > 100; });
+                    return count + ":" + d.Count + ":" + even.Count + even["b"] + even["d"] + ":" + e["a"] + e["d"]
+                        + ":" + (all ? 1 : 0) + allCalls + f.Count + ":" + removed + ":" + g.Count + (g.ContainsKey("a") ? 1 : 0)
+                        + ":" + (any ? 1 : 0) + h.Count + (h.ContainsKey(11) ? 1 : 0) + (h.ContainsKey(12) ? 1 : 0);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("3:6:224:00:130:1:11:0211", result);
+    }
 }

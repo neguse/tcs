@@ -523,17 +523,30 @@ end
 
 -- (k, v) の述語 (TinySystem.Linq.Dict)。keyOut は float key の sentinel を NaN に
 -- 戻す (Dict.FloatKeyOut。無ければ素通し)。列挙順は未規定なので、結果が key と
--- value の集合だけで決まる演算に限る。Any / All は決まった時点で止まる
+-- value の集合だけで決まる演算に限る。Any / All は決まった時点で止まる。述語は
+-- 呼び出し時点の entry の写しに対して呼ぶ (述語が dict を変えても呼ばれる entry と
+-- 値は変わらない。pairs 中の追加は未定義なので先に写す)
 local function keyOf(k, keyOut)
   if keyOut then return keyOut(k) end
   return k
 end
 
+local function entries(dict)
+  local ks, vs, n = {}, {}, 0
+  for k, v in pairs(dict) do
+    n = n + 1
+    ks[n] = k
+    vs[n] = v
+  end
+  return ks, vs, n
+end
+
 function Dict.Count(dict, predicate, keyOut)
   local n = 0
   if predicate then
-    for k, v in pairs(dict) do
-      if predicate(keyOf(k, keyOut), v) then n = n + 1 end
+    local ks, vs, count = entries(dict)
+    for i = 1, count do
+      if predicate(keyOf(ks[i], keyOut), vs[i]) then n = n + 1 end
     end
     return n
   end
@@ -543,31 +556,36 @@ end
 
 function Dict.Where(dict, predicate, keyOut)
   local result = {}
-  for k, v in pairs(dict) do
-    if predicate(keyOf(k, keyOut), v) then result[k] = v end
+  local ks, vs, count = entries(dict)
+  for i = 1, count do
+    if predicate(keyOf(ks[i], keyOut), vs[i]) then result[ks[i]] = vs[i] end
   end
   return result
 end
 
 function Dict.Any(dict, predicate, keyOut)
-  for k, v in pairs(dict) do
-    if predicate(keyOf(k, keyOut), v) then return true end
+  local ks, vs, count = entries(dict)
+  for i = 1, count do
+    if predicate(keyOf(ks[i], keyOut), vs[i]) then return true end
   end
   return false
 end
 
 function Dict.All(dict, predicate, keyOut)
-  for k, v in pairs(dict) do
-    if not predicate(keyOf(k, keyOut), v) then return false end
+  local ks, vs, count = entries(dict)
+  for i = 1, count do
+    if not predicate(keyOf(ks[i], keyOut), vs[i]) then return false end
   end
   return true
 end
 
--- 述語が真の entry をその場で消し、消した数を返す (pairs 中の nil 代入は合法)
+-- 述語が真でまだ在る entry をその場で消し、消した数を返す (述語が先に消した entry は数えない)
 function Dict.RemoveAll(dict, predicate, keyOut)
   local n = 0
-  for k, v in pairs(dict) do
-    if predicate(keyOf(k, keyOut), v) then
+  local ks, vs, count = entries(dict)
+  for i = 1, count do
+    local k = ks[i]
+    if predicate(keyOf(k, keyOut), vs[i]) and dict[k] ~= nil then
       dict[k] = nil
       n = n + 1
     end

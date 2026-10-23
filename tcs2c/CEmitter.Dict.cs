@@ -87,6 +87,9 @@ internal sealed partial class CEmitter
         };
     }
 
+    // 述語は呼び出し時点の entry の写し (tcs_dict_keys / tcs_dict_values の List) に
+    // 対して呼ぶ: 述語が dict を変えても (追加の rehash や削除で chain が変わっても)
+    // 呼ばれる entry と値は変わらない。Lua runtime / .NET facade と同じ
     private string RenderDictPredicateOp(IlCall call)
     {
         var resultType = TypeOfDictPredicateOp(call);
@@ -95,49 +98,49 @@ internal sealed partial class CEmitter
         var closureType = CType.Closure(CType.Bool, [key, value]);
         var d = Temp("dict");
         var f = Temp("fn");
-        var b = Temp("bucket");
-        var node = Temp("node");
+        var keys = Temp("keys");
+        var values = Temp("values");
+        var n = Temp("n");
+        var i = Temp("i");
         var k = Temp("k");
         var v = Temp("v");
         var keyExpr = key.Kind switch
         {
-            CTypeKind.String => $"{node}->key_s",
-            CTypeKind.Ref => $"(({key.CName}){node}->key_s)",
-            _ => $"{node}->key_i",
+            CTypeKind.String => $"*(TcsString **)tcs_list_at({keys}, {i})",
+            CTypeKind.Ref => $"(({key.CName})*(TcsString **)tcs_list_at({keys}, {i}))",
+            _ => $"*(int32_t *)tcs_list_at({keys}, {i})",
         };
         var sb = new StringBuilder();
         sb.Append($"TcsDict *{d} = (TcsDict *)tcs_nonnull({RenderExpr(call.Args[0])}); ");
         sb.Append($"TcsClosure *{f} = (TcsClosure *)tcs_nonnull({RenderCoerced(call.Args[1], closureType)}); ");
+        sb.Append($"TcsList *{keys} = tcs_dict_keys({d}); TcsList *{values} = tcs_dict_values({d}); ");
+        sb.Append($"int32_t {n} = tcs_list_length({keys}); ");
         var pred = CallClosure(f, closureType, k, v);
         string Loop(string body) =>
-            $"for (size_t {b} = 0; {b} < {d}->bucket_count; {b}++) " +
-            $"for (TcsDictNode *{node} = {d}->buckets[{b}]; {node} != NULL; {node} = {node}->next) {{ " +
-            $"{key.CName} {k} = {keyExpr}; {value.CName} {v} = *({value.CName} *){node}->value; {body} }} ";
+            $"for (int32_t {i} = 0; {i} < {n}; {i}++) {{ " +
+            $"{key.CName} {k} = {keyExpr}; {value.CName} {v} = *({value.CName} *)tcs_list_at({values}, {i}); {body} }} ";
         switch (call.Callee)
         {
             case "Dict.Where":
             {
                 var outDict = Temp("out");
-                var keyArgs = key.Kind == CTypeKind.I32 ? $"{k}, NULL" : $"0, (TcsString *)(void *){k}";
                 sb.Append($"TcsDict *{outDict} = tcs_typed(tcs_dict_new({DictKeyKind(key)}, " +
                     $"sizeof({value.CName}), {LayoutRef(value)}), {RuntimeTypeId(resultType)}); ");
-                sb.Append(Loop($"if ({pred}) *({value.CName} *)tcs_dict_put({outDict}, {keyArgs}) = {v};"));
+                sb.Append(Loop($"if ({pred}) *({value.CName} *)tcs_dict_put({outDict}, {DictKeyArgs(key, k)}) = {v};"));
                 return $"({{ {sb}{outDict}; }})";
             }
             case "Dict.Any":
             {
                 var r = Temp("any");
                 sb.Append($"bool {r} = false; ");
-                sb.Append(Loop($"if ({pred}) {{ {r} = true; goto {r}_done; }}"));
-                sb.Append($"{r}_done: ; ");
+                sb.Append(Loop($"if ({pred}) {{ {r} = true; break; }}"));
                 return $"({{ {sb}{r}; }})";
             }
             case "Dict.All":
             {
                 var r = Temp("all");
                 sb.Append($"bool {r} = true; ");
-                sb.Append(Loop($"if (!({pred})) {{ {r} = false; goto {r}_done; }}"));
-                sb.Append($"{r}_done: ; ");
+                sb.Append(Loop($"if (!({pred})) {{ {r} = false; break; }}"));
                 return $"({{ {sb}{r}; }})";
             }
             case "Dict.Count":
@@ -149,16 +152,10 @@ internal sealed partial class CEmitter
             }
             default:
             {
-                // 述語が真の node を bucket の chain から外す (tcs_dict_remove と同じ手順)
+                // 述語が真でまだ在る entry を消し、消した数を返す (述語が先に消した entry は数えない)
                 var r = Temp("removed");
-                var link = Temp("link");
                 sb.Append($"int32_t {r} = 0; ");
-                sb.Append($"for (size_t {b} = 0; {b} < {d}->bucket_count; {b}++) {{ " +
-                    $"TcsDictNode **{link} = &{d}->buckets[{b}]; " +
-                    $"while (*{link} != NULL) {{ TcsDictNode *{node} = *{link}; " +
-                    $"{key.CName} {k} = {keyExpr}; {value.CName} {v} = *({value.CName} *){node}->value; " +
-                    $"if ({pred}) {{ *{link} = {node}->next; {d}->count--; {r}++; }} " +
-                    $"else {link} = &{node}->next; }} }} ");
+                sb.Append(Loop($"if ({pred} && tcs_dict_remove({d}, {DictKeyArgs(key, k)})) {r}++;"));
                 return $"({{ {sb}{r}; }})";
             }
         }

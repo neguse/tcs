@@ -775,7 +775,7 @@ Lua hash table は `nil` 代入を key 削除として扱うため、`null` 値�
 直接の `null` / 参照型 `default` は TCS1003 として報告する。
 
 列挙順は未規定。foreach / Keys / Values の順は backend ごとに異なり (Lua は string key の hash seed が process ごとに変わる、C は chained hash の順、.NET は挿入順)、順序に依存するコードは書かない。
-順序が要るときは `Keys.OrderBy(k => k)` のように List にしてから並べる。Dictionary 自身の演算 (Where / Any / All / Count / RemoveAll) は結果が key と value の集合だけで決まるものに限り、述語は `(k, v) =>` の 2 引数 lambda で KeyValuePair を値として持たない (q.md Q18)。
+順序が要るときは `Keys.OrderBy(k => k)` のように List にしてから並べる。Dictionary 自身の演算 (Where / Any / All / Count / RemoveAll) は結果が key と value の集合だけで決まるものに限り、述語は `(k, v) =>` の 2 引数 lambda で KeyValuePair を値として持たない (q.md Q18)。述語は呼び出し時点の entry の写しに対して呼ぶので、述語が Dictionary を変えても結果は呼び出し時点の内容で決まる (List の LINQ と同じ規則。§19)。
 
 wire format 契約: Dictionary は素の Lua table (`{[k]=v, ...}`) であり、
 metatable も bookkeeping フィールドも持たない。`--ref` (host) 関数へ渡すと、
@@ -816,10 +816,10 @@ key 型が型 parameter の dict (generic method の中で作るもの) は対�
 | `.TryAdd(key, value)` | **-** | | |
 | `.ContainsValue(value)` | **-** | | |
 | `.Clear()` | **Y** | 全 key を nil に (table の同一性は保つ。C は `tcs_dict_clear`) | T |
-| `.Where((k, v) => ..)` | **Y** | `Dict.Where(dict, fn)` (新しい dict) | T+R。TinySystem.Linq。述語は entry ごとに 1 回 |
-| `.Any((k, v) => ..)` / `.All((k, v) => ..)` | **Y** | `Dict.Any/All(dict, fn)` | T+R。TinySystem.Linq。真 / 偽が決まった時点で止まる (どの entry で述語が呼ばれるかは列挙順に依る) |
-| `.Count((k, v) => ..)` | **Y** | `Dict.Count(dict, fn)` | T+R。TinySystem.Linq |
-| `.RemoveAll((k, v) => ..)` | **Y** | `Dict.RemoveAll(dict, fn)` (その場で消して数を返す) | T+R。TinySystem.Linq |
+| `.Where((k, v) => ..)` | **Y** | `Dict.Where(dict, fn)` (新しい dict) | T+R。TinySystem.Linq。述語は entry ごとに 1 回、呼び出し時点の entry の写しに対して呼ぶ (述語が Dictionary を変えても呼ばれる entry と値は変わらない) |
+| `.Any((k, v) => ..)` / `.All((k, v) => ..)` | **Y** | `Dict.Any/All(dict, fn)` | T+R。TinySystem.Linq。真 / 偽が決まった時点で止まる (どの entry で述語が呼ばれるかは列挙順に依る)。述語は呼び出し時点の entry の写しに対して呼ぶ |
+| `.Count((k, v) => ..)` | **Y** | `Dict.Count(dict, fn)` | T+R。TinySystem.Linq。述語は呼び出し時点の entry の写しに対して呼ぶ |
+| `.RemoveAll((k, v) => ..)` | **Y** | `Dict.RemoveAll(dict, fn)` (その場で消して数を返す) | T+R。TinySystem.Linq。述語は呼び出し時点の entry の写しに対して呼び、真でまだ在る entry を消す (述語が先に消した entry は数えない) |
 
 ---
 

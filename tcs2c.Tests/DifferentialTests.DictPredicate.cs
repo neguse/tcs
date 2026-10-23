@@ -35,4 +35,35 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("2:true:false:4\ntrue:false:true:false\n3:2:2:true:false\n2:20:20:1:2\nfalse:true:0:0:0\n1:26", output);
     }
+
+    // 述語は呼び出し時点の entry の写しに対して呼ぶ (述語が Dictionary を変えても呼ばれる entry と
+    // 値は変わらない)。RemoveAll は述語が真でまだ在る entry を消して数を返す
+    [CFact]
+    public void Dict_PredicateOps_UseCallTimeEntries()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                public static void Main()
+                {
+                    var d = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3 };
+                    Console.WriteLine(d.Count((k, v) => { d["x" + k] = v; return true; }) + ":" + d.Count);
+                    var e = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3, ["d"] = 4 };
+                    var even = e.Where((k, v) => { e[k] = 0; return v % 2 == 0; });
+                    Console.WriteLine(even.Count + ":" + even["b"] + ":" + even["d"] + ":" + e["a"] + ":" + e["d"]);
+                    var f = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3 };
+                    var allCalls = 0;
+                    Console.WriteLine(f.All((k, v) => { allCalls++; f.Clear(); return v > 0; }) + ":" + allCalls + ":" + f.Count);
+                    var g = new Dictionary<string, int> { ["a"] = 1, ["b"] = 2, ["c"] = 3 };
+                    Console.WriteLine(g.RemoveAll((k, v) => { g.Remove("c"); return v >= 2; }) + ":" + g.Count + ":" + g.ContainsKey("a"));
+                    var h = new Dictionary<int, int> { [1] = 10, [2] = 20 };
+                    Console.WriteLine(h.Any((k, v) => { h[k + 10] = v; h.Remove(k); return v > 100; }) + ":" + h.Count + ":" + h.ContainsKey(11) + ":" + h.ContainsKey(12));
+                }
+            }
+            """, "P");
+        Assert.Equal("3:6\n2:2:4:0:0\ntrue:3:0\n1:1:true\nfalse:2:true:true", output);
+    }
 }
