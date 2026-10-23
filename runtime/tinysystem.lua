@@ -381,22 +381,29 @@ local function keyLess(a, b)
   return lessThan(a, b)
 end
 
+-- 長さは最初の key selector を呼ぶ前に取り、要素は callback の前に読む
 function List.MinBy(list, keySelector)
-  if #list == 0 then error("Sequence contains no elements") end
-  local best, bestKey = list[1], keySelector(list[1])
-  for i = 2, #list do
-    local k = keySelector(list[i])
-    if keyLess(k, bestKey) then best, bestKey = list[i], k end
+  local n = #list
+  if n == 0 then error("Sequence contains no elements") end
+  local best = list[1]
+  local bestKey = keySelector(best)
+  for i = 2, n do
+    local v = list[i]
+    local k = keySelector(v)
+    if keyLess(k, bestKey) then best, bestKey = v, k end
   end
   return best
 end
 
 function List.MaxBy(list, keySelector)
-  if #list == 0 then error("Sequence contains no elements") end
-  local best, bestKey = list[1], keySelector(list[1])
-  for i = 2, #list do
-    local k = keySelector(list[i])
-    if keyLess(bestKey, k) then best, bestKey = list[i], k end
+  local n = #list
+  if n == 0 then error("Sequence contains no elements") end
+  local best = list[1]
+  local bestKey = keySelector(best)
+  for i = 2, n do
+    local v = list[i]
+    local k = keySelector(v)
+    if keyLess(bestKey, k) then best, bestKey = v, k end
   end
   return best
 end

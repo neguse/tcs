@@ -408,6 +408,34 @@ public class LinqSemanticTests
         Assert.Equal("ab:ac:ad:7-2:bacd", result);
     }
 
+    // key selector が受け手を変えても、走査は呼び出し時点の Count まで、要素は callback の
+    // 前に読む (q.md Q18)。string の key は ordinal
+    [Fact]
+    public void Linq_MinByMaxBy_Callbacks_UseCallTimeElements()
+    {
+        var result = TestHelper.TranspileAndRunWithRuntime("""
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class T
+            {
+                public static string Test()
+                {
+                    var xs = new List<int> { 2, 1 };
+                    var a = xs.MinBy(x => { if (x == 2) xs.Add(0); return x; });
+                    xs = new List<int> { 1, 2 };
+                    var b = xs.MaxBy(x => { if (x == 1) xs.Add(3); return x; });
+                    xs = new List<int> { 2, 1 };
+                    var c = xs.MinBy(x => { if (x == 1) xs[1] = 0; return x; });
+                    xs = new List<int> { 1, 2 };
+                    var d = xs.MaxBy(x => { if (x == 2) xs[1] = 7; return x; });
+                    var ss = new List<string> { "b", "B", "a" };
+                    return a + ":" + b + ":" + c + ":" + d + ":" + ss.MinBy(s => s) + ss.MaxBy(s => s);
+                }
+            }
+            """, "T.Test()");
+        Assert.Equal("1:2:1:2:Bb", result);
+    }
+
     [Fact]
     public void Linq_MinByOnEmpty_RaisesExplicitError()
     {

@@ -187,17 +187,36 @@ public static class List
         return (float)total;
     }
     // 空列は Min / Max と同じく例外 (.NET の MinBy は参照型で default を返すが、
-    // Lua / C の fault と揃える)。同じ key は先の要素
+    // Lua / C の fault と揃える)。同じ key は先の要素、NaN の key は最小
     public static T MinBy<T, TKey>(
         this global::System.Collections.Generic.List<T> list,
         global::System.Func<T, TKey> keySelector) =>
-        list.Count == 0
-            ? throw new global::System.InvalidOperationException("Sequence contains no elements")
-            : global::System.Linq.Enumerable.MinBy(list, keySelector)!;
+        By(list, keySelector, max: false);
     public static T MaxBy<T, TKey>(
         this global::System.Collections.Generic.List<T> list,
         global::System.Func<T, TKey> keySelector) =>
-        list.Count == 0
-            ? throw new global::System.InvalidOperationException("Sequence contains no elements")
-            : global::System.Linq.Enumerable.MaxBy(list, keySelector)!;
+        By(list, keySelector, max: true);
+    private static T By<T, TKey>(
+        global::System.Collections.Generic.List<T> list,
+        global::System.Func<T, TKey> keySelector, bool max)
+    {
+        var count = list.Count;
+        if (count == 0)
+            throw new global::System.InvalidOperationException(
+                "Sequence contains no elements");
+        var best = list[0];
+        var bestKey = keySelector(best);
+        for (var i = 1; i < count; i++)
+        {
+            var item = list[i];
+            var key = keySelector(item);
+            var c = Compare(key, bestKey);
+            if (max ? c > 0 : c < 0)
+            {
+                best = item;
+                bestKey = key;
+            }
+        }
+        return best;
+    }
 }

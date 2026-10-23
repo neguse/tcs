@@ -2290,4 +2290,5 @@
 - `TinySystem.Linq` に `MinBy` / `MaxBy` を足した。key の比較は Min / Max と同じく NaN を最小とみなし、同じ key は先の要素、string の key は ordinal。空列は Lua / C / dotnet とも fault (.NET の MinBy が参照型で null を返す挙動には揃えない)
 - 検証: `dotnet test` 全通過。Lua の意味論テスト (述語と key selector の呼び出し回数と順、残る順、struct 要素の copy、空列) と tcs2c の差分テスト (同じ program の Lua / C 出力一致) を追加
 - 判断: 見つける原始は FindIndex (-1)。`Find` は `T?` を generic 1 本で返せないので足さない (q.md Q18)
+- 判断: MinBy / MaxBy の facade も Enumerable に委譲せず添字で走る (走査は呼び出し時点の Count まで、要素は callback の前に読む、string の key は ordinal。T254 と同じ)。Lua runtime は最初の key selector の後に `#list` を評価し、callback 後の `list[i]` を要素として返していたので、長さを先に取り要素を先に読むようにした
 - 残課題: T257 (readonly record struct の記載)

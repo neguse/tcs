@@ -44,4 +44,31 @@ public partial class DifferentialTests
             """, "P");
         Assert.Equal("1:-1:2\n3:1:8:6\n2:2:1:3\n0:-1\nab:ac:ad\nxx\n7:4\n100:2", output);
     }
+
+    // key selector が受け手を変えても、走査は呼び出し時点の Count まで、要素は callback の
+    // 前に読む (q.md Q18)
+    [CFact]
+    public void Linq_MinByMaxBy_Callbacks_UseCallTimeElements()
+    {
+        var output = Backends.AssertParity("""
+            using System;
+            using System.Collections.Generic;
+            using TinySystem.Linq;
+            public class P
+            {
+                public static void Main()
+                {
+                    var xs = new List<int> { 2, 1 };
+                    Console.WriteLine(xs.MinBy(x => { if (x == 2) xs.Add(0); return x; }));
+                    xs = new List<int> { 1, 2 };
+                    Console.WriteLine(xs.MaxBy(x => { if (x == 1) xs.Add(3); return x; }));
+                    xs = new List<int> { 2, 1 };
+                    Console.WriteLine(xs.MinBy(x => { if (x == 1) xs[1] = 0; return x; }));
+                    xs = new List<int> { 1, 2 };
+                    Console.WriteLine(xs.MaxBy(x => { if (x == 2) xs[1] = 7; return x; }));
+                }
+            }
+            """, "P");
+        Assert.Equal("1\n2\n1\n2", output);
+    }
 }
