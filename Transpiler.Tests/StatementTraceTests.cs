@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using TinyCs;
 
 namespace TinyCs.Tests;
@@ -322,6 +323,71 @@ public class StatementTraceTests
         Assert.Equal(["2", "4,8", "4,7,8"], output);
     }
 
+    // method 以外の関数 (ctor / accessor / 式本体の property / operator / struct ctor)
+    // も本体の先頭で __tcs_at を local に宣言して trace する
+    [Fact]
+    public void Trace_NonMethodFunctionsAreTraced()
+    {
+        const string game = """
+            public class Game
+            {
+                private int _v;
+                public Game(int v)
+                {
+                    int t = v;
+                    _v = t;
+                }
+                public int V
+                {
+                    get { return _v; }
+                    set { _v = value; }
+                }
+                public int Twice => _v * 2;
+                public static Game operator +(Game a, Game b)
+                {
+                    int s = a._v + b._v;
+                    return new Game(s);
+                }
+            }
+            public struct Vec
+            {
+                public int X;
+                public Vec(int x)
+                {
+                    X = x;
+                }
+            }
+            """;
+        var lua = Transpile([game], [GamePath]);
+        var output = TestHelper.RunLua($"""
+            {lua}
+            local g = Game.new(1)
+            {PrintTraceLines}
+            for k in pairs(__tcs_trace) do __tcs_trace[k] = nil end
+            g:set_V(2)
+            print(g:get_V())
+            {PrintTraceLines}
+            for k in pairs(__tcs_trace) do __tcs_trace[k] = nil end
+            print(g:get_Twice())
+            {PrintTraceLines}
+            for k in pairs(__tcs_trace) do __tcs_trace[k] = nil end
+            print((g + Game.new(3)):get_V())
+            {PrintTraceLines}
+            for k in pairs(__tcs_trace) do __tcs_trace[k] = nil end
+            print(Vec.ctor(4).X)
+            {PrintTraceLines}
+            print(_G.__tcs_at)
+            """).Trim().Split('\n');
+        Assert.Equal([
+            "6,7",
+            "2", "11,12",
+            "4", "14",
+            "5", "6,7,11,17,18",
+            "4", "26",
+            "nil",
+        ], output);
+    }
+
     [Fact]
     public void Trace_ReloadChunkTracesChangedBodyWithRealPath()
     {
@@ -487,6 +553,60 @@ public class StatementTraceTests
                 {PrintTraceKeys}
                 """).Trim();
             Assert.Equal($"{game.Replace("\\", "/")}:3", output);
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    // --watch の reload chunk も -o の出力と同じ prefix と入力 path で trace する
+    [Fact]
+    public void Watch_ReloadChunkTracesWithInputPath()
+    {
+        var dir = Directory.CreateTempSubdirectory("tcs-trace-watch");
+        var game = Path.Combine(dir.FullName, "Game.cs");
+        var outPath = Path.Combine(dir.FullName, "out.lua");
+        static string Game(int n) => $$"""
+            public static class Game
+            {
+                public static int Score()
+                {
+                    int s = {{n}};
+                    return s;
+                }
+            }
+            """;
+        try
+        {
+            File.WriteAllText(game, Game(1));
+            var psi = WatchModeTests.CreateTranspilerProcess(game, "-o", outPath,
+                "--entry", "Game", "--watch", "--reload-chunks",
+                "--trace", dir.FullName + Path.DirectorySeparatorChar);
+            using var proc = Process.Start(psi)!;
+            var messages = new WatchMessageReader(proc.StandardOutput.BaseStream);
+            try
+            {
+                WatchModeTests.WaitForFile(outPath, timeoutMs: 15000);
+                var v1 = File.ReadAllText(outPath);
+                Thread.Sleep(300);
+                File.WriteAllText(game, Game(2));
+                var chunk = messages.Next("reload_chunk", timeoutMs: 5000);
+                var key = game.Replace("\\", "/");
+                var output = TestHelper.RunLua($"""
+                    local m = assert(load({WatchModeTests.LuaLongString(v1)}, "=out"))()
+                    for k in pairs(__tcs_trace) do __tcs_trace[k] = nil end
+                    assert(load({WatchModeTests.LuaLongString(chunk)}, "=chunk"))()
+                    print(m.Score())
+                    {PrintTraceKeys}
+                    """).Trim().Split('\n');
+                Assert.Equal(["2", $"{key}:5,{key}:6"], output);
+            }
+            finally
+            {
+                proc.Kill(entireProcessTree: true);
+                proc.WaitForExit(3000);
+            }
         }
         finally
         {
