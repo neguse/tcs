@@ -253,6 +253,15 @@ public partial class LuaEmitter
     {
         for (var i = 0; i < ifStat.Arms.Length; i++)
         {
+            if (i > 0 && TracedElseIf(ifStat, i) is { } tail)
+            {
+                AppendLine("else");
+                _indent++;
+                EmitIlStat(tail);
+                _indent--;
+                AppendLine("end");
+                return;
+            }
             var (cond, body) = ifStat.Arms[i];
             AppendLine($"{(i == 0 ? "if" : "elseif")} {RenderIl(cond)} then");
             _indent++;

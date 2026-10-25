@@ -48,6 +48,19 @@ public partial class LuaEmitter
         AppendLine($"__tcs_trace_classes[{EscapeLuaString(name)}] = {name}");
     }
 
+    // elseif の条件 (Origin は条件式) を評価する前に trace 行を置けるよう、
+    // arm 以降を else の中の if 文にする。trace しない関数では null (elseif のまま)
+    private IlIf? TracedElseIf(IlIf ifStat, int arm) =>
+        _traceFunction && ifStat.Arms[arm].Cond.Origin is { } origin
+            ? new IlIf(ifStat.Arms[arm..], ifStat.Else) { Origin = origin }
+            : null;
+
+    // while の条件は反復ごとに評価されるので、lowering と同じ
+    // `while true do if not c then break end ... end` に開いて毎回 trace 行を置く。
+    // 定数の条件 (lowering 後の while true も) は評価しないので開かない
+    private bool TracesLoopCond(IlWhile w) =>
+        _traceFunction && w.Origin != null && w.Cond is not IlLit;
+
     private void EmitTracePoint(SyntaxNode origin)
     {
         if (!_traceFunction) return;

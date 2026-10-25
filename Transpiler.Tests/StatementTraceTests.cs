@@ -38,6 +38,47 @@ public class StatementTraceTests
         end
         """;
 
+    // __tcs_trace の key の行番号を数の順に 1 行にする
+    private const string PrintTraceLines = """
+        local lines = {}
+        for k in pairs(__tcs_trace) do lines[#lines + 1] = tonumber(k:match(":(%d+)$")) end
+        table.sort(lines)
+        print(table.concat(lines, ","))
+        """;
+
+    // 呼び出し元 frame の __tcs_at を呼ぶたびに marks へ積む host 関数
+    private const string MarkStub = """
+        host = {}
+        marks = {}
+        function reset_marks() marks = {} end
+        local function mark()
+          local i = 1
+          while true do
+            local name, value = debug.getlocal(3, i)
+            if name == nil then break end
+            if name == "__tcs_at" then marks[#marks + 1] = tostring(value) end
+            i = i + 1
+          end
+        end
+        function host.mark(v) mark(); return v end
+        function host.less(a, b) mark(); return a < b end
+        """;
+
+    private const string MarkHost = """
+        public static class Host
+        {
+            public static int Mark(int v) { return v; }
+            public static bool Less(int a, int b) { return a < b; }
+        }
+        """;
+
+    // marks を 1 行にする (行番号だけ)
+    private const string PrintMarks = """
+        local lines = {}
+        for i, m in ipairs(marks) do lines[i] = m:match(":(%d+)$") end
+        print(table.concat(lines, ","))
+        """;
+
     private static string Transpile(string[] sources, string[] paths,
         string[]? refs = null, bool instanceRegistry = false)
     {
@@ -144,6 +185,112 @@ public class StatementTraceTests
         Assert.Equal($"{GamePath}:18 < {GamePath}:21", output[1]);
         // tail call した TailReturn の frame は無い
         Assert.Equal($"{GamePath}:11", output[2]);
+    }
+
+    // elseif の条件は前の arm が偽のときだけ評価されるので、その行の trace 点が要る
+    [Fact]
+    public void Trace_ElseIfConditionRunsAtItsOwnLine()
+    {
+        const string game = """
+            public class Game
+            {
+                public static int Pick(int v)
+                {
+                    if (Host.Less(v, 0))
+                    {
+                        return 1;
+                    }
+                    else if (Host.Less(v, 5))
+                    {
+                        return 2;
+                    }
+                    return 3;
+                }
+                public static int PickLowered(int v)
+                {
+                    if (Host.Less(v, 0))
+                    {
+                        return 1;
+                    }
+                    else if (v > 0 ? Host.Less(v, 5) : false)
+                    {
+                        return 2;
+                    }
+                    return 3;
+                }
+            }
+            """;
+        var lua = Transpile([game], [GamePath], refs: [MarkHost]);
+        var output = TestHelper.RunLua($"""
+            {MarkStub}
+            {lua}
+            print(Game.Pick(3))
+            {PrintMarks}
+            {PrintTraceLines}
+            reset_marks()
+            for k in pairs(__tcs_trace) do __tcs_trace[k] = nil end
+            print(Game.PickLowered(3))
+            {PrintMarks}
+            {PrintTraceLines}
+            """).Trim().Split('\n');
+        Assert.Equal(["2", "5,9", "5,9,11", "2", "17,21", "17,21,23"], output);
+    }
+
+    // while / do-while の条件は反復ごとに評価されるので、毎回その行に戻す
+    [Fact]
+    public void Trace_LoopConditionRunsAtItsOwnLineOnEveryIteration()
+    {
+        const string game = """
+            public class Game
+            {
+                public static int Loops()
+                {
+                    int n = 0;
+                    while (Host.Less(n, 2))
+                    {
+                        n = n + 1;
+                    }
+                    int m = 0;
+                    do
+                    {
+                        m = m + 1;
+                    } while (Host.Less(m, 2));
+                    return n + m;
+                }
+                public static int LoopsLowered()
+                {
+                    int n = 0;
+                    while (n >= 0 ? Host.Less(n, 2) : false)
+                    {
+                        n = n + 1;
+                    }
+                    int m = 0;
+                    do
+                    {
+                        m = m + 1;
+                    } while (m >= 0 ? Host.Less(m, 2) : false);
+                    return n + m;
+                }
+            }
+            """;
+        var lua = Transpile([game], [GamePath], refs: [MarkHost]);
+        var output = TestHelper.RunLua($"""
+            {MarkStub}
+            {lua}
+            print(Game.Loops())
+            {PrintMarks}
+            reset_marks()
+            print(Game.LoopsLowered())
+            {PrintMarks}
+            {PrintTraceLines}
+            print(_G.__tcs_at)
+            """).Trim().Split('\n');
+        Assert.Equal([
+            "4", "6,6,6,14,14",
+            "4", "20,20,20,28,28",
+            "5,6,8,10,11,13,14,15,19,20,22,24,25,27,28,29",
+            "nil",
+        ], output);
     }
 
     [Fact]
