@@ -293,6 +293,35 @@ public class StatementTraceTests
         ], output);
     }
 
+    // 式本体の setter / ctor の式も文として trace する
+    [Fact]
+    public void Trace_ExpressionBodiedSetterAndCtorAreTraced()
+    {
+        const string game = """
+            public class Game
+            {
+                private int _v;
+                public Game(int v) => _v = Host.Mark(v);
+                public int V
+                {
+                    get { return _v; }
+                    set => _v = Host.Mark(value);
+                }
+            }
+            """;
+        var lua = Transpile([game], [GamePath], refs: [MarkHost]);
+        var output = TestHelper.RunLua($"""
+            {MarkStub}
+            {lua}
+            local g = Game.new(1)
+            g:set_V(2)
+            print(g:get_V())
+            {PrintMarks}
+            {PrintTraceLines}
+            """).Trim().Split('\n');
+        Assert.Equal(["2", "4,8", "4,7,8"], output);
+    }
+
     [Fact]
     public void Trace_ReloadChunkTracesChangedBodyWithRealPath()
     {

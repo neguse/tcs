@@ -99,7 +99,7 @@ public partial class LuaEmitter
         ExpressionSyntax expr)
     {
         var acc = new List<IlStat>();
-        if (!BuildExprStatInto(model, expr, null, acc)) return false;
+        if (!BuildExprStatInto(model, expr, expr, acc)) return false;
         IlBodies++;
         foreach (var stat in acc) EmitIlStat(stat);
         return true;
