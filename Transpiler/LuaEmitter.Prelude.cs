@@ -179,6 +179,7 @@ public partial class LuaEmitter
         {
             AppendLine("__tcs_trace = __tcs_trace or {}");
             AppendLine("local __tcs_trace = __tcs_trace");
+            AppendLine("__tcs_trace_classes = __tcs_trace_classes or {}");
         }
         // 型 table の chunk-local 宣言 (AppendTypeTableDecl)。名前は全型を
         // emit した後でしか確定しないので ToString が行ごと置き換える

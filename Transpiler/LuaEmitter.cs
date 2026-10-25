@@ -144,6 +144,7 @@ public partial class LuaEmitter
         var declStart = _sb.Length;
         AppendTypeTableDecl(name);
         info.DeclRanges.Add((declStart, _sb.Length - declStart));
+        RegisterTraceClass(name, kind, symbol);
         return info;
     }
 

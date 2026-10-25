@@ -2282,3 +2282,10 @@
 - 検証: `dotnet test` 全通過 (Transpiler.Tests 1083、新規 `StatementTraceTests` 8 件: 対象ファイルの実行行だけが入り取らなかった if の枝と対象外ファイルは入らない / `debug.getlocal` で Inner → Outer と lambda → 外側の行が並ぶ / reload chunk が実 path の key で v2 本文を trace し table identity を保つ / `\` の path が `/` の prefix に一致 / `--trace` なしで `__tcs_trace` `__tcs_at` が無く path 付きでも同じ出力 / CLI の正方向と `--snapshot` 拒否と値なし)、`bash run-tests.sh` 全通過
 - 判断: `return f(x)` は Lua の tail call で呼び出し元の frame が消える。trace のために tail call を崩すと stack の深さの挙動が変わるので崩さず、契約として書いた (テストで押さえた)。式本体の lambda は文を持たないので `__tcs_at` を宣言しない (host は無い frame を飛ばす)。IIFE に畳む文 (inline render)、top-level 文、ctor 先頭の table constructor に畳まれる field 代入は対象外。HotReload の migration 式用 emitter は文を emit しないので prefix を渡していない。`IncrementalCompilationSession` (snapshot / WasmCompiler) は `--snapshot` を拒否するので触っていない
 - 残課題: なし
+
+### T270: `--trace` で対象ファイルの型 table を `__tcs_trace_classes` に登録する ✓ (2026-10-25)
+- `--trace` のとき、対象ファイルの class / record / struct の型 table を作った直後 (`BeginType`) に `__tcs_trace_classes["<LuaName>"] = <LuaName>` を出す。enum は状態を持たないので登録しない。chunk prelude が `__tcs_trace` の隣で `__tcs_trace_classes = __tcs_trace_classes or {}` して既存の table を保つ。host はここから static field を辿って game の状態を snapshot / restore する
+- reload chunk: v2 定義は fresh の型 table を登録するが、chunk が global を旧 identity へ戻した後に `for k in pairs(__tcs_trace_classes) do __tcs_trace_classes[k] = _ENV[k] end` で登録を戻した global に向け直す (v2 で足した型は fresh のまま残る)。付けなければ出力は不変
+- 検証: `dotnet test` / `bash run-tests.sh` 全通過。新規 `StatementTraceTests.Trace_RegistersTypeTablesOfTracedFileOnly` (static class / instance を持つ class / struct が同じ identity で入り、enum と対象外ファイルの class は入らず件数 3)、`Trace_ReloadChunkKeepsRegisteredIdentityAndRegistersNewClass` (reload 後も registry と class の identity を保ち、登録は保った identity を指し、足した class が登録される)。どちらも実装前に fail、実装後 pass。`NoTrace_OutputHasNoTraceCode` に `__tcs_trace_classes` が無いことを足した
+- 判断: 型単位の判定は `symbol.DeclaringSyntaxReferences` の tree の path で行う (partial 型は TCS1001 なので宣言は 1 つ)。登録行は module artifact の `DeclRanges` の外 (`--snapshot` とは併用不可なので影響しない)。reload chunk の向け直しは registry の全 key を舐める (v1 で消えた型の global も残るので entry は残る。型の削除は restart の理由なので chunk には来ない)
+- 残課題: なし

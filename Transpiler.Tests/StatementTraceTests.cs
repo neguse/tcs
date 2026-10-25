@@ -188,6 +188,64 @@ public class StatementTraceTests
         Assert.Equal($"{GamePath}:5,{GamePath}:6", output[1]);
     }
 
+    // host が game の static 状態を見つけるための型 table の登録 (__tcs_trace_classes)
+    [Fact]
+    public void Trace_RegistersTypeTablesOfTracedFileOnly()
+    {
+        const string game = """
+            public static class Config { public static int Level = 3; }
+            public class Player { public int Hp = 1; }
+            public struct Vec { public int X; }
+            public enum Mode { A, B }
+            """;
+        const string lib = """
+            public class Lib { public static int N = 1; }
+            """;
+        var lua = Transpile([game, lib], [GamePath, "cs-lib/lubx/Lib.cs"]);
+        var output = TestHelper.RunLua($"""
+            {lua}
+            local c = __tcs_trace_classes
+            assert(c.Config == Config and c.Config.Level == 3, "static class")
+            assert(c.Player == Player and getmetatable(Player.new()) == c.Player, "class")
+            assert(c.Vec == Vec and c.Vec.new().X == 0, "struct")
+            assert(c.Lib == nil, "untraced file")
+            local n = 0
+            for _ in pairs(c) do n = n + 1 end
+            print(n)
+            """).Trim();
+        // enum は状態を持たないので登録しない
+        Assert.Equal("3", output);
+    }
+
+    [Fact]
+    public void Trace_ReloadChunkKeepsRegisteredIdentityAndRegistersNewClass()
+    {
+        const string v1 = """
+            public class Game { public static int Score = 1; }
+            """;
+        const string v2 = """
+            public class Game { public static int Score = 1; }
+            public class Boss { public static int Hp = 9; }
+            """;
+        var v1Lua = Transpile([v1], [GamePath], instanceRegistry: true);
+        var plan = HotReload.PlanReload([v1], [v2], v2FilePaths: [GamePath],
+            tracePrefixes: GamePrefix);
+        Assert.NotNull(plan.Chunk);
+        var output = TestHelper.RunLua($"""
+            {TestHelper.LoadChunk(v1Lua, "v1")}
+            local registry = __tcs_trace_classes
+            local game = Game
+            assert(registry.Game == game)
+            {TestHelper.LoadChunk(plan.Chunk, "reload")}
+            assert(__tcs_trace_classes == registry, "registry table kept")
+            assert(Game == game, "class identity kept")
+            assert(registry.Game == game, "registered table follows the kept identity")
+            assert(registry.Boss == Boss and Boss.Hp == 9, "new class registered")
+            print("ok")
+            """).Trim();
+        Assert.Equal("ok", output);
+    }
+
     [Fact]
     public void Trace_PrefixIsMatchedAgainstNormalizedPath()
     {
@@ -223,6 +281,7 @@ public class StatementTraceTests
             """;
         var plain = Transpiler.Transpile(game);
         Assert.DoesNotContain("__tcs_trace", plain);
+        Assert.DoesNotContain("__tcs_trace_classes", plain);
         Assert.DoesNotContain("__tcs_at", plain);
         // path を与えても prefix が無ければ同じ出力
         var withPath = Transpiler.TranspileWithDiagnostics([game], [GamePath]);

@@ -37,6 +37,17 @@ public partial class LuaEmitter
 
     private const string TraceLocal = "local __tcs_at";
 
+    // 対象ファイルの型 table (class / record / struct。enum は状態を持たない) を
+    // global の __tcs_trace_classes に登録する。host はここから static field を
+    // 辿って game の状態を snapshot / restore する。型 table を作った直後に出す
+    private void RegisterTraceClass(string name, string kind, INamedTypeSymbol? symbol)
+    {
+        if (TracePrefixes.Count == 0 || kind == "enum") return;
+        var path = symbol?.DeclaringSyntaxReferences.FirstOrDefault()?.SyntaxTree.FilePath;
+        if (path == null || !IsTracedPath(path)) return;
+        AppendLine($"__tcs_trace_classes[{EscapeLuaString(name)}] = {name}");
+    }
+
     private void EmitTracePoint(SyntaxNode origin)
     {
         if (!_traceFunction) return;

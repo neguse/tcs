@@ -145,6 +145,10 @@ public static class HotReload
             foreach (var name in plainTables)
                 sb.AppendLine($"  {name} = __tcs_reload_replace(__tcs_reload_old.{name}, {name})");
         }
+        // --trace: v2 定義が登録した fresh の型 table を、identity を戻した
+        // global (旧 table) に向け直す。v2 で足した型は fresh のまま
+        if (tracePrefixes is { Count: > 0 })
+            sb.AppendLine("  for k in pairs(__tcs_trace_classes) do __tcs_trace_classes[k] = _ENV[k] end");
 
         EmitStructMigrators(sb, ctx, oldStructs);
 

@@ -230,6 +230,7 @@ host との契約:
 
 - `__tcs_trace` は global の table で、出力と reload chunk は `__tcs_trace = __tcs_trace or {}` で既存のものを使う。host は key `"<file>:<line>"` を読み、消すときは table を置き換えず in place で key を消す (frame ごとに消せば、その frame で実行した行の集合になる)。
 - `__tcs_at` は対象の文を持つ Lua 関数 (method / ctor / accessor / operator / block 本体の lambda) ごとの local で、関数本体の先頭で宣言される。host は各 Lua frame の `__tcs_at` という名前の local (`lua_getlocal` / `debug.getlocal`) を読むと、その frame の現在の C# 行が分かり、並べると C# の呼び出し元の列になる。
+- `__tcs_trace_classes` は global の table で、対象ファイルの型 table (class / record / struct。enum は状態を持たないので入らない) を Lua 名の key で持つ (`__tcs_trace_classes["Game"] = Game`)。型 table を作った直後に登録し、出力と reload chunk は `__tcs_trace_classes = __tcs_trace_classes or {}` で既存のものを使う。host はここから static field を辿って game の状態を snapshot / restore する。reload chunk は型 table の identity を保つので、登録済みの型は同じ table のまま、chunk が足した型は新しく登録される。
 - `return f(x)` は Lua の tail call で、その frame は stack に残らない。式本体の lambda、IIFE に畳まれた文、top-level 文、ctor 先頭の field 代入 (table constructor に畳まれる) には trace が入らない。host は `__tcs_at` の無い frame を飛ばす。
 
 ### watch モード
