@@ -33,11 +33,14 @@ public partial class LuaEmitter
         EmitContinueLabel(label);
     }
 
-    private void EmitIlStat(IlStat stat)
+    // tracePoint: lowering で同じ origin を持つ文に分かれたときは、分ける前に
+    // 1 回だけ trace 行を出す
+    private void EmitIlStat(IlStat stat, bool tracePoint = true)
     {
+        if (stat.Origin != null && tracePoint) EmitTracePoint(stat.Origin);
         if (LowerStat(stat) is { } lowered)
         {
-            foreach (var s in lowered) EmitIlStat(s);
+            foreach (var s in lowered) EmitIlStat(s, tracePoint: false);
             return;
         }
         if (stat.Origin != null) SetSource(stat.Origin);
@@ -415,6 +418,8 @@ public partial class LuaEmitter
         var paramList = string.Join(", ", closure.Params);
         var locals = closure.PatternLocals.Length > 0
             ? $"local {string.Join(", ", closure.PatternLocals)}; " : "";
+        // block 本体の lambda は文を trace するので、自分の frame の __tcs_at を持つ
+        var trace = _traceFunction && closure.Body != null ? TraceLocal + "; " : "";
         if (closure.ExprBody != null)
         {
             if (Needs(closure.ExprBody))
@@ -428,7 +433,7 @@ public partial class LuaEmitter
             return $"function({paramList}) {locals}return " +
                 $"{RenderIl(closure.ExprBody)} end";
         }
-        return $"function({paramList}) {locals}{RenderIlClosureBlock(closure.Body!)} end";
+        return $"function({paramList}) {trace}{locals}{RenderIlClosureBlock(closure.Body!)} end";
     }
 
     // lifted 演算: 片方でも nil なら nil (比較は false)。op 関数は prelude の

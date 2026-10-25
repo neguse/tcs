@@ -289,6 +289,7 @@ public partial class LuaEmitter
 
         AppendLine($"function {className}.new({string.Join(", ", ctorParams)})");
         _indent++;
+        BeginTraceFunction(model);
         if (ctor != null)
             EmitParameterDefaults(model, ctor.ParameterList);
 
@@ -356,6 +357,7 @@ public partial class LuaEmitter
         }
 
         AppendLine("return self");
+        EndTraceFunction();
         _indent--;
         AppendLine("end");
         AppendLine();
@@ -386,6 +388,7 @@ public partial class LuaEmitter
             _currentType?.DefinitionKeys.Add($"{prefix}{propName}");
             AppendLine($"function {className}{separator}{prefix}{propName}({extraParam})");
             _indent++;
+            BeginTraceFunction(model);
             if (accessor.Body != null)
             {
                 if (!TryEmitStatsViaIl(model, accessor.Body.Statements))
@@ -399,6 +402,7 @@ public partial class LuaEmitter
                 if (!viaIl)
                     ReportUnsupportedBody(model, [accessor.ExpressionBody.Expression]);
             }
+            EndTraceFunction();
             _indent--;
             AppendLine("end");
             AppendLine();
@@ -417,8 +421,10 @@ public partial class LuaEmitter
         _currentType?.DefinitionKeys.Add($"get_{propName}");
         AppendLine($"function {className}{separator}get_{propName}({selfParam})");
         _indent++;
+        BeginTraceFunction(model);
         if (!TryEmitReturnViaIl(model, prop.ExpressionBody!.Expression))
             ReportUnsupportedBody(model, [prop.ExpressionBody.Expression]);
+        EndTraceFunction();
         _indent--;
         AppendLine("end");
         AppendLine();
@@ -500,6 +506,7 @@ public partial class LuaEmitter
 
         AppendLine($"function {className}{sep}{methodName}({string.Join(", ", paramNames)})");
         _indent++;
+        BeginTraceFunction(model);
         EmitParameterDefaults(model, method.ParameterList);
 
         if (method.Body != null)
@@ -520,6 +527,7 @@ public partial class LuaEmitter
                 ReportUnsupportedBody(model, [method.ExpressionBody.Expression]);
         }
 
+        EndTraceFunction();
         _indent--;
         AppendLine("end");
         AppendLine();
