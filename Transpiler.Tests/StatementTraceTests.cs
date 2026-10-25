@@ -508,6 +508,41 @@ public class StatementTraceTests
         Assert.Equal($"{GamePath}:3", output);
     }
 
+    // prefix は path の segment 単位で比べる (ファイルそのものか、その directory)
+    [Theory]
+    [InlineData("samples/game", "samples/game/Game.cs:3")]
+    [InlineData("samples/game/", "samples/game/Game.cs:3")]
+    [InlineData("./samples/game/", "samples/game/Game.cs:3")]
+    [InlineData("samples/game/Game.cs", "samples/game/Game.cs:3")]
+    [InlineData("samples/game/Game", "")]
+    [InlineData("samples/gameover", "samples/gameover/Over.cs:3")]
+    [InlineData("./", "samples/game/Game.cs:3,samples/gameover/Over.cs:3")]
+    public void Trace_PrefixMatchesWholePathSegments(string prefix, string expected)
+    {
+        const string game = """
+            public class Game
+            {
+                public static int Run() { return 1; }
+            }
+            """;
+        const string over = """
+            public class Over
+            {
+                public static int Run() { return 2; }
+            }
+            """;
+        var result = Transpiler.TranspileWithDiagnostics([game, over],
+            ["samples/game/Game.cs", "samples/gameover/Over.cs"], tracePrefixes: [prefix]);
+        Assert.True(result.Success, string.Join("\n", result.Errors));
+        var output = TestHelper.RunLua($"""
+            {result.Lua}
+            Game.Run()
+            Over.Run()
+            {PrintTraceKeys}
+            """).Trim();
+        Assert.Equal(expected, output);
+    }
+
     [Fact]
     public void NoTrace_OutputHasNoTraceCode()
     {

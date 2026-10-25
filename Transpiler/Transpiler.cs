@@ -57,8 +57,8 @@ public static class Transpiler
 
     /// <param name="instanceRegistry">hot reload 用 weak instance registry
     /// (`__tcs_instances`) を emit する (LuaEmitter.InstanceRegistry)</param>
-    /// <param name="tracePrefixes">`--trace`: filePaths がこの prefix で始まる
-    /// ファイルの文に実行の記録を出す (LuaEmitter.TracePrefixes)</param>
+    /// <param name="tracePrefixes">`--trace`: filePaths がこの prefix に path の
+    /// segment 単位で一致するファイルの文に実行の記録を出す (LuaEmitter.TracePrefixes)</param>
     public static TranspileResult TranspileWithDiagnostics(string[] csharpSources,
         string[]? filePaths = null, string[]? referenceSources = null,
         string? entryClass = null,

@@ -222,7 +222,7 @@ dotnet run --project Transpiler -- samples/game/Game.cs cs-lib/Text.cs -o game.l
 ```
 
 ゲームを動かしながら、どの C# の行を実行したかと、host API を呼んだときの C# の呼び出し元を知るための開発用の道具。
-入力 path (`/` 区切りに正規化) が `--trace` の prefix のどれかで始まるファイルの文だけが対象で、prefix は繰り返して指定できる。
+入力 path (`/` 区切りに正規化) が `--trace` の prefix のどれかに path の segment 単位で一致するファイルの文だけが対象で、prefix は繰り返して指定できる。prefix はファイルの path そのものか directory で、directory はその下のファイルに一致する (`samples/game` は `samples/game/Game.cs` に一致し、`samples/gameover/Over.cs` には一致しない)。prefix と入力 path の先頭の `./` と、prefix の末尾の `/` は比べる前に外す (`./` はすべての入力に一致する)。
 対象の文の直前に `__tcs_at = "<file>:<line>"; __tcs_trace[__tcs_at] = true` が入る (`<file>` は入力に与えた path、`<line>` は C# の 1 始まりの行)。
 `else if` と `while` / `do` ... `while` の条件は、評価するたびにその条件の行で同じ記録をしてから評価する (反復ごとに戻る)。
 `--trace` を付けなければ出力は変わらない。`--snapshot` とは併用できない。

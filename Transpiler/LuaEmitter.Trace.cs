@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 namespace TinyCs;
 
 // --trace: 実行した C# 行の記録 (開発用)。origin の path が TracePrefixes の
-// どれかで始まる文の直前に、現在行を関数 local の __tcs_at に書き、global の
+// どれかに一致する (IsTracedPath) 文の直前に、現在行を関数 local の __tcs_at に書き、global の
 // __tcs_trace[__tcs_at] = true を立てる。host は __tcs_trace の key
 // (`<file>:<line>`) を読んで in place で消し、各 Lua frame の local __tcs_at を
 // debug.getlocal / lua_getlocal で読んで C# の呼び出し元を組み立てる。
@@ -19,10 +19,25 @@ public partial class LuaEmitter
 
     public static string NormalizeTracePath(string path) => path.Replace('\\', '/');
 
+    // prefix は path そのもの (ファイル) か、segment の境界で終わる directory に
+    // 一致する (`samples/game` は `samples/gameover/` に一致しない)。先頭の `./` と
+    // 末尾の `/` は比べる前に外す。空になった prefix (`./`) はすべてに一致する
     private bool IsTracedPath(string path)
     {
-        var normalized = NormalizeTracePath(path);
-        return TracePrefixes.Any(p => normalized.StartsWith(p, StringComparison.Ordinal));
+        var normalized = TraceMatchForm(path);
+        return TracePrefixes.Any(raw =>
+        {
+            var prefix = TraceMatchForm(raw);
+            return prefix.Length == 0 || normalized == prefix
+                || normalized.StartsWith(prefix + "/", StringComparison.Ordinal);
+        });
+    }
+
+    private static string TraceMatchForm(string path)
+    {
+        var p = NormalizeTracePath(path);
+        while (p.StartsWith("./", StringComparison.Ordinal)) p = p[2..];
+        return p.TrimEnd('/');
     }
 
     // 関数本体の先頭 (parameter default より前、どの goto / label より前) で
