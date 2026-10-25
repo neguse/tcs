@@ -19,11 +19,19 @@ public partial class LuaEmitter
         var stats = block.Stats;
         for (var i = 0; i < stats.Length; i++)
         {
+            var tracePoint = i == 0 || !ContinuesTraceRun(stats[i - 1], stats[i]);
             if (stats[i] is IlReturn
                 && (i < stats.Length - 1 || followed?.Invoke() == true))
-                EmitIlStat(new IlDo(new IlBlock([stats[i]])));
+            {
+                if (tracePoint && stats[i].Origin != null) EmitTracePoint(stats[i].Origin!);
+                AppendLine("do");
+                _indent++;
+                EmitIlStat(stats[i], tracePoint: false);
+                _indent--;
+                AppendLine("end");
+            }
             else
-                EmitIlStat(stats[i]);
+                EmitIlStat(stats[i], tracePoint);
         }
     }
 

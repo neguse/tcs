@@ -388,6 +388,52 @@ public class StatementTraceTests
         ], output);
     }
 
+    // 1 つの文の trace 行は 1 回: 前宣言 (is-pattern の designation) を持つ文 (elseif も) と、
+    // do ... end に閉じる return (continue label が後に続く)。
+    // __tcs_trace を値を持たない proxy にして、行ごとの書き込みを数える
+    [Fact]
+    public void Trace_EachStatementWritesTraceOnce()
+    {
+        const string game = """
+            public class Derived { public int N = 4; }
+            public class Game
+            {
+                public static int Run()
+                {
+                    object b = new Derived();
+                    int r = 0;
+                    if (b is Derived d)
+                        r = d.N;
+                    if (r < 0)
+                        r = 0;
+                    else if (b is Derived e)
+                        r = r + e.N;
+                    return r;
+                }
+                public static int Cont(int v)
+                {
+                    int i = 0;
+                    while (i < 3)
+                    {
+                        i = i + 1;
+                        if (i == v) continue;
+                        return i;
+                    }
+                    return -1;
+                }
+            }
+            """;
+        var lua = Transpile([game], [GamePath]);
+        var output = TestHelper.RunLua($$"""
+            local writes = setmetatable({}, { __index = function() return 0 end })
+            __tcs_trace = setmetatable({}, { __newindex = function(_, k) writes[k] = writes[k] + 1 end })
+            {{lua}}
+            print(Game.Run(), Game.Cont(1))
+            print(writes["{{GamePath}}:8"], writes["{{GamePath}}:12"], writes["{{GamePath}}:23"])
+            """).Trim().Split('\n');
+        Assert.Equal(["8\t2", "1\t1\t1"], output);
+    }
+
     [Fact]
     public void Trace_ReloadChunkTracesChangedBodyWithRealPath()
     {

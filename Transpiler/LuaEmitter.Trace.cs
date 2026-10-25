@@ -63,6 +63,13 @@ public partial class LuaEmitter
         AppendLine($"__tcs_trace_classes[{EscapeLuaString(name)}] = {name}");
     }
 
+    // builder が 1 つの文を同じ Origin の文の列に分けたとき (前宣言、条件の hoist
+    // など) は、列の先頭で 1 回だけ trace 行を出す。前の文が入れ子の文を持つ
+    // (その中で __tcs_at が他の行に進み得る) ときは出し直す
+    private static bool ContinuesTraceRun(IlStat prev, IlStat stat) =>
+        stat.Origin != null && ReferenceEquals(prev.Origin, stat.Origin)
+        && prev is IlLocal or IlAssign or IlCallStat or IlMultiAssign;
+
     // elseif の条件 (Origin は条件式) を評価する前に trace 行を置けるよう、
     // arm 以降を else の中の if 文にする。trace しない関数では null (elseif のまま)
     private IlIf? TracedElseIf(IlIf ifStat, int arm) =>
