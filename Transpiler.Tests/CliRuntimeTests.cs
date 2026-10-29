@@ -252,6 +252,60 @@ public class CliRuntimeTests
     }
 
     [Fact]
+    public void Cli_DirectoryInput_TranspilesSourcesUnderIt()
+    {
+        using var temp = TempDir.Create();
+        var root = temp.PathFor("game");
+        WriteUnder(root, "A.cs", "public static class A { public static int Value() => 40; }");
+        WriteUnder(root, "sub/deep/B.cs", "public static class B { public static int Test() => A.Value() + 2; }");
+        WriteUnder(root, "sub/notes.txt", "not C#");
+        WriteUnder(root, "Game.csproj", "this is not C#");
+        // 除外される場所の .cs は入ると build が壊れる中身にしておく
+        foreach (var excluded in new[] { "bin/Debug/X.cs", "obj/Y.cs", "sub/obj/W.cs", ".lub/V.cs", "sub/.hidden/H.cs" })
+            WriteUnder(root, excluded, "this is not C#");
+        var outputPath = temp.PathFor("game.lua");
+
+        var result = RunCli(root, "-o", outputPath);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        Assert.Equal("42", TestHelper.RunLua($"{File.ReadAllText(outputPath)}\nprint(B.Test())").Trim());
+    }
+
+    [Fact]
+    public void Cli_DirectoryInput_LeavesOutRefFiles()
+    {
+        using var temp = TempDir.Create();
+        var root = temp.PathFor("game");
+        var refPath = WriteUnder(root, "lib/api_stub.cs", ValidRefSource);
+        WriteUnder(root, "app.cs", "public static class App { public static int Test() => Host.Api.Value(); }");
+        var outputPath = temp.PathFor("game.lua");
+
+        var result = RunCli(root, "--ref", refPath, "-o", outputPath);
+
+        // 入力にも入ると同じ型が 2 回定義されて build が失敗する
+        Assert.True(result.ExitCode == 0, result.Stderr);
+    }
+
+    [Fact]
+    public void Cli_MissingInputPath_ReturnsError()
+    {
+        using var temp = TempDir.Create();
+
+        var result = RunCli(temp.PathFor("no_such_dir"), "-o", temp.PathFor("out.lua"));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("file not found", result.Stderr);
+    }
+
+    private static string WriteUnder(string root, string relativePath, string contents)
+    {
+        var path = Path.Combine(root, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, contents);
+        return path;
+    }
+
+    [Fact]
     public void Cli_EmbedsRuntimeByDefault()
     {
         using var temp = TempDir.Create();

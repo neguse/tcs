@@ -2549,3 +2549,10 @@
 - 検証: `bash run-tests.sh` 全通過。DifferentialTests.EnumTypeArgumentAndJoin_UseMemberNames は CoreCLR の stdout と Lua / C が一致
 - 判断: enum ごとに記述子を型の table に置く案は、名前の表を文字列化しない enum にも出すことになる (EnumToStringTests.NameTable_IsEmittedOnlyWhereStringified) ので、渡す地点で作る形にした
 - 残課題: `object` に入れた enum の文字列化 (値に型の札を付けないと区別できない)
+
+### 入力にディレクトリを渡せるようにする ✓ (2026-10-29)
+- 入力にディレクトリを渡すと、配下の `*.cs` (bin / obj / 隠しディレクトリを深さを問わず除く。相対パスの序数順) を入力にする。`--ref` に渡したファイルは配下にあっても入力にしない。`--watch` は入力のディレクトリを配下ごと監視し、build ごとに展開し直すので、起動後に足した `*.cs` も入る
+- ファイルを 1 つずつ引数に並べる形では、数百ファイルの project でホスト (lub) が組み立てる引数が溢れ、入力の一部と実装の library が黙って落ちていた。ホストはディレクトリを渡せばよくなる
+- 検証: 追加した CliRuntimeTests (ディレクトリ配下の入力と除外、`--ref` の除外、存在しないパス) と WatchModeTests.Watch_DirectoryInput_NewFileTriggersRebuild が通る。`--ref` の除外を外すと CS0101 で落ちることを確認した。Windows の `dotnet test` で失敗する 19 件 (Lua の文字列に Windows のパスを埋め込むテスト等) は変更前と同じ
+- 判断: watch はディレクトリ配下の `*.cs` のイベントだけで rebuild する。拡張子を問わず反応すると、出力を入力のディレクトリに置いたときに出力の書き込みで rebuild が回り続ける
+- 残課題: ディレクトリごとの削除・改名は watch で拾わない。`tcs check` はディレクトリを受け付けない

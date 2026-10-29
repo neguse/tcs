@@ -89,7 +89,14 @@ dotnet run --project Transpiler -- samples/hello.cs
 
 # ファイルに出力
 dotnet run --project Transpiler -- samples/hello.cs -o out.lua
+
+# ディレクトリ配下の *.cs をまとめて入力にする
+dotnet run --project Transpiler -- src -o out.lua
 ```
+
+入力にディレクトリを渡すと、配下の `*.cs` を相対パスの序数順に並べて入力にする。
+bin / obj / 隠しディレクトリ (`.` で始まる) は深さを問わず除く (dotnet の DefaultItemExcludes と同じ)。
+`--ref` に渡したファイルは配下にあっても入力にしない。
 
 `-o`の出力と`--sourcemap`のmapは、input / `--ref` / `--prelude`と
 同じパスにはできない。Windows / Linux / macOSではsymlinkやhardlink等で
@@ -240,8 +247,9 @@ host との契約:
 dotnet run --project Transpiler -- src/*.cs -o out.lua --watch
 ```
 
-`src/*.cs` は shell が展開する例。shell が glob 展開しない環境ではファイルを個別に渡す。
+`src/*.cs` は shell が展開する例。shell が glob 展開しない環境ではファイルを個別に渡すか、ディレクトリ (`src`) を渡す。
 ファイル変更を検知して自動で再トランスパイルする。`Ctrl+C` で停止。
+ディレクトリの入力は配下の `*.cs` の追加・削除も拾い、build ごとに展開し直す (ディレクトリごとの削除・改名は拾わない)。
 
 実行中の VM の状態を保ったまま変更を当てるホスト (lub など) は `--reload-chunks` を付ける。
 以後の rebuild ごとに、`-o` の出力を書いた後に、前の build から今回の build への reload chunk を標準出力へ `@@tcs_reload_chunk <UTF-8 の byte 数>` の行と本文の組で順に書く (ログは標準エラー)。

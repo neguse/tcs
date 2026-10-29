@@ -163,6 +163,54 @@ public class WatchModeTests
     }
 
     [Fact]
+    public void Watch_DirectoryInput_NewFileTriggersRebuild()
+    {
+        var tmpDir = Path.Combine(Path.GetTempPath(), $"tcs_watch_dir_{Guid.NewGuid():N}");
+        var srcDir = Path.Combine(tmpDir, "src");
+        Directory.CreateDirectory(Path.Combine(srcDir, "sub"));
+        var outputPath = Path.Combine(tmpDir, "out.lua");
+
+        try
+        {
+            File.WriteAllText(Path.Combine(srcDir, "A.cs"), """
+                public class A
+                {
+                    public static int Value() { return 1; }
+                }
+                """);
+
+            var psi = CreateTranspilerProcess(srcDir, "-o", outputPath, "--watch");
+            using var proc = Process.Start(psi)!;
+            try
+            {
+                WaitForFile(outputPath, timeoutMs: 15000);
+                var v1 = File.ReadAllText(outputPath);
+                Assert.DoesNotContain("Added", v1);
+
+                // 起動後にサブディレクトリへ足したファイルも入力になる
+                Thread.Sleep(500);
+                File.WriteAllText(Path.Combine(srcDir, "sub", "Added.cs"), """
+                    public class Added
+                    {
+                        public static int Value() { return 2; }
+                    }
+                    """);
+                WaitForFileChange(outputPath, v1, timeoutMs: 5000);
+                Assert.Contains("Added", File.ReadAllText(outputPath));
+            }
+            finally
+            {
+                proc.Kill(entireProcessTree: true);
+                proc.WaitForExit(3000);
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(tmpDir, true); } catch { }
+        }
+    }
+
+    [Fact]
     public void Watch_WarnAsError_KeepsPreviousOutputOnWarnings()
     {
         // --warnaserror の watch は、警告のある build の出力を書かない (#204)。

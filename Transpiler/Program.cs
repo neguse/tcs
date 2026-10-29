@@ -144,7 +144,7 @@ public class Program
 
         foreach (var path in inputPaths)
         {
-            if (!File.Exists(path))
+            if (!File.Exists(path) && !Directory.Exists(path))
             {
                 Console.Error.WriteLine($"Error: file not found: {path}");
                 return 1;
@@ -181,7 +181,8 @@ public class Program
             includeRuntime, snapshot, module,
             instanceRegistry || reloadChunks, reloadChunks, warningsAsErrors,
             tracePrefixes);
-        var conflict = FindOutputPathConflict(inputPaths, refPaths, options);
+        var conflict = FindOutputPathConflict(
+            ExpandInputs(inputPaths, refPaths), refPaths, options);
         if (conflict != null)
             return Error(conflict);
 
@@ -269,6 +270,7 @@ public class Program
         writer.WriteLine("       tcs --help");
         writer.WriteLine("       tcs --version");
         writer.WriteLine("       tcs <input.cs>              # prints to stdout");
+        writer.WriteLine("       tcs <dir>                   # every *.cs under dir (skips bin/, obj/, hidden dirs and --ref files)");
         writer.WriteLine("       tcs check <input.cs>        # diagnostics only, no Lua output");
         writer.WriteLine("       --ref <file.cs>             # type-check only (no Lua output)");
         writer.WriteLine("       --entry <Class>             # append 'return <Class>' so the output loads as a Lua module");
@@ -280,6 +282,65 @@ public class Program
         writer.WriteLine("       --instance-registry         # register instances in the weak __tcs_instances table for hot reload migration (dev only)");
         writer.WriteLine("       --reload-chunks             # with --watch: on each rebuild also write to stdout a chunk that applies the change to a VM running the previous build, or a restart request with the reasons when the change cannot be applied live (implies --instance-registry)");
         writer.WriteLine("       --trace <path-prefix>       # record executed C# lines of inputs under the prefix in the global table __tcs_trace (keys \"<file>:<line>\") and keep the current line in the local __tcs_at of each Lua function (dev only; repeatable)");
+    }
+
+    // ディレクトリの入力は配下の *.cs に展開する。
+    // 除外は dotnet の DefaultItemExcludes に倣い、bin / obj / 隠しディレクトリを深さを問わず除く。
+    // 並びは相対パスの序数順。
+    // --ref に渡したファイルは入力にしない (参照用の宣言を実装と同じディレクトリに置ける)。
+    private static List<string> ExpandInputs(List<string> inputPaths, List<string> refPaths)
+    {
+        var refs = new HashSet<string>(refPaths.Select(Path.GetFullPath), FilePathComparer);
+        var inputs = new List<string>();
+        foreach (var path in inputPaths)
+        {
+            if (!Directory.Exists(path))
+            {
+                inputs.Add(path);
+                continue;
+            }
+            var found = new List<string>();
+            CollectSources(path, "", found);
+            found.Sort(StringComparer.Ordinal);
+            var root = path.TrimEnd('/', '\\');
+            inputs.AddRange(found.Select(rel => $"{root}/{rel}")
+                .Where(source => !refs.Contains(Path.GetFullPath(source))));
+        }
+        return inputs;
+    }
+
+    private static void CollectSources(string root, string rel, List<string> found)
+    {
+        var dir = rel.Length == 0 ? root : Path.Combine(root, rel);
+        foreach (var file in Directory.EnumerateFiles(dir))
+        {
+            // パターン "*.cs" は Windows で .csproj なども拾うので拡張子は自前で判定する
+            var name = Path.GetFileName(file);
+            if (name.EndsWith(".cs", StringComparison.Ordinal))
+                found.Add(rel.Length == 0 ? name : $"{rel}/{name}");
+        }
+        foreach (var sub in Directory.EnumerateDirectories(dir))
+        {
+            var name = Path.GetFileName(sub);
+            if (!IsExcludedSourceDirectory(name))
+                CollectSources(root, rel.Length == 0 ? name : $"{rel}/{name}", found);
+        }
+    }
+
+    private static bool IsExcludedSourceDirectory(string name) =>
+        name.StartsWith('.') || name == "bin" || name == "obj";
+
+    // 入力ディレクトリ配下の *.cs (除外ディレクトリの中を除く) のイベントか。
+    // *.cs 以外には反応しない: 出力を入力ディレクトリに置いたとき、出力の書き込みで rebuild が回り続けないように
+    private static bool IsSourceEvent(string inputDir, FileSystemEventArgs e)
+    {
+        bool IsSource(string fullPath)
+        {
+            var parts = Path.GetRelativePath(inputDir, fullPath).Split('/', '\\');
+            return fullPath.EndsWith(".cs", StringComparison.Ordinal)
+                && !parts[..^1].Any(IsExcludedSourceDirectory);
+        }
+        return IsSource(e.FullPath) || e is RenamedEventArgs r && IsSource(r.OldFullPath);
     }
 
     private static int Error(string message)
@@ -390,6 +451,7 @@ public class Program
     {
         try
         {
+            inputPaths = ExpandInputs(inputPaths, refPaths);
             var sources = inputPaths.Select(File.ReadAllText).ToArray();
             var refSources = refPaths.Count > 0
                 ? refPaths.Select(File.ReadAllText).ToArray() : null;
@@ -517,11 +579,15 @@ public class Program
     private static int RunWatch(List<string> inputPaths, List<string> refPaths,
         BuildOptions options)
     {
-        // 出力へ埋め込まれる prelude も build dependency として監視する
-        var watchPaths = inputPaths.Concat(refPaths)
+        // 出力へ埋め込まれる prelude も build dependency として監視する。
+        // ディレクトリの入力は配下を丸ごと監視し、ファイルの追加・削除も拾う
+        var inputDirs = inputPaths.Where(Directory.Exists).Select(Path.GetFullPath).ToArray();
+        var watchPaths = inputPaths.Where(path => !Directory.Exists(path)).Concat(refPaths)
             .Concat(options.PreludePath is { } prelude ? [prelude] : Array.Empty<string>())
             .ToArray();
-        Console.Error.WriteLine($"Watching {watchPaths.Length} file(s)... (Ctrl+C to stop)");
+        var fileCount = ExpandInputs(inputPaths, refPaths).Count
+            + watchPaths.Length - inputPaths.Count(path => !Directory.Exists(path));
+        Console.Error.WriteLine($"Watching {fileCount} file(s)... (Ctrl+C to stop)");
 
         var running = new RunningBuild();
 
@@ -570,6 +636,27 @@ public class Program
             watcher.Renamed += (_, e) => OnFsEvent(_, e);
             // 削除も rebuild を起こし、missing dependency として失敗を報告する
             watcher.Deleted += OnFsEvent;
+        }
+
+        foreach (var dir in inputDirs)
+        {
+            var watcher = new FileSystemWatcher(dir)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size
+                    | NotifyFilters.FileName | NotifyFilters.DirectoryName,
+                EnableRaisingEvents = true
+            };
+            void OnSourceEvent(object _, FileSystemEventArgs e)
+            {
+                if (IsSourceEvent(dir, e))
+                    pending.Set();
+            }
+            watcher.Changed += OnSourceEvent;
+            watcher.Created += OnSourceEvent;
+            watcher.Deleted += OnSourceEvent;
+            watcher.Renamed += (_, e) => OnSourceEvent(_, e);
+            watchers.Add(watcher);
         }
 
         try
@@ -641,6 +728,8 @@ public class Program
     {
         try
         {
+            // ディレクトリの入力は build ごとに展開し直し、追加・削除されたファイルを拾う
+            inputPaths = ExpandInputs(inputPaths, refPaths);
             var conflict = FindOutputPathConflict(
                 inputPaths, refPaths, options);
             if (conflict != null)
