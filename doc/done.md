@@ -2567,3 +2567,22 @@
 - lua32 では CPU 時間が 2^31 µs を越えると `os.clock` の項が `math.tointeger` の nil で 0 になっていた。2^31 の剰余を取って項を残す
 - 検証: RandomSemanticTests.Random_AutoSeed_UsesClockBeyondLua32IntegerRange。修正前は `os.clock` が 3000 秒と 4000 秒で同じ列になり失敗
 - 判断: OS の entropy から 4 語を埋める案は取らない (seed 未指定の Random は `math.random` 相当のゲーム用 PRNG)
+### watch: reload chunk を組めない例外でも restart を求める ✓ (2026-10-31)
+- `--reload-chunks` の watch で `PlanReload` が例外を投げたら、例外の message を理由に `restart_required` を送り、ホストの build を進める (restart の理由がある編集と同じ経路)
+- 修正前は log だけを出して build を進めなかったので、出力から起動し直したホストに次の chunk が当たらなかった
+- 検証: `dotnet test Transpiler.Tests --filter "FullyQualifiedName~WatchRestartTests|FullyQualifiedName~WatchChunkOrderTests|FullyQualifiedName~WatchModeTests"` が全通過。Watch_ReloadChunks_PlanFailure_RequestsRestart は修正前に `no @@tcs_restart_required within 5000ms` で fail
+- 判断: この例外を自然に踏む入力が無いので、テストは環境変数 `TCS_TEST_RELOAD_PLAN_FAILURE` で 1 回だけ失敗させる。テストは Debug でしか走らないので (`run-tests.sh` と CI の `dotnet test` は構成を指定しない)、hook は `#if DEBUG` で囲み、Release の binary には入れない
+- 残課題: なし
+
+### runtime の Lua をバイナリの隣だけから読む ✓ (2026-10-31)
+- `LuaRuntime.FindPath` は作業ディレクトリとバイナリの祖先を探さず、`AppContext.BaseDirectory` の `runtime/` だけを読む。無ければ変換は失敗する。`Transpiler.csproj` は `module_registry.lua` もバイナリの隣に置く
+- 修正前は、リポジトリの外に置いた tcs の `--snapshot` が `module_registry.lua` を作業ディレクトリの祖先から読んで生成物に埋め込んでいた
+- 検証: RuntimeLocationTests は修正前に 3 件 fail (仕込んだファイルが `--snapshot` の出力に入る、runtime の無いバイナリが仕込んだファイルで成功する)、修正後は全通過。作業ディレクトリに `runtime/` を仕込んだ状態で、`dotnet run --project Transpiler`、Release の `Transpiler.dll`、`dotnet publish` の出力、NativeAOT の publish の出力のそれぞれで `--snapshot` と通常の変換が通り、仕込んだものが出力に入らないことを確認。`dotnet build WasmCompiler -c Release` は通る (埋め込み resource を使い `FindPath` を通らない)
+- 判断: 開発用の `--runtime-dir` や環境変数は足さない。`dotnet build` / `dotnet run` / テストの出力にも `runtime/` が置かれるので、リポジトリ内の開発で要らない
+- 残課題: なし
+
+### PowerShell 版の補助スクリプトの作業場所をユーザー別の private dir に移す ✓ (2026-10-31)
+- `rider-env.ps1` に bash 版の `tcs_cache_dir` / `ensure_private_dir` に当たる `Get-TcsCacheDir` / `Initialize-PrivateDir` を足し、`verify-inspectcode.ps1`、`verify-rider-prechecks.ps1`、`run-tests.ps1` の作業場所を共有の temp dir からそこへ移した
+- 検証: PowerShell で一度も実行していない (この環境に pwsh が無く、CI にも PowerShell の step が無い)。`bash run-tests.sh` は通るが、ps1 は通らない
+- 判断: `run-tests.ps1` の scratch root に空の `Directory.Build.props` を置く案は入れない。bash 版と同じく、自分専用の場所に移すことで足りる
+- 残課題: PowerShell での実行
