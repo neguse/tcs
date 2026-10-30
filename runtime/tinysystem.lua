@@ -400,8 +400,11 @@ function String.EndsWith(str, suffix)
   return string.sub(str, -#suffix) == suffix
 end
 
+-- 1 本の "^%s*(.-)%s*$" は内側の空白の連続の長さの 2 乗の時間がかかるので、前と後ろを別に探す
 function String.Trim(str)
-  return string.match(str, "^%s*(.-)%s*$")
+  local first = string.find(str, "%S")
+  if not first then return "" end
+  return string.match(str, ".*%S", first)
 end
 
 function String.Substring(str, start, length)
@@ -470,11 +473,16 @@ function String.FormatEnum(v, spec)
   return tostring(v)
 end
 
--- 補間の float の書式 G / E (il-spec §13)。spec は書式の文字と省略できる精度 ("G"、"E2" など)。
--- tcs_rt (runtime/lua/tcs_rt_lua.c) が .NET の float.ToString(format) と同じ文字列を作る。float? の null は空文字列
+-- 補間の数値の標準書式 (il-spec §13)。spec は書式の文字と省略できる精度 ("G"、"E2" など)。
+-- tcs_rt (runtime/lua/tcs_rt_lua.c) が .NET の ToString(format) と同じ文字列を作る。T? の null は空文字列
 function String.FormatFloat(v, spec)
   if v == nil then return "" end
   return tcs_rt.ffmt(v, spec)
+end
+
+function String.FormatInt(v, spec)
+  if v == nil then return "" end
+  return tcs_rt.ifmt(v, spec)
 end
 
 function String.Split(str, ...)
@@ -716,9 +724,9 @@ local random_auto = 0
 function Random.new(seed)
   if seed == nil then
     random_auto = random_auto + 1
-    -- 起動ごと・instance ごとに異なる seed (32bit Lua でも整数に収まる形)
+    -- 起動ごと・instance ごとに異なる seed。os.clock は 2^31 で畳み、CPU 時間が長くなっても 32bit Lua の整数に収める
     local t = math.tointeger(os.time()) or 0
-    local c = math.tointeger(math.floor(os.clock() * 1000000)) or 0
+    local c = math.tointeger(math.floor(os.clock() * 1000000 % 2147483648)) or 0
     seed = (t ~ c ~ (random_auto * 0x9E3779B1)) & M32
   end
   return setmetatable({ s = seedstate(seed, 0) }, Random)

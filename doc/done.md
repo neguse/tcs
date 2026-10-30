@@ -2555,3 +2555,50 @@
 - 検証: DifferentialTests の Rune_ / ConvertFromUtf32_ は CoreCLR の stdout と Lua / C が一致
 - 判断: 文字列は byte 単位のまま。CoreCLR は BCL の同名 API が動くので facade を足さない
 - 残課題: なし
+### Array の member と SortedDictionary を TCS1002 にする ✓ (2026-10-31)
+- `Array.Sort` などの System.Array の member (配列の `Length` 以外) と `new SortedDictionary<,>()` を TCS1002 にした。support-matrix ではどちらも未対応なのに check を通り、Lua は実行時に nil の index、C は emit の error だった
+- 検証: ApiSignatureComplianceTests.UnimplementedOverload_ReportsTcs1002 (transpiler と analyzer) と DifferentialTests.UnsupportedApi_BothBackendsStopWithDiagnostic
+- 残課題: 同じ表の `HashSet` / `Queue` / `Stack` / `LinkedList` / `SortedList` / `SortedSet` は扱っていない。名前の無い BCL の型を既定で通す判定 (TryGetUnsupportedApi) はそのまま
+
+### 補間の数値の書式を .NET の ToString(format) と同じ文字列にする ✓ (2026-10-31)
+- int の G / E / F / N / D / X / R (`String.FormatInt`) と float の F / N / R (`String.FormatFloat`) を runtime/fmt の実装で書く。修正前は printf の書式に写していて、整数の `{x:E}` の指数が 2 桁、`{x:G}` が `1.23457e+06`、精度なしの F が 6 桁、N に区切りが無く、Lua は 3 桁以上の精度を `string.format` が受けなかった
+- float は正確な値を偶数に丸め、int の E / G はちょうど中間を絶対値の大きい方に丸める (CoreCLR の実測)。int の R は G と同じく精度を使い、float の R は精度を見ない
+- 検証: DifferentialTests.IntFormat_MatchesDotnet、FloatFormat_FixedAndRoundTripMatchDotnet、NumberFormat_WideRangeHashMatchesDotnet は CoreCLR の文字列と Lua / C が一致
+- 判断: 新しい source file を足すと host (tcs_rt を build する側) の build の変更が要るので、int の書式も runtime/fmt/f2s.c に置いた
+- 残課題: C / P と custom の書式 (T267)。float の D / X は .NET の FormatException と同じく Lua / C も実行時の error で止まる。2^31 以上の uint の書式は、lua32 は実行時の error、C は emit の error、64 bit の Lua も `tcs_rt.ifmt` の範囲検査で実行時の error で止まる
+### tcs_rt.sort_strings で __len の返す長さに上限を設ける ✓ (2026-10-31)
+- `__len` が返す長さをそのまま掛け算していたので、64bit の lua で 2^61 + 1 を返すと確保の大きさが wrap し、確保した外へ書いて segfault した。`table.sort` と同じく `INT_MAX` 以上と `size_t` に収まらない長さを "array too big" で止める
+- 検証: RuntimeTests.SortStrings_RejectsLengthThatDoesNotFit (lua32 と lua)。修正前は lua の 2^61 + 1 が exit 139、他は "block too big"
+
+### tcs2c: string.Join と enum の文字列化の長さの合計に桁あふれ検査を入れる ✓ (2026-10-31)
+- `tcs_string_join_items` と `tcs_enum_format` の `total` を `tcs_string_concat` と同じく `string-length-overflow` で止める。`tcs_string_join_values` と `tcs_string_join_enum` の `count * sizeof(*items)` は `allocation-overflow` で止める
+- 検証: StringLengthOverflowTests (長さだけを持つ TcsString を runtime の関数へ渡す 6 件)。修正前は 6 件とも fault せず失敗
+
+### Lua の String.Trim を空白の連続の長さに線形にする ✓ (2026-10-31)
+- `^%s*(.-)%s*$` は `.-` の各位置で `%s*$` をやり直すので、内側の空白の連続に対して 2 乗の時間がかかっていた。先頭の非空白を `find` で探し、そこから `.*%S` で最後の非空白まで取る
+- 検証: StringMethodTests.String_Trim_LongInnerWhitespaceIsLinear (内側に 100 万個の空白)。修正前は RunLua の 10 秒の timeout で失敗。String_Trim_Runtime は修正の前後で通る
+
+### seed 未指定の Random の仕様を実装に合わせ、lua32 で os.clock の項が消えるのを直す ✓ (2026-10-31)
+- il-spec と C runtime のコメントの「`luai_makeseed` 相当」を取り下げ、il-spec と support-matrix に時刻由来で予測でき、敵対的な用途には向かないと書く。実装は時刻由来のまま
+- lua32 では CPU 時間が 2^31 µs を越えると `os.clock` の項が `math.tointeger` の nil で 0 になっていた。2^31 の剰余を取って項を残す
+- 検証: RandomSemanticTests.Random_AutoSeed_UsesClockBeyondLua32IntegerRange。修正前は `os.clock` が 3000 秒と 4000 秒で同じ列になり失敗
+- 判断: OS の entropy から 4 語を埋める案は取らない (seed 未指定の Random は `math.random` 相当のゲーム用 PRNG)
+### watch: reload chunk を組めない例外でも restart を求める ✓ (2026-10-31)
+- `--reload-chunks` の watch で `PlanReload` が例外を投げたら、例外の message を理由に `restart_required` を送り、ホストの build を進める (restart の理由がある編集と同じ経路)
+- 修正前は log だけを出して build を進めなかったので、出力から起動し直したホストに次の chunk が当たらなかった
+- 検証: `dotnet test Transpiler.Tests --filter "FullyQualifiedName~WatchRestartTests|FullyQualifiedName~WatchChunkOrderTests|FullyQualifiedName~WatchModeTests"` が全通過。Watch_ReloadChunks_PlanFailure_RequestsRestart は修正前に `no @@tcs_restart_required within 5000ms` で fail
+- 判断: この例外を自然に踏む入力が無いので、テストは環境変数 `TCS_TEST_RELOAD_PLAN_FAILURE` で 1 回だけ失敗させる。テストは Debug でしか走らないので (`run-tests.sh` と CI の `dotnet test` は構成を指定しない)、hook は `#if DEBUG` で囲み、Release の binary には入れない
+- 残課題: なし
+
+### runtime の Lua をバイナリの隣だけから読む ✓ (2026-10-31)
+- `LuaRuntime.FindPath` は作業ディレクトリとバイナリの祖先を探さず、`AppContext.BaseDirectory` の `runtime/` だけを読む。無ければ変換は失敗する。`Transpiler.csproj` は `module_registry.lua` もバイナリの隣に置く
+- 修正前は、リポジトリの外に置いた tcs の `--snapshot` が `module_registry.lua` を作業ディレクトリの祖先から読んで生成物に埋め込んでいた
+- 検証: RuntimeLocationTests は修正前に 3 件 fail (仕込んだファイルが `--snapshot` の出力に入る、runtime の無いバイナリが仕込んだファイルで成功する)、修正後は全通過。作業ディレクトリに `runtime/` を仕込んだ状態で、`dotnet run --project Transpiler`、Release の `Transpiler.dll`、`dotnet publish` の出力、NativeAOT の publish の出力のそれぞれで `--snapshot` と通常の変換が通り、仕込んだものが出力に入らないことを確認。`dotnet build WasmCompiler -c Release` は通る (埋め込み resource を使い `FindPath` を通らない)
+- 判断: 開発用の `--runtime-dir` や環境変数は足さない。`dotnet build` / `dotnet run` / テストの出力にも `runtime/` が置かれるので、リポジトリ内の開発で要らない
+- 残課題: なし
+
+### PowerShell 版の補助スクリプトの作業場所をユーザー別の private dir に移す ✓ (2026-10-31)
+- `rider-env.ps1` に bash 版の `tcs_cache_dir` / `ensure_private_dir` に当たる `Get-TcsCacheDir` / `Initialize-PrivateDir` を足し、`verify-inspectcode.ps1`、`verify-rider-prechecks.ps1`、`run-tests.ps1` の作業場所を共有の temp dir からそこへ移した
+- 検証: PowerShell で一度も実行していない (この環境に pwsh が無く、CI にも PowerShell の step が無い)。`bash run-tests.sh` は通るが、ps1 は通らない
+- 判断: `run-tests.ps1` の scratch root に空の `Directory.Build.props` を置く案は入れない。bash 版と同じく、自分専用の場所に移すことで足りる
+- 残課題: PowerShell での実行
