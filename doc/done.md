@@ -2567,3 +2567,8 @@
 - 検証: DifferentialTests.ParenthesizedPattern_IsTransparent は CoreCLR の stdout と Lua / C が一致。TypePatternTests.ParenthesizedPattern_BindsDesignation (Lua)
 - 判断: `CoversAll` は master に無い (T265 の PR は未 merge) ので触らない
 - 残課題: なし
+
+### int? → float? の変換で整数を f32 に丸める ✓ (2026-10-31)
+- 暗黙の `int?` → `float?` (比較の昇格、代入、引数) と `(float?)x` は Lua で整数のまま残り、`16777217 <= 16777216f` が nullable だけ false だった。C は `(float?)x` を受けなかった。値があるときだけ変換する lifted の単項 `IlUnOp.ToFloat` を IL に足し、Lua は `__tcs_nlift1(x, __tcs_op_tofloat)`、C は `{ has, v }` の変換で出す
+- 検証: DifferentialTests.NullableIntToNullableFloat_RoundsToFloat32 は CoreCLR の stdout と Lua / C が一致
+- 残課題: なし
