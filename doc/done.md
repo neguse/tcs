@@ -2549,3 +2549,7 @@
 - 検証: `bash run-tests.sh` 全通過。DifferentialTests.EnumTypeArgumentAndJoin_UseMemberNames は CoreCLR の stdout と Lua / C が一致
 - 判断: enum ごとに記述子を型の table に置く案は、名前の表を文字列化しない enum にも出すことになる (EnumToStringTests.NameTable_IsEmittedOnlyWhereStringified) ので、渡す地点で作る形にした
 - 残課題: `object` に入れた enum の文字列化 (値に型の札を付けないと区別できない)
+
+### tcs_rt.sort_strings で __len の返す長さに上限を設ける ✓ (2026-10-31)
+- `__len` が返す長さをそのまま掛け算していたので、64bit の lua で 2^61 + 1 を返すと確保の大きさが wrap し、確保した外へ書いて segfault した。`table.sort` と同じく `INT_MAX` 以上と `size_t` に収まらない長さを "array too big" で止める
+- 検証: RuntimeTests.SortStrings_RejectsLengthThatDoesNotFit (lua32 と lua)。修正前は lua の 2^61 + 1 が exit 139、他は "block too big"
