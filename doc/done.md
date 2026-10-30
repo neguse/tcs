@@ -2555,3 +2555,9 @@
 - 検証: DifferentialTests の Rune_ / ConvertFromUtf32_ は CoreCLR の stdout と Lua / C が一致
 - 判断: 文字列は byte 単位のまま。CoreCLR は BCL の同名 API が動くので facade を足さない
 - 残課題: なし
+
+### (char)x の範囲外を Lua / C で同じ fault にする ✓ (2026-10-31)
+- `(char)x` の x が 0〜255 の外なら fault し、`char.ConvertFromUtf32` を案内する。C の char の文字列化も範囲外で fault する (Lua の `string.char` と同じ)
+- 検証: DifferentialTests の CharCast_ / CharIncrement_ は Lua / C とも同じ stdout の後に fault
+- 判断: 定数の範囲外も TCS1001 にせず同じ fault にして、診断の範囲を広げない
+- 残課題: なし
