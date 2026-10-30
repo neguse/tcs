@@ -948,7 +948,7 @@ public class SubsetDiagnosticTests
     [Fact]
     public void InterpolationAlignment_UsesConstantValueNotSyntaxText()
     {
-        var result = TestHelper.TranspileAndRun("""
+        var result = TestHelper.TranspileAndRunWithRuntime("""
             public class T
             {
                 public static string Test()
