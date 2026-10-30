@@ -88,11 +88,22 @@ public partial class LuaEmitter
                     && IsCharType(model.GetTypeInfo(cast.Expression).Type))
                     return new IlLit(Convert.ToString(constant.Value,
                         System.Globalization.CultureInfo.InvariantCulture)!);
-                // char ↔ int の cast は恒等 (char は整数 code unit)。
-                // (char)f の float → char は (int)f と同じ truncation
-                if (IsFloatToIntCast(model, cast)
-                    || (IsCharType(model.GetTypeInfo(cast.Type).Type)
-                        && IsFloatingType(model.GetTypeInfo(cast.Expression).Type)))
+                // (char)x は 1 byte の code unit なので範囲を検査する。(char)f は (int)f と同じ truncation の後で検査する。
+                // 範囲が分かっている元 (char、byte、範囲内の定数) は検査を省く
+                if (IsCharType(model.GetTypeInfo(cast.Type).Type)
+                    && model.GetTypeInfo(cast.Expression).Type is { } charSource
+                    && (IsFloatingType(charSource) || IsIntegralSource(charSource) || charSource.TypeKind == TypeKind.Enum)
+                    && !IsCharType(charSource))
+                {
+                    var c = BuildExpr(model, cast.Expression);
+                    if (c == null) return null;
+                    if (IsFloatingType(charSource)) c = new IlCall("__tcs_trunc", [c]);
+                    return charSource.SpecialType == SpecialType.System_Byte
+                        || constant is { HasValue: true, Value: char and <= (char)255 }
+                        ? c : new IlCall("__tcs_char", [c]);
+                }
+                // char → int の cast は恒等 (char は整数 code unit)
+                if (IsFloatToIntCast(model, cast))
                 {
                     var f = BuildExpr(model, cast.Expression);
                     return f == null ? null : new IlCall("__tcs_trunc", [f]);
@@ -395,9 +406,14 @@ public partial class LuaEmitter
                 ? new IlCall("__tcs_fstr", [built])
                 : IsCharType(model.GetTypeInfo(src).Type)
                     ? new IlCall("string.char", [built])
-                    : model.GetTypeInfo(src).Type?.SpecialType == SpecialType.System_Boolean
-                        ? new IlCall("__tcs_bstr", [built])
-                        : new IlCall("tostring", [built]));
+                    : IsRuneType(model.GetTypeInfo(src).Type)
+                        ? RuneToString(built)
+                        : model.GetTypeInfo(src).Type?.SpecialType == SpecialType.System_Boolean
+                            ? new IlCall("__tcs_bstr", [built])
+                            : new IlCall("tostring", [built]));
+
+    // Rune の値は codepoint 整数そのもの
+    private static IlExpr RuneToString(IlExpr rune) => new IlCall("Char.ConvertFromUtf32", [rune]);
 
     // 文字列化が値で決まる型 (T?、object、型引数)
     private static bool IsStringifiedByValue(ITypeSymbol? type) =>
@@ -421,6 +437,8 @@ public partial class LuaEmitter
             return new IlCall("__tcs_fstr", [rendered]);
         if (IsCharType(type))
             return new IlCall("string.char", [rendered]);
+        if (IsRuneType(type))
+            return RuneToString(rendered);
         if (UnwrapNullable(type)?.SpecialType == SpecialType.System_Boolean)
             return IsNullableValueType(type)
                 ? new IlCall("__tcs_nstr", [rendered])
@@ -556,6 +574,8 @@ public partial class LuaEmitter
                         printArgs[i] = new IlCall("__tcs_fstr", [printArgs[i]]);
                     else if (IsCharType(argType))
                         printArgs[i] = new IlCall("string.char", [printArgs[i]]);
+                    else if (IsRuneType(argType))
+                        printArgs[i] = RuneToString(printArgs[i]);
                     else if (argType?.SpecialType == SpecialType.System_Boolean)
                         printArgs[i] = new IlCall("__tcs_bstr", [printArgs[i]]);
                 }
