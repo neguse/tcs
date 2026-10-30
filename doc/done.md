@@ -2549,3 +2549,8 @@
 - 検証: `bash run-tests.sh` 全通過。DifferentialTests.EnumTypeArgumentAndJoin_UseMemberNames は CoreCLR の stdout と Lua / C が一致
 - 判断: enum ごとに記述子を型の table に置く案は、名前の表を文字列化しない enum にも出すことになる (EnumToStringTests.NameTable_IsEmittedOnlyWhereStringified) ので、渡す地点で作る形にした
 - 残課題: `object` に入れた enum の文字列化 (値に型の札を付けないと区別できない)
+
+### 単項マイナスのオペランドが `-` で始まっても `--` にしない ✓ (2026-10-31)
+- 負の int 定数のインライン化 (`const int K = -5; -K`) と入れ子の単項マイナス (`- -x`) で、Lua は `--` (行の残りがコメントになる)、C は `--INT32_C(5)` (減算子) を出していた。`-` で始まるオペランドを括弧で包む
+- 検証: DifferentialTests.UnaryMinus_OperandStartingWithMinus は CoreCLR の stdout と Lua / C が一致 (修正前は Lua の構文エラーと C の compile エラー)
+- 残課題: なし
