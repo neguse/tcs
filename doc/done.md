@@ -2553,3 +2553,7 @@
 ### tcs_rt.sort_strings で __len の返す長さに上限を設ける ✓ (2026-10-31)
 - `__len` が返す長さをそのまま掛け算していたので、64bit の lua で 2^61 + 1 を返すと確保の大きさが wrap し、確保した外へ書いて segfault した。`table.sort` と同じく `INT_MAX` 以上と `size_t` に収まらない長さを "array too big" で止める
 - 検証: RuntimeTests.SortStrings_RejectsLengthThatDoesNotFit (lua32 と lua)。修正前は lua の 2^61 + 1 が exit 139、他は "block too big"
+
+### tcs2c: string.Join と enum の文字列化の長さの合計に桁あふれ検査を入れる ✓ (2026-10-31)
+- `tcs_string_join_items` と `tcs_enum_format` の `total` を `tcs_string_concat` と同じく `string-length-overflow` で止める。`tcs_string_join_values` と `tcs_string_join_enum` の `count * sizeof(*items)` は `allocation-overflow` で止める
+- 検証: StringLengthOverflowTests (長さだけを持つ TcsString を runtime の関数へ渡す 6 件)。修正前は 6 件とも fault せず失敗
