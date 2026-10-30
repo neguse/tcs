@@ -78,6 +78,7 @@ public class WatchRestartTests
         }
     }
 
+#if DEBUG
     // chunk を組めずに例外になった build も出力は書き終えているので、restart を求めて
     // ホストをその build に進める。そうしないと、出力から起動し直したホストに次の chunk が
     // 当たらない。例外の message が複数行なら、1 行ずつを理由にする
@@ -101,7 +102,7 @@ public class WatchRestartTests
             File.WriteAllText(inputPath, Game);
             var psi = WatchModeTests.CreateTranspilerProcess(inputPath,
                 "-o", outputPath, "--entry", "Game", "--watch", "--reload-chunks");
-            psi.Environment["TCS_TEST_RELOAD_PLAN_FAILURE"] = "first\nsecond";
+            psi.Environment["TCS_TEST_RELOAD_PLAN_FAILURE"] = "first\r\nsecond\nthird";
 
             using var proc = Process.Start(psi)!;
             var messages = new WatchMessageReader(proc.StandardOutput.BaseStream);
@@ -111,7 +112,7 @@ public class WatchRestartTests
 
                 Thread.Sleep(500);
                 File.WriteAllText(inputPath, Game.Replace("return 1;", "return 2;"));
-                Assert.Equal("first\nsecond\n",
+                Assert.Equal("first\nsecond\nthird\n",
                     messages.Next("restart_required", timeoutMs: 5000));
 
                 var restarted = File.ReadAllText(outputPath);
@@ -136,4 +137,5 @@ public class WatchRestartTests
             try { Directory.Delete(tmpDir, true); } catch { }
         }
     }
+#endif
 }

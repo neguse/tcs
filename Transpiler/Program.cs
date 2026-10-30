@@ -636,10 +636,12 @@ public class Program
         + chunk
         + $"__tcs_build = {to}\n";
 
+#if DEBUG
     // 次の PlanReload を 1 回だけこの message で失敗させるテスト用の hook。
     // Lua 経路と IL export は同じ準拠検査を通るので、この例外を自然に踏む入力が無い
     private static string? TestReloadPlanFailure =
         Environment.GetEnvironmentVariable("TCS_TEST_RELOAD_PLAN_FAILURE");
+#endif
 
     private static void Rebuild(List<string> inputPaths, List<string> refPaths,
         BuildOptions options, RunningBuild running)
@@ -702,18 +704,20 @@ public class Program
             {
                 try
                 {
+#if DEBUG
                     if (TestReloadPlanFailure is { } failure)
                     {
                         TestReloadPlanFailure = null;
                         throw new InvalidOperationException(failure);
                     }
+#endif
                     plan = HotReload.PlanReload(running.Sources, sources,
                         running.References, refSources, inputPaths.ToArray(),
                         options.TracePrefixes);
                 }
                 catch (Exception ex)
                 {
-                    plan = new HotReload.ReloadPlan(null, ex.Message.Split('\n'));
+                    plan = new HotReload.ReloadPlan(null, ex.Message.Split(["\r\n", "\n"], StringSplitOptions.None));
                 }
             }
 

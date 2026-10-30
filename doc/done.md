@@ -2554,5 +2554,5 @@
 - `--reload-chunks` の watch で `PlanReload` が例外を投げたら、例外の message を理由に `restart_required` を送り、ホストの build を進める (restart の理由がある編集と同じ経路)
 - 修正前は log だけを出して build を進めなかったので、出力から起動し直したホストに次の chunk が当たらなかった
 - 検証: `dotnet test Transpiler.Tests --filter "FullyQualifiedName~WatchRestartTests|FullyQualifiedName~WatchChunkOrderTests|FullyQualifiedName~WatchModeTests"` が全通過。Watch_ReloadChunks_PlanFailure_RequestsRestart は修正前に `no @@tcs_restart_required within 5000ms` で fail
-- 判断: この例外を自然に踏む入力が無いので、テストは環境変数 `TCS_TEST_RELOAD_PLAN_FAILURE` で 1 回だけ失敗させる
+- 判断: この例外を自然に踏む入力が無いので、テストは環境変数 `TCS_TEST_RELOAD_PLAN_FAILURE` で 1 回だけ失敗させる。テストは Debug でしか走らないので (`run-tests.sh` と CI の `dotnet test` は構成を指定しない)、hook は `#if DEBUG` で囲み、Release の binary には入れない
 - 残課題: なし
