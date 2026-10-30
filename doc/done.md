@@ -2549,3 +2549,9 @@
 - 検証: `bash run-tests.sh` 全通過。DifferentialTests.EnumTypeArgumentAndJoin_UseMemberNames は CoreCLR の stdout と Lua / C が一致
 - 判断: enum ごとに記述子を型の table に置く案は、名前の表を文字列化しない enum にも出すことになる (EnumToStringTests.NameTable_IsEmittedOnlyWhereStringified) ので、渡す地点で作る形にした
 - 残課題: `object` に入れた enum の文字列化 (値に型の札を付けないと区別できない)
+
+### Rune の文字列化と char.ConvertFromUtf32 を UTF-8 の文字列にする ✓ (2026-10-31)
+- `Rune` の `ToString`・連結・補間・`WriteLine` と `char.ConvertFromUtf32` は codepoint の UTF-8 文字列を返す。範囲外は Lua / C とも同じ文言で fault
+- 検証: DifferentialTests の Rune_ / ConvertFromUtf32_ は CoreCLR の stdout と Lua / C が一致
+- 判断: 文字列は byte 単位のまま。CoreCLR は BCL の同名 API が動くので facade を足さない
+- 残課題: なし
