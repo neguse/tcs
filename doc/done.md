@@ -2560,4 +2560,4 @@
 - float は正確な値を偶数に丸め、int の E / G はちょうど中間を絶対値の大きい方に丸める (CoreCLR の実測)。int の R は G と同じく精度を使い、float の R は精度を見ない
 - 検証: DifferentialTests.IntFormat_MatchesDotnet、FloatFormat_FixedAndRoundTripMatchDotnet、NumberFormat_WideRangeHashMatchesDotnet は CoreCLR の文字列と Lua / C が一致
 - 判断: 新しい source file を足すと host (tcs_rt を build する側) の build の変更が要るので、int の書式も runtime/fmt/f2s.c に置いた
-- 残課題: C / P と custom の書式 (T267)。float の D / X は .NET の FormatException と同じく Lua / C も実行時の error で止まる。2^31 以上の uint は書式に関係なく Lua / C で扱えない
+- 残課題: C / P と custom の書式 (T267)。float の D / X は .NET の FormatException と同じく Lua / C も実行時の error で止まる。2^31 以上の uint の書式は、lua32 は実行時の error、C は emit の error、64 bit の Lua も `tcs_rt.ifmt` の範囲検査で実行時の error で止まる

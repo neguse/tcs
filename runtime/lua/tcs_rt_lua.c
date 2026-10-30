@@ -47,14 +47,19 @@ static int tcs_rt_l_ffmt(lua_State *L) {
   return 1;
 }
 
-/* ifmt(v, spec): int の書式 G / E / F / N / D / X の文字列化 (tcs2c と同じ tcs_format_i32_spec) */
+/* ifmt(v, spec): int の書式 G / E / F / N / D / X の文字列化 (tcs2c と同じ tcs_format_i32_spec)。
+   64 bit の Lua は int32 の外の integer も渡せるので、切り詰めて別の値を書かずに止める */
 static int tcs_rt_l_ifmt(lua_State *L) {
   int32_t precision = tcs_rt_format_precision(L, 2, "GgEeFfNnDdXx");
   char spec = lua_tostring(L, 2)[0];
-  int32_t value = (int32_t)luaL_checkinteger(L, 1);
+  lua_Integer value = luaL_checkinteger(L, 1);
   luaL_Buffer buffer;
-  char *out = luaL_buffinitsize(L, &buffer, TCS_FORMAT_I32_SPEC_MAX(precision));
-  luaL_pushresultsize(&buffer, tcs_format_i32_spec(value, spec, precision, out));
+  char *out;
+  luaL_argcheck(L, value >= INT32_MIN && value <= INT32_MAX, 1,
+                "number is out of the int range");
+  out = luaL_buffinitsize(L, &buffer, TCS_FORMAT_I32_SPEC_MAX(precision));
+  luaL_pushresultsize(&buffer,
+                      tcs_format_i32_spec((int32_t)value, spec, precision, out));
   return 1;
 }
 

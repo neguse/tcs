@@ -248,6 +248,7 @@ fault = 決定的に検出される実行時異常。発生した fault はプ�
 - 補間の i32（と i32 の `T?`）の書式 `G` / `E` / `F` / `N` / `D` / `X` / `R`（小文字と精度つきも）は `IlCall("String.FormatInt", [v, spec])` で、.NET の `int.ToString(format)`（InvariantCulture）と同じ文字列。
   `G`、`G0`、`R` は全部の桁。精度 p の `G` は有効数字 p 桁に丸めて、指数 X が X < p なら固定小数、それ以外は `d.dddE+XX` で書く（末尾の 0 は書かない）。`E`、`F`、`N` の形は f32 と同じで、`E` と `G` の丸めのちょうど中間は絶対値の大きい方へ。
   `D` は符号を除いて p 桁以上。`X` は 32 bit の 2 の補数の 16 進で p 桁以上。`T?` の値なしは空文字列。
+  値は i32 の範囲だけで、64 bit の Lua に範囲外の値が届いたら実行時 error で止まる。
   runtime/fmt の同じ実装が文字列を作る。
   それ以外の書式は printf の書式に写す（`string.format`）
 - enum (と enum の `T?`) の文字列化は `IlCall("String.FormatEnum", [v, spec])`。

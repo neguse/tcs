@@ -43,6 +43,52 @@ public partial class DifferentialTests
             + string.Join("\n", IntFormatValues.Select(v => Texts(v, IntFormats))), output);
     }
 
+    // 実行の int は 32 bit (il-spec §3)。64 bit の Lua では 2^31 以上の uint が integer のまま届くので、切り詰めて別の値を書かず、lua32 と C と同じく止める
+    [CTheory]
+    [InlineData("D")]
+    [InlineData("X")]
+    [InlineData("G")]
+    [InlineData("N0")]
+    [InlineData("E2")]
+    public void IntFormat_OutsideInt32StopsOnEveryBackend(string format)
+    {
+        var program = $$"""
+            using System;
+            public static class P
+            {
+                public static void Main()
+                {
+                    uint u = 3000000000;
+                    Console.WriteLine($"{u:{{format}}}");
+                }
+            }
+            """;
+        Assert.Contains("no integer representation",
+            Assert.Throws<InvalidOperationException>(() => Backends.RunLua([program], "P")).Message);
+        Assert.Contains("number is out of the int range",
+            Assert.Throws<InvalidOperationException>(() => Backends.RunLua([program], "P", luaPath: Backends.Lua64Path)).Message);
+        Assert.Contains("invalid i32 literal",
+            Assert.Throws<TinyCs.Tcs2c.Tcs2cException>(() => Backends.EmitC([program], "P")).Message);
+    }
+
+    [CFact]
+    public void IntFormat_Int32BoundsPassOn64BitLua()
+    {
+        var output = Backends.RunLua(["""
+            using System;
+            public static class P
+            {
+                public static void Main()
+                {
+                    uint u = 2147483647;
+                    int m = int.MinValue;
+                    Console.WriteLine($"{u:D}|{u:X}|{u:N0}|{m:D}|{m:X}|{m:N0}");
+                }
+            }
+            """], "P", luaPath: Backends.Lua64Path);
+        Assert.Equal("2147483647|7FFFFFFF|2,147,483,647|-2147483648|80000000|-2,147,483,648", output);
+    }
+
     private static readonly string[] FloatFixedFormats =
         ["F", "f", "F0", "F1", "F2", "F3", "f2", "F02", "F9", "F10", "F20", "F60",
          "F100", "N", "n", "N0", "N1", "N2", "n3", "N02", "N20", "N60", "N100",
