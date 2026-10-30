@@ -103,10 +103,11 @@ public partial class TinyCsComplianceAnalyzerTests
         """)]
     [InlineData("""
         using System;
+        public delegate void D();
         public class C
         {
-            public static bool M(object o) => o is Func<int> || o is Action a;
-            public static string F(int x) => $"{x:F\" .. y}";
+            public static bool M(object o) => o is Func<int> || o is Action a || o is D;
+            public static string F(int x) => $"{x:F\" .. y}{x:R\" .. y}";
         }
         """)]
     public async Task SemanticRules_MatchTranspilerDiagnostics(string source)

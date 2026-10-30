@@ -679,7 +679,7 @@ public static partial class TinyCsComplianceFacts
         type?.TypeKind == TypeKind.Interface;
 
     private static bool IsMalformedFormatSpecifier(string format) =>
-        format.Length > 1 && "FfNnDdXxEeGg".IndexOf(format[0]) >= 0
+        format.Length > 1 && "FfNnDdXxEeGgRr".IndexOf(format[0]) >= 0
         && !format.Skip(1).All(c => c is >= '0' and <= '9');
 
     private static bool IsTypeTestWithoutRuntimeType(SyntaxNode node, SemanticModel model,
@@ -700,8 +700,9 @@ public static partial class TinyCsComplianceFacts
         };
         if (type is not INamedTypeSymbol named) return false;
         if (named.DeclaringSyntaxReferences.Length > 0)
-            return named.IsGenericType && isReferenceTree != null
-                && named.DeclaringSyntaxReferences.Any(r => isReferenceTree(r.SyntaxTree));
+            return named.TypeKind == TypeKind.Delegate
+                || (named.IsGenericType && isReferenceTree != null
+                    && named.DeclaringSyntaxReferences.Any(r => isReferenceTree(r.SyntaxTree)));
         if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T
             || named.TypeKind is TypeKind.Enum or TypeKind.Interface or TypeKind.Error
             || named.SpecialType is not (SpecialType.None or SpecialType.System_Object

@@ -918,6 +918,19 @@ public class SubsetDiagnosticTests
     }
 
     [Fact]
+    public void TypeTest_OfSourceDelegate_IsRejected()
+    {
+        var result = Transpiler.TranspileWithDiagnostics(["""
+            public delegate void D();
+            public class T
+            {
+                public static bool Test(object o) => o is D || o is D d && d != null;
+            }
+            """]);
+        Assert.Equal(2, result.Errors.Count(e => e.Contains("TypeTestWithoutRuntimeType")));
+    }
+
+    [Fact]
     public void MalformedFormatSpecifier_IsRejected()
     {
         var result = Transpiler.TranspileWithDiagnostics(["""
@@ -925,10 +938,11 @@ public class SubsetDiagnosticTests
             {
                 public static string A(int x) { return $@"{x:F\"" .. os.execute([[id]])) --}"; }
                 public static string B(int x) { return $"{x:D\" .. os.execute([[id]])) --}"; }
-                public static string C(int x) { return $"{x:F2}{x:X}{x:D03}"; }
+                public static string C(int x) { return $"{x:R\" .. os.execute([[id]])) --}"; }
+                public static string D(int x, float f) { return $"{x:F2}{x:X}{x:D03}{f:R}"; }
             }
             """]);
-        Assert.Equal(2, result.Errors.Count(e => e.Contains("MalformedFormatSpecifier")));
+        Assert.Equal(3, result.Errors.Count(e => e.Contains("MalformedFormatSpecifier")));
     }
 
     [Fact]
