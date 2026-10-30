@@ -696,7 +696,7 @@ using(宣言)  virtual  volatile  yield
 
 | メンバー | 状態 | Lua マッピング | 区分 |
 |---------|:----:|--------------|:----:|
-| `new Random()` / `new Random(seed)` | **Y** | `Random.new(seed)` (pure-Lua xoshiro256**) | System.Random と同じ形。seed 固定時は Lua / C で列が bit 一致し、`Random.Seed(seed)` 後の `Shared` とも一致 (il-spec §13)。C backend は GC object |
+| `new Random()` / `new Random(seed)` | **Y** | `Random.new(seed)` (pure-Lua xoshiro256**) | System.Random と同じ形。seed 固定時は Lua / C で列が bit 一致し、`Random.Seed(seed)` 後の `Shared` とも一致 (il-spec §13)。seed 未指定は時刻などから作る seed で予測できるので、敵対的な用途には向かない。C backend は GC object |
 | `Random.Shared` (static) | **Y** | `Random.Shared` (VM の `math.random` 状態) | |
 | `Random.Seed(seed)` | **Y** | `math.randomseed(seed)` | `Shared` の列の固定 (tcs 独自。System.Random に無い) |
 | `r.Next()` / `r.Next(max)` / `r.Next(min, max)` | **Y** | `r:Next(...)` | .NET 標準 API (上限は exclusive。空の範囲 `Next(0)` / `Next(n, n)` は下限を返す) |
@@ -799,6 +799,10 @@ table では `ContainsKey` / 索引が外れる。作る地点 (`new Dictionary<
 target-typed `new()`) を TCS1001 `ValueEqualityDictionaryKey(K)`
 とし、transpiler は build を止める (Lua / C とも出力しない。analyzer は warning)。
 key 型が型 parameter の dict (generic method の中で作るもの) は対象外。
+
+C backend の `Dictionary<string, V>` のハッシュは seed を持たない FNV-1a で、chain の長さに上限が無い。
+同じ key を同じ順で入れれば、列挙の順序は実行ごとに同じになる (Lua は実行ごとの seed で変わるので、backend をまたいだ順序は未規定のまま)。
+その代わり、同じハッシュ値の文字列を作るのは容易で、host が外から受け取った信頼できない文字列を key にすると、N 回の操作に N の 2 乗に比例する時間がかかりうる。
 
 | メンバー | 状態 | Lua マッピング | 区分 |
 |---------|:----:|--------------|:----:|
