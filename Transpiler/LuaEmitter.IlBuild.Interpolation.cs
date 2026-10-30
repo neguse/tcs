@@ -52,9 +52,9 @@ public partial class LuaEmitter
                     else if (formatClause != null)
                     {
                         var luaFmt = ConvertFormatSpecifier(
-                            formatClause.FormatStringToken.Text);
+                            formatClause.FormatStringToken.ValueText);
                         rendered = new IlCall("string.format",
-                            [new IlLit($"\"{luaFmt}\""), inner]);
+                            [new IlLit(EscapeLuaString(luaFmt)), inner]);
                     }
                     else
                     {
@@ -63,17 +63,13 @@ public partial class LuaEmitter
                     }
                     if (hole.AlignmentClause != null)
                     {
-                        if (hole.AlignmentClause.Value is not
-                            (LiteralExpressionSyntax
-                             or PrefixUnaryExpressionSyntax
-                             {
-                                 RawKind: (int)SyntaxKind.UnaryMinusExpression,
-                                 Operand: LiteralExpressionSyntax
-                             }))
+                        if (model.GetConstantValue(hole.AlignmentClause.Value)
+                            is not { HasValue: true, Value: int align })
                             return null;
-                        var align = hole.AlignmentClause.Value.ToString();
                         rendered = new IlCall("string.format",
-                            [new IlLit($"\"%{align}s\""), rendered]);
+                            [new IlLit(EscapeLuaString(string.Create(
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                $"%{align}s"))), rendered]);
                     }
                     parts.Add(rendered);
                     break;
