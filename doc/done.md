@@ -2672,3 +2672,8 @@
 - 検証: `DifferentialTests.StructArgumentCopy` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout。`IncrementalSessionTests.BodyEdit_ThatStartsWritingStructParameter_KeepsCallerValue`
 - 判断: 省略の判断を呼び出し側が呼ばれた側の本文を見て決める形は採らない。呼ばれた側の本文だけの hot reload で判断が古くなる。同じ理由で readonly でない instance member の呼び出しは本文を見ずに書き換えとみなす
 - 残課題: なし
+
+### ref / in の診断 ✓ (2026-10-31)
+- `in` の parameter は `expression: InvocationExpression` で止まっていたので TCS1001 `InParameter` にした。ref の戻り値と ref local は `RefType`、host の method への `ref` / `in` 引数は `RefArgument` / `InArgument`
+- 検証: `DifferentialTests.RefIn` (Lua と C)、`MultiReturnTests.HostRefAndInArguments_ReportUnsupportedSyntax`、analyzer の `InAndRefReturnAndRefLocal_ReportUnsupportedSyntax`
+- 残課題: なし
