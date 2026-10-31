@@ -160,7 +160,7 @@ public partial class DifferentialTests
                     for (var k = 0; k < 30; k++)
                     {
                         if (Make(k, out var b, out var s)) keep.Add(b);
-                        if (s.Length > 100) last = () => b;
+                        if (s == "never") last = () => b;
                     }
                 }
                 public static void Report() { Console.WriteLine(keep.Count + keep[keep.Count - 1].Tag); }
