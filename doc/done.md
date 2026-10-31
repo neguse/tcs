@@ -2660,3 +2660,9 @@
 - 検証: `DifferentialTests.ListInsertGetRange` (Lua / C 通常 + GC stress の stdout が CoreCLR の stdout と一致)、範囲外の fault parity
 - 判断: `InsertRange` / `RemoveRange` / `Slice` は依頼の範囲外なので入れない
 - 残課題: なし
+
+### Queue\<T\> ✓ (2026-10-31)
+- `new Queue<T>()`、`Enqueue`、`Dequeue`、`Peek`、`Count`、`Clear`、`Contains`、`foreach` を Lua / C に足した。Lua は先頭と末尾の添字で O(1)、C は連続 buffer と先頭の添字
+- 検証: `DifferentialTests.Queue` (Lua / C 通常 + GC stress の stdout が CoreCLR の stdout と一致)、`AssertParityLib` でフレーム境界の GC を跨ぐ
+- 判断: `foreach` は今の要素の写しを反復する (Dictionary の `Keys` / `Values` と同じ)。`TryDequeue` と容量つきの constructor は入れない
+- 残課題: なし
