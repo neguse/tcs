@@ -882,7 +882,7 @@ C の正本は `runtime/utf8` で、Lua は `tcs_utf8` module (host が登録す
 | `u.ToString()` | **Y** | byte 列の string。文字の途中で切った slice の壊れた並びは U+FFFD になる (.NET の `Encoding.UTF8` と同じ位置で同じ個数) |
 
 `Runes.RuneCount(s)` の static の形と `s?.RuneCount()` も同じ。`Utf8Bytes?` は user の struct の `T?` と同じで、`n == null`、`n?.Length`、`n?[i]`、`n?.Slice(a, b)`、`n?.ToString()`、`n.Value` が使える。`u == null` と `u?.Length` は C# の compile error (CS0019 / CS0023)。
-`object` への変換は TCS1001 `StructBoxing`。連結・補間・`Console.WriteLine` は TCS1001 (`ToString()` を書く)。`List<Utf8Bytes>` の `Contains` / `IndexOf` / `Remove` は TCS1002 (要素の等価が揃わない)。method group は TCS1001 `TextApiMethodGroup`。Dictionary の key は TCS1001 (struct と同じ)。
+`object` への変換は TCS1001 `StructBoxing`。連結・補間・`Console.WriteLine` は TCS1001 (`ToString()` を書く)。`Utf8Bytes` を値として持つ record は TCS1001 `Utf8BytesInRecord` (等価が揃わない)。`List<Utf8Bytes>` の `Contains` / `IndexOf` / `Remove` は TCS1002 (要素の等価が揃わない)。method group は TCS1001 `TextApiMethodGroup`。Dictionary の key は TCS1001 (struct と同じ)。
 
 ## 21. System.IO
 
