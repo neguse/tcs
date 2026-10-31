@@ -2640,3 +2640,12 @@
 - 検証: PowerShell で一度も実行していない (この環境に pwsh が無く、CI にも PowerShell の step が無い)。`bash run-tests.sh` は通るが、ps1 は通らない
 - 判断: `run-tests.ps1` の scratch root に空の `Directory.Build.props` を置く案は入れない。bash 版と同じく、自分専用の場所に移すことで足りる
 - 残課題: PowerShell での実行
+
+### struct の演算子と static member ✓ (2026-10-31)
+- struct / record struct に二項 `+ - * / %` と単項 `-` の演算子 (class と同じ範囲)、static field、static auto property、static method、custom な static property を入れた。Lua は型の table に class と同じ形で置き、C は class の static と同じ置き場と初期化の規則に乗せる
+- IL 契約は `IlStructInfo.StaticFields` を足した。`Fields` は instance のままなので layout と等価と copy は変わらない
+- hot reload は struct の型 table を置き換えるので、残る static の値を移し直し、layout が変わった struct の static は再直列化する
+- `Box<int>.Of(1)` の受け手 (型引数を書いた型) は Lua の経路が受け付けていなかったので、class と struct の両方で通した
+- 検証: `DifferentialTests.StructOperators` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout。`HotReloadTests` / `HotReloadRestartTests` に struct の static を足した
+- 判断: `==` / 比較系 / 変換演算子は class と同じくサブセットの外。Main を struct に置く entry は C backend が class だけを探すので対象外のまま
+- 残課題: なし
