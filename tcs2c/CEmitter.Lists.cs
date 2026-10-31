@@ -181,8 +181,8 @@ internal sealed partial class CEmitter
         CTypeKind.String => $"tcs_string_equal({left}, {right})",
         CTypeKind.Ref when IsRecordClass(type.Name!) =>
             $"{Names.RecordEq(type.Name!)}({left}, {right})",
-        CTypeKind.Ref or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
-            or CTypeKind.Closure or CTypeKind.Random => $"({left} == {right})",
+        CTypeKind.Ref or CTypeKind.Array or CTypeKind.List or CTypeKind.Queue or CTypeKind.HashSet
+            or CTypeKind.Dict or CTypeKind.Closure or CTypeKind.Random => $"({left} == {right})",
         CTypeKind.Nullable => NullableEqualExpr(type, left, right, equals: true),
         // struct 値は memberwise (C# の ValueType.Equals / record struct の ==)
         CTypeKind.StructVal => $"({{ {type.CName} eq_l = {left}; {type.CName} eq_r = {right}; " +
@@ -200,7 +200,8 @@ internal sealed partial class CEmitter
     private static string LessExpr(CType type, string left, string right) => type.Kind switch
     {
         CTypeKind.I32 or CTypeKind.F32 => $"({left} < {right})",
-        CTypeKind.String => $"(tcs_string_compare({left}, {right}) < 0)",
+        // null は最小 (.NET の既定の comparer)
+        CTypeKind.String => $"(tcs_string_compare_ordinal({left}, {right}) < 0)",
         _ => throw new Tcs2cException($"ordering is not supported for {type}"),
     };
 
@@ -210,6 +211,134 @@ internal sealed partial class CEmitter
         CTypeKind.StructVal or CTypeKind.Nullable => $"({type.CName}){{0}}",
         _ => "NULL",
     };
+
+    // tcs_hashset_new の要素の種別 (0 = i32、1 = string、2 = host handle、3 = class の同一性)
+    private string HashSetKeyKind(CType element) =>
+        element.Kind == CTypeKind.Ref && !_facts.IsDictKey(element) ? "3" : DictKeyKind(element);
+
+    private CType TypeOfHashSetOp(IlCall call)
+    {
+        var name = call.Callee["TcsHashSet.".Length..];
+        var set = TypeOf(call.Args[0]);
+        if (set.Kind != CTypeKind.HashSet)
+            throw new Tcs2cException($"{call.Callee}: receiver is not a HashSet ({set})");
+        RequireArity(call.Callee, call.Args.Length, name is "Add" or "Remove" or "Contains" ? 2 : 1);
+        if (call.Args.Length == 2) CheckAssignable(set.Element!, call.Args[1], call.Callee);
+        return name switch
+        {
+            "Add" or "Remove" or "Contains" => CType.Bool,
+            "Clear" => CType.Void,
+            "Count" => CType.I32,
+            "ToList" => CType.List(set.Element),
+            _ => throw new Tcs2cException($"unsupported HashSet member: {name}"),
+        };
+    }
+
+    private string RenderHashSetOp(IlCall call)
+    {
+        var name = call.Callee["TcsHashSet.".Length..];
+        _ = TypeOfHashSetOp(call);
+        var elem = TypeOf(call.Args[0]).Element!;
+        var recv = RenderExpr(call.Args[0]);
+        switch (name)
+        {
+            case "Clear": return $"tcs_hashset_clear({recv})";
+            case "Count": return $"tcs_hashset_count({recv})";
+            case "ToList": return $"tcs_hashset_to_list({recv})";
+        }
+        var s = Temp("set");
+        var v = Temp("set_value");
+        var head = $"TcsHashSet *{s} = {recv}; {elem.CName} {v} = {RenderCoerced(call.Args[1], elem)}; ";
+        var key = DictKeyArgs(elem, v);
+        return name switch
+        {
+            "Add" => $"({{ {head}tcs_hashset_add({s}, {key}, &{v}, {LayoutRef(elem)}); }})",
+            "Remove" => $"({{ {head}tcs_hashset_remove({s}, {key}); }})",
+            "Contains" => $"({{ {head}tcs_hashset_find({s}, {key}) >= 0; }})",
+            _ => throw new Tcs2cException($"unsupported HashSet member: {name}"),
+        };
+    }
+
+    private CType TypeOfQueueOp(IlCall call)
+    {
+        var name = call.Callee["TcsQueue.".Length..];
+        var queue = TypeOf(call.Args[0]);
+        if (queue.Kind != CTypeKind.Queue)
+            throw new Tcs2cException($"{call.Callee}: receiver is not a Queue ({queue})");
+        var elem = queue.Element!;
+        switch (name)
+        {
+            case "Enqueue":
+                RequireArity(call.Callee, call.Args.Length, 2);
+                if (!IsClosureValue(call.Args[1])) CheckAssignable(elem, call.Args[1], call.Callee);
+                return CType.Void;
+            case "Dequeue" or "Peek":
+                RequireArity(call.Callee, call.Args.Length, 1);
+                return elem;
+            case "Clear":
+                RequireArity(call.Callee, call.Args.Length, 1);
+                return CType.Void;
+            case "Count":
+                RequireArity(call.Callee, call.Args.Length, 1);
+                return CType.I32;
+            // struct 要素では Lua 向けの op_Equality 参照が 3 番目に付く
+            case "Contains":
+                RequireArity(call.Callee, call.Args.Length, elem.Kind == CTypeKind.StructVal ? 3 : 2);
+                CheckAssignable(elem, call.Args[1], call.Callee);
+                return CType.Bool;
+            case "ToList":
+                RequireArity(call.Callee, call.Args.Length, 1);
+                return CType.List(elem);
+            default:
+                throw new Tcs2cException($"unsupported Queue member: {name}");
+        }
+    }
+
+    private string RenderQueueOp(IlCall call)
+    {
+        var name = call.Callee["TcsQueue.".Length..];
+        var type = TypeOfQueueOp(call);
+        var elem = TypeOf(call.Args[0]).Element!;
+        var q = Temp("queue");
+        var head = $"TcsQueue *{q} = {RenderExpr(call.Args[0])}; ";
+        switch (name)
+        {
+            case "Enqueue":
+            {
+                var v = Temp("queue_value");
+                return $"({{ {head}{elem.CName} {v} = {RenderCoerced(call.Args[1], elem)}; " +
+                    $"tcs_queue_enqueue({q}, &{v}, sizeof({v}), {LayoutRef(elem)}); }})";
+            }
+            case "Dequeue":
+            {
+                var v = Temp("queue_value");
+                return $"({{ {head}{elem.CName} {v} = *({elem.CName} *)tcs_queue_front({q}); " +
+                    $"tcs_queue_drop({q}); {v}; }})";
+            }
+            case "Peek":
+                return $"(*({elem.CName} *)tcs_queue_front({RenderExpr(call.Args[0])}))";
+            case "Clear":
+                return $"tcs_queue_clear({RenderExpr(call.Args[0])})";
+            case "Count":
+                return $"tcs_queue_count({RenderExpr(call.Args[0])})";
+            case "ToList":
+                return $"tcs_queue_to_list({RenderExpr(call.Args[0])})";
+            case "Contains":
+            {
+                var target = Temp("target");
+                var found = Temp("found");
+                var i = Temp("i");
+                var v = Temp("v");
+                return $"({{ {head}{elem.CName} {target} = {RenderCoerced(call.Args[1], elem)}; " +
+                    $"bool {found} = false; tcs_nonnull({q}); " +
+                    $"for (size_t {i} = {q}->head; {i} < {q}->items->length; {i}++) {{ " +
+                    $"{elem.CName} {v} = *({elem.CName} *)tcs_list_at({q}->items, (int32_t){i}); " +
+                    $"if ({EqualExpr(elem, v, target)}) {{ {found} = true; break; }} }} {found}; }})";
+            }
+            default:
+                throw new Tcs2cException($"unsupported Queue member: {name} ({type})");
+        }
+    }
 
     private CType TypeOfListOp(IlCall call)
     {
@@ -235,6 +364,20 @@ internal sealed partial class CEmitter
                 RequireArity(call.Callee, args.Length, elem.Kind == CTypeKind.StructVal ? 3 : 2);
                 CheckAssignable(elem, args[1], call.Callee);
                 return CType.I32;
+            case "Insert":
+                RequireArity(call.Callee, args.Length, 3);
+                if (seq.Kind != CTypeKind.List) throw new Tcs2cException("Insert: receiver is not a List");
+                RequireType(CType.I32, TypeOf(args[1]), "Insert index");
+                if (!IsClosureValue(args[2])) CheckAssignable(elem, args[2], call.Callee);
+                return CType.Void;
+            // 変更可能な struct 要素では Lua 向けの `S.__copy` 参照が末尾に付く
+            case "GetRange":
+                if (args.Length is not (3 or 4))
+                    throw new Tcs2cException("List.GetRange: expected 2 arguments");
+                if (seq.Kind != CTypeKind.List) throw new Tcs2cException("GetRange: receiver is not a List");
+                RequireType(CType.I32, TypeOf(args[1]), "GetRange index");
+                RequireType(CType.I32, TypeOf(args[2]), "GetRange count");
+                return CType.List(elem);
             case "FindIndex" or "RemoveAll":
                 RequireArity(call.Callee, args.Length, 2);
                 if (name == "RemoveAll" && seq.Kind != CTypeKind.List)
@@ -288,6 +431,21 @@ internal sealed partial class CEmitter
         }
         switch (name)
         {
+            // C# と同じく受け手、添字、値の順に評価してから範囲を見る
+            case "Insert":
+            {
+                var index = Temp("index");
+                sb.Append($"int32_t {index} = {RenderExpr(args[1])}; ");
+                sb.Append($"{elem.CName} {v} = {RenderCoerced(args[2], elem)}; ");
+                return $"({{ {sb}tcs_list_insert({s}, {index}, &{v}, sizeof({v}), {LayoutRef(elem)}); }})";
+            }
+            case "GetRange":
+            {
+                var index = Temp("index");
+                var count = Temp("count");
+                sb.Append($"int32_t {index} = {RenderExpr(args[1])}; int32_t {count} = {RenderExpr(args[2])}; ");
+                return $"({{ {sb}tcs_list_get_range({s}, {index}, {count}); }})";
+            }
             case "Copy":
                 return $"({{ {sb}{(seq.Kind == CTypeKind.Array ? "tcs_array_to_list" : "tcs_list_copy")}({s}); }})";
             case "FindIndex":

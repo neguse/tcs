@@ -138,6 +138,11 @@ internal sealed partial class CEmitter
             && IsAncestorOrSame(declaring, c.Name)
             && c.Methods.Any(m => m.Name == method));
 
+    // TinySystem.Text.Utf8Bytes は user の struct と同じ C の値にする (GC の layout、T?、List の要素、既定値がそのまま使える)
+    private static readonly IlStructInfo Utf8BytesStruct = new(CType.Utf8BytesStruct,
+        [new IlFieldInfo("Text", "string", false), new IlFieldInfo("Start", "int", false),
+         new IlFieldInfo("Length", "int", false)], "0");
+
     private static IlExportResult Normalize(IlExportResult program)
     {
         var classes = program.Classes.ToList();
@@ -147,7 +152,11 @@ internal sealed partial class CEmitter
                 [new IlMethodInfo("Main", true, [], topLevel,
                     "void", [])]));
         }
-        return program with { Classes = [.. classes] };
+        return program with
+        {
+            Classes = [.. classes],
+            Structs = [Utf8BytesStruct, .. program.Structs.IsDefault ? [] : program.Structs],
+        };
     }
 
     public string Emit(string? requestedEntry, bool lib = false)
@@ -158,6 +167,7 @@ internal sealed partial class CEmitter
         _output.Append(RuntimePrelude);
         _output.Append(RuntimeMath.Value);
         _output.Append(RuntimeFmt.Value);
+        _output.Append(RuntimeUtf8.Value);
         _output.Append(RuntimeCore);
         _output.Append(RuntimeGc);
         _output.Append(RuntimeCollections);
@@ -220,7 +230,7 @@ internal sealed partial class CEmitter
                 var fact = _facts.Method(cls.Name, method.Name);
                 EnsureSupportedStorageType(fact.ReturnType,
                     $"return type of {cls.Name}.{method.Name}", allowVoid: true);
-                foreach (var parameter in fact.Parameters)
+                foreach (var parameter in fact.Parameters.Concat(fact.OutParameters))
                     EnsureSupportedStorageType(parameter.Type,
                         $"parameter {cls.Name}.{method.Name}.{parameter.Name}");
             }
@@ -244,7 +254,7 @@ internal sealed partial class CEmitter
             or CTypeKind.Nullable or CTypeKind.Random or CTypeKind.Object => true,
         CTypeKind.Dict => type.Key is not null && type.Element is not null
             && IsStorageType(type.Element),
-        CTypeKind.Array or CTypeKind.List => type.Element is not null
+        CTypeKind.Array or CTypeKind.List or CTypeKind.Queue or CTypeKind.HashSet => type.Element is not null
             && IsStorageType(type.Element),
         _ => false,
     };
@@ -318,7 +328,7 @@ internal sealed partial class CEmitter
 
     private void EmitStaticFields()
     {
-        foreach (var cls in _program.Classes)
+        foreach (var cls in StaticOwners)
         foreach (var field in cls.Fields.Where(f => f.IsStatic))
         {
             var fact = _facts.Field(cls.Name, field.Name);
@@ -326,7 +336,7 @@ internal sealed partial class CEmitter
         }
         Line();
         // 遅延初期化 class の static は accessor (lvalue) 経由で触る
-        foreach (var cls in _program.Classes.Where(HasLazyStatics))
+        foreach (var cls in StaticOwners.Where(HasLazyStatics))
         {
             Line($"static void {Names.StaticInit(cls.Name)}(void);");
             foreach (var field in cls.Fields.Where(f => f.IsStatic))
@@ -364,14 +374,16 @@ internal sealed partial class CEmitter
     private void EmitMethodPrototypes()
     {
         foreach (var cls in _program.Classes.Where(c => !c.IsInterface))
+        foreach (var ctor in CtorsOrDefault(cls))
         {
-            var protoParams = CtorParamFacts(cls);
+            var protoParams = CtorParamFacts(ctor);
             var signature = protoParams.Count == 0
                 ? "void"
                 : string.Join(", ", protoParams.Select(p => p.Type.CName));
+            var symbol = CtorSymbol(cls, ctor);
             Line($"static {Names.Class(cls.Name)} *" +
-                $"{Names.New(cls.Name)}({signature});");
-            Line($"static void {Names.Init(cls.Name)}(" +
+                $"{Names.New(symbol)}({signature});");
+            Line($"static void {Names.Init(symbol)}(" +
                 string.Join(", ", new[] { $"{Names.Class(cls.Name)} *" }
                     .Concat(protoParams.Select(p => p.Type.CName))) + ");");
         }
@@ -394,7 +406,8 @@ internal sealed partial class CEmitter
             var fact = _facts.Method(cls.Name, method.Name);
             var parameters = string.Join(", ",
                 new[] { $"{Names.Class(cls.Name)} *" }
-                    .Concat(fact.Parameters.Select(p => p.Type.CName)));
+                    .Concat(fact.Parameters.Select(p => p.Type.CName))
+                    .Concat(fact.OutParameters.Select(p => $"{p.Type.CName} *")));
             Line($"static {fact.ReturnType.CName} " +
                 $"{Names.Dispatch(cls.Name, method.Name)}({parameters});");
         }
@@ -423,6 +436,7 @@ internal sealed partial class CEmitter
         }
         parameters.AddRange(method.Parameters.Select((p, i) =>
             $"{p.Type.CName} v_{Names.Id(p.Name)}_{i}"));
+        parameters.AddRange(method.OutParameters.Select(OutPointerParameter));
         return parameters.Count == 0 ? "void" : string.Join(", ", parameters);
     }
 
@@ -458,10 +472,18 @@ internal sealed partial class CEmitter
         Line("{");
         _indent++;
         BoxCapturedParameters();
+        // out は本体では普通の local で、値は return の位置で呼び出し側へ書く。
+        // 呼び出し側の受け手は stack の一時変数なのでライトバリアは要らない
+        foreach (var parameter in _currentMethodFact.OutParameters)
+            DeclareLocal(parameter.Name, parameter.Type, ZeroInit(parameter.Type));
         // abstract / interface method: 実体は dispatcher が実装へ飛ばすので
         // 本体には到達しない
         if (method.Body is null) Line("tcs_fault(\"abstract-method\");");
-        else EmitStats(method.Body.Stats);
+        else
+        {
+            EmitStats(method.Body.Stats);
+            if (_currentMethodFact.ReturnType == CType.Void) EmitOutWrites();
+        }
         _indent--;
         Line("}");
         Line();
@@ -534,9 +556,7 @@ internal sealed partial class CEmitter
         // する (`float f = 2` / `string s = null` / `Shape s = new Rect()`)
         if (local.Type != null && _facts.TryMapType(local.Type) is { } declaredType
             && declaredType != type
-            && (declaredType.CanAssignFrom(type)
-                || declaredType.Kind == CTypeKind.Ref && type.Kind == CTypeKind.Ref
-                    && IsAncestorOrSame(declaredType.Name!, type.Name!)))
+            && (declaredType.CanAssignFrom(type) || IsPatternBindable(declaredType, type)))
             type = declaredType;
         if (type.Kind is CTypeKind.Void or CTypeKind.Null)
             throw new Tcs2cException($"cannot infer storage type of local {local.Name}: {type}");
@@ -681,7 +701,18 @@ internal sealed partial class CEmitter
                 return;
             }
             RequireType(CType.Void, _currentMethodFact.ReturnType, "return");
+            EmitOutWrites();
             Line("return;");
+            return;
+        }
+        if (_currentMethodFact.OutParameters.Count > 0)
+        {
+            CheckAssignable(_currentMethodFact.ReturnType, ret.Value, "return");
+            var result = Temp("ret");
+            Line($"{_currentMethodFact.ReturnType.CName} {result} = " +
+                $"{RenderCoerced(ret.Value, _currentMethodFact.ReturnType)};");
+            EmitOutWrites();
+            Line($"return {result};");
             return;
         }
         CheckAssignable(_currentMethodFact.ReturnType, ret.Value, "return");
@@ -704,7 +735,7 @@ internal sealed partial class CEmitter
         // 定数でない initializer を持つ class: 最初のアクセスで 1 回だけ。
         // flag を先に立てるので循環参照は C# と同じく初期化中の値 (default)
         // を読む
-        foreach (var cls in _program.Classes.Where(HasLazyStatics))
+        foreach (var cls in StaticOwners.Where(HasLazyStatics))
         {
             Line("static void");
             Line($"{Names.StaticInit(cls.Name)}(void)");
@@ -726,9 +757,9 @@ internal sealed partial class CEmitter
         // 定数だけの class を先に埋める。遅延 class の initializer は他の class
         // の static を accessor なしで直接読むので、宣言順が後ろの定数 class
         // も読む前に値が入っている必要がある
-        foreach (var cls in _program.Classes.Where(c => !HasLazyStatics(c)))
+        foreach (var cls in StaticOwners.Where(c => !HasLazyStatics(c)))
             EmitStaticFieldInits(cls);
-        foreach (var cls in _program.Classes.Where(HasLazyStatics))
+        foreach (var cls in StaticOwners.Where(HasLazyStatics))
             Line($"{Names.StaticInit(cls.Name)}();");
         _indent--;
         Line("}");

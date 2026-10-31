@@ -91,6 +91,29 @@ internal sealed partial class CEmitter
             void *data;               /* RAW heap buffer (要素は list が trace) */
         } TcsList;
 
+        /* Queue: 先頭 head より前は空き (0 で消してある) */
+        typedef struct TcsQueue {
+            TcsList *items;
+            size_t head;
+        } TcsQueue;
+
+        /* HashSet: .NET の HashSet と同じ構造で、列挙の順も同じ。items は slot ごとの要素、
+           buckets は hash → slot + 1 (0 は空)、nexts は鎖 (0 以上は次の slot、-1 は末尾、
+           -2 以下は空いた slot で free の鎖を -3 - 次 で持つ)。key_kind は要素の種別で
+           (0 = i32、1 = string、2 = host handle、3 = class の同一性)、3 の hash は address な
+           ので、若い object を入れたまま GC の境界を跨いだら buckets を作り直す */
+        typedef struct TcsHashSet {
+            TcsList *items;
+            int32_t *buckets;
+            int32_t *nexts;
+            size_t bucket_count;
+            int32_t key_kind;
+            int32_t free_head;
+            int32_t free_count;
+            bool has_young;
+            size_t frame;
+        } TcsHashSet;
+
         static uint32_t tcs_digest;
 
         /* Nullable<T> (il-spec §13): has = 値あり */
@@ -264,14 +287,6 @@ internal sealed partial class CEmitter
             return left->length == right->length
                 && (left->length == 0
                     || memcmp(left->data, right->data, left->length) == 0);
-        }
-
-        static int32_t
-        tcs_string_length(TcsString *string)
-        {
-            tcs_nonnull(string);
-            if (string->length > INT32_MAX) tcs_fault("string-length-overflow");
-            return (int32_t)string->length;
         }
 
         static uint32_t

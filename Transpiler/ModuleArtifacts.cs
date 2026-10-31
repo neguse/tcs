@@ -137,12 +137,17 @@ public static class ModuleLinker
         sb.Append("  _G.__tcs_irem = TinySystem.irem\n");
         sb.Append("  _G.__tcs_get = TinySystem.get\n");
         sb.Append("  _G.__tcs_set = TinySystem.set\n");
-        sb.Append("  _G.__tcs_byte = TinySystem.byte\n");
+        sb.Append("  _G.__tcs_u8at = TinySystem.u8at\n");
+        sb.Append("  _G.__tcs_count = TinySystem.count\n");
+        sb.Append("  _G.__tcs_lchk = TinySystem.lchk\n");
+        sb.Append("  _G.__tcs_lget = TinySystem.lget\n");
+        sb.Append("  _G.__tcs_lset = TinySystem.lset\n");
         sb.Append("  _G.__tcs_cadd = TinySystem.cadd\n");
         sb.Append("  _G.__tcs_csub = TinySystem.csub\n");
         sb.Append("  _G.__tcs_cmul = TinySystem.cmul\n");
         sb.Append("  _G.__tcs_cneg = TinySystem.cneg\n");
         sb.Append("  _G.__tcs_is = TinySystem.instanceof\n");
+        sb.Append("  _G.__tcs_implements = TinySystem.implements\n");
         sb.Append("  _G.__tcs_fstr = TinySystem.fstr\n");
         sb.Append("  _G.__tcs_bstr = TinySystem.bstr\n");
         sb.Append("  _G.__tcs_trunc = TinySystem.trunc\n");
@@ -152,12 +157,15 @@ public static class ModuleLinker
         sb.Append("  _G.__tcs_max = TinySystem.Math.Max\n");
         sb.Append("  _G.__tcs_arr = TinySystem.arr\n");
         sb.Append("  _G.__tcs_dv = TinySystem.dv\n");
+        sb.Append("  _G.__tcs_nt = TinySystem.nt\n");
         sb.Append("  _G.__tcs_tc = TinySystem.tc\n");
         sb.Append("  _G.__tcs_tstr = TinySystem.tstr\n");
         sb.Append("  _G.__tcs_etd = TinySystem.etd\n");
         sb.Append("  _G.__tcs_shl = TinySystem.shl\n");
         sb.Append("  _G.__tcs_shr = TinySystem.shr\n");
         sb.Append("  _G.__tcs_mg = TinySystem.mg\n");
+        for (var arity = 2; arity <= 7; arity++)
+            sb.Append($"  _G.__tcs_tuple{arity} = TinySystem.tuple{arity}\n");
         foreach (var n in new[] { "nval", "nget", "nlift", "nlift1", "ncmp", "nand", "nor", "nnot", "nstr" })
             sb.Append($"  _G.__tcs_{n} = TinySystem.{n}\n");
         foreach (var op in new[] { "add", "sub", "mul", "div", "idiv", "irem", "fmod", "band",

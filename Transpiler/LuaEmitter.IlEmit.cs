@@ -111,6 +111,19 @@ public partial class LuaEmitter
                 PopContinueLabel();
                 break;
             }
+            case IlForeachList { Counted: true } feList:
+            {
+                var label = PushContinueLabel();
+                AppendLine($"do local __tcs_l = {RenderIl(feList.Coll)}");
+                AppendLine("for __tcs_i = 1, (__tcs_l.n or #__tcs_l) do");
+                _indent++;
+                AppendLine($"local {feList.Var} = __tcs_l[__tcs_i]");
+                EmitLoopBody(feList.Body, label);
+                _indent--;
+                AppendLine("end end");
+                PopContinueLabel();
+                break;
+            }
             case IlForeachList feList:
             {
                 var label = PushContinueLabel();
@@ -125,7 +138,7 @@ public partial class LuaEmitter
             case IlForeachRunes feRunes:
             {
                 var label = PushContinueLabel();
-                AppendLine($"for _, {feRunes.Var} in utf8.codes({RenderIl(feRunes.Str)}) do");
+                AppendLine($"for _, {feRunes.Var} in {LuaLocalRenamer.Utf8ModuleGlobal}.codes({RenderIl(feRunes.Str)}) do");
                 _indent++;
                 EmitLoopBody(feRunes.Body, label);
                 _indent--;
@@ -194,11 +207,13 @@ public partial class LuaEmitter
         var idx = RenderIl(ix.Idx);
         var value = RenderIl(assign.Value);
         if (!IsCallFree(ix.Recv) || !IsCallFree(ix.Idx))
-            return $"__tcs_set({recv}, {idx}, {value})";
+            return $"{(ix.NilElements ? "__tcs_lset" : "__tcs_set")}({recv}, {idx}, {value})";
+        // 要素が null になりうる List は nil の slot が範囲内かもしれないので長さと比べる
+        string Fault(string r, string i) => ix.NilElements ? $"__tcs_lchk({r}, {i})" : "__tcs_oob()";
         if (!IsCallFree(assign.Value))
             return $"do local __tcs_r, __tcs_i = {recv}, {idx} local __tcs_v = {value} " +
-                "if __tcs_r[__tcs_i + 1] == nil then __tcs_oob() end __tcs_r[__tcs_i + 1] = __tcs_v end";
-        return $"if {recv}[{idx} + 1] == nil then __tcs_oob() end {recv}[{idx} + 1] = {value}";
+                $"if __tcs_r[__tcs_i + 1] == nil then {Fault("__tcs_r", "__tcs_i")} end __tcs_r[__tcs_i + 1] = __tcs_v end";
+        return $"if {recv}[{idx} + 1] == nil then {Fault(recv, idx)} end {recv}[{idx} + 1] = {value}";
     }
 
     private string RenderIlMultiAssign(IlMultiAssign multi) =>
@@ -358,8 +373,14 @@ public partial class LuaEmitter
         IlVar v => v.Name,
         IlField f => $"{RenderIl(f.Recv)}.{f.Name}",
         // List / 配列の要素の読み出しは範囲外を fault にする (__tcs_get)
-        // 要素は nil を持たない (TCS1003) ので、nil を読んだら範囲外。false になりうる要素は
+        // 値型の要素は nil を持たないので、nil を読んだら範囲外。false になりうる要素は
         // nil と比べる (受け手と添字を読み直せるなら helper を呼ばない)
+        // 要素が null になりうる List は、nil か false を読んだときだけ長さと比べる
+        IlIndex { PlusOne: true, Unchecked: false, NilElements: true } ix
+            when IsCallFree(ix.Recv) && IsCallFree(ix.Idx) =>
+            $"({RenderIl(ix.Recv)}[{RenderIl(ix.Idx)} + 1] or __tcs_lget({RenderIl(ix.Recv)}, {RenderIl(ix.Idx)}))",
+        IlIndex { PlusOne: true, Unchecked: false, NilElements: true } ix =>
+            $"__tcs_lget({RenderIl(ix.Recv)}, {RenderIl(ix.Idx)})",
         IlIndex { PlusOne: true, Unchecked: false, BoolElements: true } ix
             when IsCallFree(ix.Recv) && IsCallFree(ix.Idx) =>
             $"({RenderIl(ix.Recv)}[{RenderIl(ix.Idx)} + 1] or ({RenderIl(ix.Recv)}[{RenderIl(ix.Idx)} + 1] ~= false and __tcs_oob() or false))",
@@ -368,6 +389,13 @@ public partial class LuaEmitter
         IlIndex { PlusOne: true, Unchecked: false } ix =>
             $"({RenderIl(ix.Recv)}[{RenderIl(ix.Idx)} + 1] or __tcs_oob())",
         IlIndex ix => $"{RenderIl(ix.Recv)}[{RenderIl(ix.Idx)}{(ix.PlusOne ? " + 1" : "")}]",
+        IlLen { NilElements: true } len when IsSimpleReceiverPath(len.E) =>
+            $"({RenderIl(len.E)}.n or #{RenderIl(len.E)})",
+        IlLen { NilElements: true } len => $"__tcs_count({RenderIl(len.E)})",
+        IlCall { NilElements: true, Callee: "table.insert" } add =>
+            $"List.AddCounted({RenderIl(add.Args[0])}, {RenderIl(add.Args[1])})",
+        IlCall { NilElements: true, Callee: "table.remove" } remove =>
+            $"List.RemoveSlot({RenderIl(remove.Args[0])}, {RenderIl(remove.Args[1])})",
         IlLen len => $"#{RenderIl(len.E)}",
         // シフトは C# 意味論 (count & 31、>> は算術) を helper で与える。
         // Lua native の >> は論理、count は無マスク (il-spec §4 / support-matrix §4.2)
@@ -399,10 +427,12 @@ public partial class LuaEmitter
         IlInvoke inv =>
             $"{RenderIl(inv.Recv)}:{inv.Method}({string.Join(", ", inv.Args.Select(RenderIl))})",
         IlNewObj obj =>
-            $"{obj.TypeName}.new({string.Join(", ", obj.Args.Select(RenderIl))})",
+            $"{obj.TypeName}.{obj.Ctor}({string.Join(", ", obj.Args.Select(RenderIl))})",
         IlTable table => RenderIlTable(table),
         // 値型要素は default を n 個詰める (要素読み / Length が C# と一致)。
         // 参照型 (null) は Lua table に穴を作れないので空 table
+        IlNewQueue => "TcsQueue.new()",
+        IlNewHashSet => "TcsHashSet.new()",
         IlNewArray na => na.Default switch
         {
             IlNewObj { Args.Length: 0 } zero => $"__tcs_arr({RenderIl(na.Length)}, {zero.TypeName}.new)",
@@ -410,6 +440,8 @@ public partial class LuaEmitter
             IlLit { LuaText: not "nil" } lit => $"__tcs_arr({RenderIl(na.Length)}, {lit.LuaText})",
             // 型引数の要素: 受け取った既定値 (struct の記述子なら要素ごとに zero 値、nil なら空)
             IlVar or IlField => $"__tcs_arr({RenderIl(na.Length)}, {RenderIl(na.Default)})",
+            // Utf8Bytes: 既定値は不変で共有できる
+            IlCall { Callee: "TinySystem.Utf8.Default" } => $"__tcs_arr({RenderIl(na.Length)}, {RenderIl(na.Default)})",
             _ => "{}",
         },
         IlStructDescriptor descriptor => RenderStructDescriptor(descriptor),
@@ -423,6 +455,7 @@ public partial class LuaEmitter
             : $"({RenderIl(convert.Value)} * 1.0)",
         IlNumericConvert convert => RenderIl(convert.Value),
         IlRefCast refCast => RenderIl(refCast.Value),
+        IlIsType { IsInterface: true } isType => $"__tcs_implements({RenderIl(isType.E)}, {EscapeLuaString(isType.TypeRef)})",
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
         // Lua 出力の builder は作らない (StructuralTypeTests)。IlExport の IL を
         // 描く経路 (hot reload の field 初期化子) では実行時 error にする
@@ -449,6 +482,7 @@ public partial class LuaEmitter
             _ => $"__tcs_nnot({RenderIl(liftedUn.E)})",
         },
         IlIsLuaType isLua => $"type({RenderIl(isLua.E)}) == \"{isLua.LuaType}\"",
+        IlValues values => string.Join(", ", values.Items.Select(RenderIl)),
         IlIife iife => $"(function() {RenderIlStatsInline(iife.Stats)} end)()",
         IlClosure closure => RenderIlClosure(closure),
         IlMethodGroup group => RenderIlMethodGroup(group),
@@ -462,7 +496,9 @@ public partial class LuaEmitter
             ? $"{descriptor.TypeName}.__tcs_td"
             : $"{{__tcs_td = true, n = function() return {descriptor.TypeName}.new(" +
                 $"{string.Join(", ", descriptor.NewArgs.Select(RenderIl))}) end, " +
-                $"c = function(v) return {descriptor.TypeName}.__copy(v{descriptor.Copiers}) end}}";
+                $"c = function(v) return {descriptor.TypeName}.__copy(v{descriptor.Copiers}) end" +
+                (descriptor.HasToString
+                    ? $", s = function(v) return {descriptor.TypeName}.ToString(v) or \"\" end" : "") + "}";
 
     private static string RenderIlMethodGroup(IlMethodGroup group)
     {
@@ -549,6 +585,7 @@ public partial class LuaEmitter
             e.NameKey != null ? $"{e.NameKey} = {RenderIl(e.Value)}"
             : e.Key != null ? $"[{RenderIl(e.Key)}] = {RenderIl(e.Value)}"
             : RenderIl(e.Value));
+        if (table.NilElements) parts = parts.Append($"n = {table.Entries.Length}");
         return $"{{{string.Join(", ", parts)}}}";
     }
 
@@ -558,8 +595,8 @@ public partial class LuaEmitter
     // 受け手は変数 / field 連鎖に限る (1 回評価の保証。それ以外は fallback)。
     // 引数が呼び出しを含む場合は `local __tcs_v = v` に先に束縛する — Lua は
     // `t[#t + 1] = v` で `#t` を右辺より先に評価するため、右辺が t に副作用を
-    // 持つと C# (引数評価 → Add) と順序が入れ替わる。open/close は束縛を
-    // 伴う 2 文を囲む文字列 (block 位置の do ... end)。
+    // 持つと C# (引数評価 → Add) と順序が入れ替わる。
+    // 要素が null になりうる List は `n` を進める
     private string? TryRenderListAddStat(IlExpr expr, string open = "",
         string close = "")
     {
@@ -569,9 +606,13 @@ public partial class LuaEmitter
         if (!IsSimpleReceiverPath(recv)) return null;
         var t = RenderIl(recv);
         var value = RenderIl(call.Args[1]);
-        if (IsCallFree(call.Args[1]))
-            return $"{t}[#{t} + 1] = {value}";
-        return $"{open}local __tcs_v = {value}; {t}[#{t} + 1] = __tcs_v{close}";
+        var free = IsCallFree(call.Args[1]);
+        if (!call.NilElements)
+            return free
+                ? $"{t}[#{t} + 1] = {value}"
+                : $"{open}local __tcs_v = {value}; {t}[#{t} + 1] = __tcs_v{close}";
+        var store = $"local __tcs_n = ({t}.n or #{t}) + 1; {t}[__tcs_n] = {(free ? value : "__tcs_v")}; {t}.n = __tcs_n";
+        return $"do {(free ? "" : $"local __tcs_v = {value}; ")}{store} end";
     }
 
     private static bool IsSimpleReceiverPath(IlExpr e) => e switch
@@ -602,6 +643,7 @@ public partial class LuaEmitter
         IlNullableHasValue h => IsCallFree(h.E),
         IlIsType it => IsCallFree(it.E),
         IlIsLuaType ilt => IsCallFree(ilt.E),
+        IlNewQueue or IlNewHashSet => true,
         IlNewArray na => IsCallFree(na.Length)
             && (na.Default is null or IlLit or IlNewObj),
         IlTable tbl => tbl.Entries.All(
@@ -628,8 +670,8 @@ public partial class LuaEmitter
     // 描画だけで行う
     private static string LuaCallee(string callee, int argCount) => callee switch
     {
-        // string の添字 (byte) も範囲外を fault にする
-        "string.byte" => "__tcs_byte",
+        // Utf8Bytes の添字は範囲外を fault にする
+        "TinySystem.Utf8.At" => "__tcs_u8at",
         "Math.Min" => "__tcs_min",
         "Math.Max" => "__tcs_max",
         "Math.Abs" => "math.abs",

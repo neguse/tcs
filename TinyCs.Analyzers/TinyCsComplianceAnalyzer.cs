@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
 
@@ -66,11 +67,14 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
         context.RegisterSyntaxNodeAction(AnalyzeCollectionNull,
             TinyCsComplianceFacts.CollectionNullSyntaxKinds);
         context.RegisterSemanticModelAction(AnalyzeSemanticSyntax);
+        context.RegisterSyntaxNodeAction(AnalyzeTypeMention, SyntaxKind.IdentifierName,
+            SyntaxKind.GenericName, SyntaxKind.QualifiedName, SyntaxKind.AliasQualifiedName);
         context.RegisterOperationAction(AnalyzeOperation,
             OperationKind.Invocation,
             OperationKind.PropertyReference,
             OperationKind.FieldReference,
-            OperationKind.ObjectCreation);
+            OperationKind.ObjectCreation,
+            OperationKind.Loop);
         context.RegisterOperationAction(AnalyzeUnsupportedOperationSyntax,
             OperationKind.NameOf, OperationKind.Invocation, OperationKind.Binary,
             OperationKind.Unary, OperationKind.Conversion, OperationKind.Increment,
@@ -103,6 +107,14 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
 
         context.ReportDiagnostic(Diagnostic.Create(UnsupportedSyntaxRule,
             context.Node.GetLocation(), syntaxName));
+    }
+
+    private static void AnalyzeTypeMention(SyntaxNodeAnalysisContext context)
+    {
+        if (TinyCsComplianceFacts.TryGetUnsupportedTypeMention(context.Node,
+                context.SemanticModel, out var apiName))
+            context.ReportDiagnostic(Diagnostic.Create(UnsupportedApiRule,
+                context.Node.GetLocation(), apiName));
     }
 
     private static void AnalyzeCollectionNull(SyntaxNodeAnalysisContext context)
@@ -149,7 +161,7 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeOperation(OperationAnalysisContext context)
     {
         if (TinyCsComplianceFacts.IsWithinNameOf(context.Operation)
-            || TinyCsComplianceFacts.IsInAssemblyAttribute(context.Operation.Syntax)) return;
+            || TinyCsComplianceFacts.IsInAttribute(context.Operation.Syntax)) return;
 
         ISymbol? symbol = context.Operation switch
         {
@@ -157,6 +169,8 @@ public sealed class TinyCsComplianceAnalyzer : DiagnosticAnalyzer
             IPropertyReferenceOperation property => property.Property,
             IFieldReferenceOperation field => field.Field,
             IObjectCreationOperation creation => creation.Constructor,
+            IForEachLoopOperation { Syntax: ForEachStatementSyntax loop, SemanticModel: { } model } =>
+                TinyCsComplianceFacts.StringLoopEnumerator(loop, model),
             _ => null,
         };
 

@@ -17,6 +17,8 @@ gcc -O2 -ffp-contract=off -fwrapv -fexcess-precision=standard \
 
 結果が IEEE-754 で決まらない Math (Sin / Cos / Tan / Exp / Atan2 / Pow / Log) は、生成 C に埋め込んだ `runtime/math` の実装 (`tcs_sinf` など、static) を呼ぶ。Lua の `tcs_math` module と .NET の `TinySystem.Math` も同じ実装なので、どの backend とプラットフォームでも bit 単位で同じ結果になる。この実装は上の strict f32 の build flag (積和を融合しない) を前提にする。Pow の指数 2 は Lua の `^` と同じく乗算にする。
 
+`TinySystem.Text` (`RuneCount` / `RuneSubstring` / `Utf8Bytes`) は、生成 C に埋め込んだ `runtime/utf8` の実装を呼ぶ。Lua の `tcs_utf8` module と同じ実装で、.NET の `TinySystem.Text` と同じ結果を返す。
+
 単一の `static void Main()` があれば生成 executable の entry にする。複数ある
 場合は `--entry CLASS` で選ぶ。class library sample のように `Main` が無い入力も
 全 method を C へ変換し、static initializer だけを実行する no-op entry を付ける。
@@ -61,9 +63,9 @@ Lua backend (dev) で、`tcs2c.Tests` が同じ source の stdout 一致を要�
     inline loop。Sort は .NET と同じ introsort、OrderBy は安定 merge sort)
   - Dictionary: index get / set (indexer initializer 含む)、Add、ContainsKey、
     TryGetValue、Remove、Count、Keys / Values、foreach (KeyValuePair)
-  - String: Length / index / Contains / IndexOf / Replace / StartsWith /
-    EndsWith / Trim / Substring / Split / Join / IsNullOrEmpty / ToUpper /
-    ToLower、`int.Parse` / `float.Parse`
+  - String: Contains / Replace / StartsWith / EndsWith / Trim / Split / Join /
+    IsNullOrEmpty / ToUpper / ToLower、`int.Parse` / `float.Parse`
+  - TinySystem.Text: RuneCount / RuneSubstring / Utf8Bytes
   - Math (`Math` / `MathF`): Min / Max / Abs / Sign / Clamp / Floor / Ceiling /
     Round / Sqrt / Sin / Cos / Tan / Atan2 / Pow / Exp / Log / PI
   - Random: `new Random()` / `new Random(seed)` (GC object) / `Random.Shared` /

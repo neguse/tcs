@@ -35,7 +35,7 @@ public partial class LuaEmitter
     internal bool StructuralTypeTests { get; init; }
 
     internal bool IsReferenceOnlyType(ITypeSymbol? type) =>
-        type != null && type.DeclaringSyntaxReferences
+        type != null && type.OriginalDefinition.DeclaringSyntaxReferences
             .Any(r => ReferenceTrees.Contains(r.SyntaxTree));
 
     public void Visit(CSharpCompilation compilation, SemanticModel model,
@@ -119,6 +119,11 @@ public partial class LuaEmitter
                 ReportUnsupportedMember(member);
                 break;
         }
+
+        // 入れ子の型は外側の型の後に、独立した global の型として emit する
+        if (member is TypeDeclarationSyntax outer)
+            foreach (var nested in outer.Members.OfType<BaseTypeDeclarationSyntax>())
+                VisitMember(model, nested);
     }
 
     private void VisitGlobalStatement(SemanticModel model,
@@ -162,6 +167,7 @@ public partial class LuaEmitter
         var info = BeginType(name, "class", symbol);
         AppendLine($"{name}.__index = {name}");
         info.DefinitionKeys.Add("__index");
+        EmitImplementedInterfaces(name, info, symbol);
         if (baseClass != null)
         {
             var baseName = TypeName(baseClass);
@@ -177,7 +183,7 @@ public partial class LuaEmitter
 
         var fieldInits = new List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)>();
         var staticFieldInits = new List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)>();
-        ConstructorDeclarationSyntax? ctor = null;
+        var ctors = new List<ConstructorDeclarationSyntax>();
 
         foreach (var member in cls.Members)
         {
@@ -198,8 +204,7 @@ public partial class LuaEmitter
                         model.GetTypeInfo(prop.Type).Type));
                     break;
                 case ConstructorDeclarationSyntax c:
-                    // 複数 constructor は TCS1001 (shared facts)。先頭を emit する
-                    ctor ??= c;
+                    ctors.Add(c);
                     break;
             }
         }
@@ -211,8 +216,10 @@ public partial class LuaEmitter
             f.Name + ":" + f.Type?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
                 + "=" + (ReloadRules.InitializerHash(model, f.Init)
                     ?? GetDefaultValueForType(f.Type))));
-        EmitConstructor(model, name, symbol, ctor, fieldInits, baseClass);
-        info.DefinitionKeys.Add("new");
+        if (ctors.Count == 0)
+            EmitConstructor(model, name, symbol, null, fieldInits, baseClass);
+        foreach (var c in ctors)
+            EmitConstructor(model, name, symbol, c, fieldInits, baseClass);
 
         var operators = new List<OperatorDeclarationSyntax>();
         foreach (var member in cls.Members)
@@ -237,6 +244,7 @@ public partial class LuaEmitter
                 case FieldDeclarationSyntax:
                 case PropertyDeclarationSyntax prop when IsAutoProperty(prop):
                 case ConstructorDeclarationSyntax:
+                case BaseTypeDeclarationSyntax:
                     break;
                 default:
                     ReportUnsupportedMember(member);
@@ -247,6 +255,20 @@ public partial class LuaEmitter
         EmitOperators(model, name, operators);
         DeferStaticFieldInitializers(model, name, info, staticFieldInits);
         _currentType = null;
+    }
+
+    // `is I` / `as I` が引く、実装する interface の名前の集合。検査できる interface だけを載せる
+    // (TinyCsComplianceFacts.IsInterfaceTypeTest が止めるものは載せない)
+    private void EmitImplementedInterfaces(string name, EmittedTypeInfo info, INamedTypeSymbol symbol)
+    {
+        var names = symbol.AllInterfaces
+            .Where(i => !i.IsGenericType && i.DeclaringSyntaxReferences.Length > 0
+                && !IsReferenceOnlyType(i))
+            .Select(i => $"[{EscapeLuaString(TypeName(i))}] = true")
+            .ToList();
+        if (names.Count == 0) return;
+        AppendLine($"{name}.__interfaces = {{{string.Join(", ", names)}}}");
+        info.DefinitionKeys.Add("__interfaces");
     }
 
     // static field の initializer は constructor / method / property /
@@ -287,16 +309,22 @@ public partial class LuaEmitter
     {
         var ctorParams = ctor?.ParameterList.Parameters
             .Select(p => p.Identifier.ValueText).ToList() ?? [];
+        var ctorName = ctor != null && model.GetDeclaredSymbol(ctor) is { } declared
+            ? LuaNaming.CtorName(declared) : "new";
+        _currentType?.DefinitionKeys.Add(ctorName);
         // generic class の instance は型引数の既定値を self に持つ (TypeArgDefaultIl)
         List<string> typeArgParams = PassesTypeArgDefaults(classSymbol)
             ? [.. classSymbol.TypeParameters.Select(TypeArgDefaultName)]
             : [];
 
-        AppendLine($"function {className}.new({string.Join(", ", ctorParams.Concat(typeArgParams))})");
+        AppendLine($"function {className}.{ctorName}({string.Join(", ", ctorParams.Concat(typeArgParams))})");
         _indent++;
         BeginTraceFunction(model);
         if (ctor != null)
+        {
             EmitParameterDefaults(model, ctor.ParameterList);
+            EmitParameterEntryCopies(model, ctor, ctor.ParameterList);
+        }
 
         var tableBuilt = false;
         List<IlStat>? remainingBody = null;
@@ -518,7 +546,10 @@ public partial class LuaEmitter
         var declared = model.GetDeclaredSymbol(method);
         var methodName = declared != null ? N(declared) : method.Identifier.ValueText;
         var isStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword);
+        var hasOut = method.ParameterList.Parameters
+            .Any(p => p.Modifiers.Any(SyntaxKind.OutKeyword));
         var paramNames = method.ParameterList.Parameters
+            .Where(p => !p.Modifiers.Any(SyntaxKind.OutKeyword))
             .Select(p => p.Identifier.ValueText).ToList();
         if (declared != null) paramNames.AddRange(TypeArgDefaultParams(declared));
         var outerOnSelf = _typeArgDefaultsOnSelf;
@@ -533,8 +564,23 @@ public partial class LuaEmitter
         _indent++;
         BeginTraceFunction(model);
         EmitParameterDefaults(model, method.ParameterList);
+        EmitParameterEntryCopies(model, method, method.ParameterList);
 
-        if (method.Body != null)
+        if (hasOut)
+        {
+            if (BuildOutMethodBody(model, method) is { } outBody)
+            {
+                IlBodies++;
+                EmitIlBlock(outBody);
+            }
+            else
+            {
+                ReportUnsupportedBody(model, method.Body != null
+                    ? method.Body.Statements
+                    : [method.ExpressionBody!.Expression]);
+            }
+        }
+        else if (method.Body != null)
         {
             if (TryBuildIlBody(model, method) is { } ilBody)
             {

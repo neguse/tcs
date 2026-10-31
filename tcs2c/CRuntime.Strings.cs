@@ -1,9 +1,8 @@
 namespace TinyCs.Tcs2c;
 
 // C runtime の string 節: TinySystem.String (runtime/tinysystem.lua) と
-// Lua 標準関数 (string.sub / byte / upper / lower / format、tonumber、
-// utf8.codes) の C 実装。意味論は Lua backend に揃える (1-based の
-// clamp、plain find、%s 空白、byte 列)。
+// Lua 標準関数 (string.upper / lower / format、tonumber) の C 実装。
+// 意味論は Lua backend に揃える (plain find、byte 列)。
 internal sealed partial class CEmitter
 {
     private const string RuntimeStrings = """
@@ -12,41 +11,6 @@ internal sealed partial class CEmitter
         tcs_string_from_bytes(const unsigned char *data, size_t length)
         {
             return tcs_string_new(data, length);
-        }
-
-        /* Lua string.sub の index 正規化 (1-based、負は末尾から、clamp) */
-        static TcsString *
-        tcs_string_sub(TcsString *s, int32_t i, int32_t j)
-        {
-            int64_t length;
-            int64_t from = i;
-            int64_t to = j;
-            tcs_nonnull(s);
-            length = (int64_t)s->length;
-            if (from < 0) from = length + from + 1;
-            if (from < 1) from = 1;
-            if (to < 0) to = length + to + 1;
-            if (to > length) to = length;
-            if (from > to) return tcs_string_new(NULL, 0);
-            return tcs_string_new(s->data + (from - 1), (size_t)(to - from + 1));
-        }
-
-        static TcsString *
-        tcs_string_sub_open(TcsString *s, int32_t i)
-        {
-            return tcs_string_sub(s, i, -1);
-        }
-
-        /* s[i] の 1 始まりの位置。1 未満と末尾の先は fault (Lua の string.byte と違い末尾から数えない) */
-        static int32_t
-        tcs_string_byte(TcsString *s, int32_t i)
-        {
-            int64_t length;
-            int64_t at = i;
-            tcs_nonnull(s);
-            length = (int64_t)s->length;
-            if (at < 1 || at > length) tcs_fault("string-index");
-            return s->data[at - 1];
         }
 
         static TcsString *
@@ -85,17 +49,6 @@ internal sealed partial class CEmitter
             tcs_nonnull(s);
             tcs_nonnull(sub);
             return tcs_string_find(s, sub, 0) >= 0;
-        }
-
-        static int32_t
-        tcs_string_index_of(TcsString *s, TcsString *value, int32_t start)
-        {
-            int64_t found;
-            tcs_nonnull(s);
-            tcs_nonnull(value);
-            if (start < 0) start = 0;
-            found = tcs_string_find(s, value, (size_t)start);
-            return found < 0 ? -1 : (int32_t)found;
         }
 
         static TcsString *
@@ -169,22 +122,11 @@ internal sealed partial class CEmitter
         static TcsString *
         tcs_string_trim(TcsString *s)
         {
-            size_t from = 0;
+            size_t from;
             size_t to;
             tcs_nonnull(s);
-            to = s->length;
-            while (from < to && tcs_is_space(s->data[from])) from++;
-            while (to > from && tcs_is_space(s->data[to - 1])) to--;
+            tcs_utf8_trim(s->data, s->length, &from, &to);
             return tcs_string_new(s->data + from, to - from);
-        }
-
-        static TcsString *
-        tcs_string_substring(TcsString *s, int32_t start, int32_t length)
-        {
-            tcs_nonnull(s);
-            if (length < 0) return tcs_string_sub(s, start + 1, -1);
-            if (start + 1 > start + length) return tcs_string_new(NULL, 0);
-            return tcs_string_sub(s, start + 1, start + length);
         }
 
         static bool
@@ -226,7 +168,7 @@ internal sealed partial class CEmitter
             return tcs_string_compare(left, right);
         }
 
-        /* String.Split: sep なし → 空白 1 文字区切り、sep が空 → {str}。
+        /* String.Split: sep なし → 空白 (char.IsWhiteSpace と同じ集合) 1 文字区切り、sep が空 → {str}。
            C# の戻りは string[] なので array にして返す */
         static TcsArray *
         tcs_string_split(TcsString *s, TcsString *sep, int has_sep)
@@ -247,9 +189,9 @@ internal sealed partial class CEmitter
                     found = tcs_string_find(s, sep, pos);
                     if (found >= 0) stop = (size_t)found + sep->length;
                 } else {
-                    size_t i;
-                    for (i = pos; i < s->length; i++)
-                        if (tcs_is_space(s->data[i])) { found = (int64_t)i; stop = i + 1; break; }
+                    size_t start;
+                    if (tcs_utf8_find_white_space(s->data, s->length, pos, &start, &stop))
+                        found = (int64_t)start;
                 }
                 if (found < 0) {
                     piece = tcs_string_new(s->data + pos, s->length - pos);
@@ -260,6 +202,58 @@ internal sealed partial class CEmitter
                 tcs_list_add(result, &piece, sizeof(piece), &tcs_layout_ptr);
                 pos = stop;
             }
+        }
+
+        static int32_t
+        tcs_string_rune_count(TcsString *s)
+        {
+            tcs_nonnull(s);
+            return tcs_utf8_rune_count(s->data, s->length);
+        }
+
+        static TcsString *
+        tcs_string_rune_substring(TcsString *s, int32_t start, int32_t count)
+        {
+            size_t from, to;
+            tcs_nonnull(s);
+            if (!tcs_utf8_rune_range(s->data, s->length, start, count, &from, &to))
+                tcs_fault("RuneSubstring: range is out of the string");
+            return tcs_string_new(s->data + from, to - from);
+        }
+
+        /* TinySystem.Text.Utf8Bytes: 文字列 text の [start, start + length) を指す値。既定値は text が NULL で長さ 0 */
+        static int32_t
+        tcs_utf8_bytes_text_length(TcsString *s)
+        {
+            tcs_nonnull(s);
+            if (s->length > INT32_MAX) tcs_fault("string-length-overflow");
+            return (int32_t)s->length;
+        }
+
+        static int32_t
+        tcs_utf8_bytes_at(TcsString *text, int32_t start, int32_t length, int32_t index)
+        {
+            if (index < 0 || index >= length) tcs_fault("utf8-bytes-index");
+            return text->data[start + index];
+        }
+
+        static void
+        tcs_utf8_bytes_check_slice(int32_t length, int32_t start, int32_t count)
+        {
+            if (start < 0 || count < 0 || start > length || count > length - start)
+                tcs_fault("Utf8Bytes.Slice: range is out of the bytes");
+        }
+
+        static TcsString *
+        tcs_utf8_bytes_to_string(TcsString *text, int32_t start, int32_t length)
+        {
+            const unsigned char *data;
+            TcsString *result;
+            if (length == 0) return tcs_string_new(NULL, 0);
+            data = text->data + start;
+            result = tcs_string_new(NULL, tcs_utf8_scrub_length(data, (size_t)length));
+            tcs_utf8_scrub(data, (size_t)length, result->data);
+            return result;
         }
 
         static size_t
@@ -277,14 +271,15 @@ internal sealed partial class CEmitter
             size_t at = 0;
             TcsString *result;
             tcs_nonnull(sep);
+            /* null の要素は空文字列 (.NET と同じ) */
             for (i = 0; i < count; i++) {
-                tcs_nonnull(items[i]);
-                total = tcs_string_length_add(total, items[i]->length);
+                if (items[i] != NULL) total = tcs_string_length_add(total, items[i]->length);
                 if (i > 0) total = tcs_string_length_add(total, sep->length);
             }
             result = tcs_string_new(NULL, total);
             for (i = 0; i < count; i++) {
                 if (i > 0) { memcpy(result->data + at, sep->data, sep->length); at += sep->length; }
+                if (items[i] == NULL) continue;
                 memcpy(result->data + at, items[i]->data, items[i]->length);
                 at += items[i]->length;
             }
@@ -480,28 +475,13 @@ internal sealed partial class CEmitter
             return false;
         }
 
-        /* utf8.codes: 位置 *pos (byte) から 1 codepoint 読む。不正列は fault */
+        /* EnumerateRunes: 位置 *pos (byte) から 1 文字読む。壊れた並びは U+FFFD (runtime/utf8) */
         static int32_t
         tcs_utf8_next(TcsString *s, size_t *pos)
         {
-            size_t i = *pos;
-            unsigned char c = s->data[i];
-            int32_t code;
-            size_t extra;
-            if (c < 0x80) { code = c; extra = 0; }
-            else if ((c & 0xE0) == 0xC0) { code = c & 0x1F; extra = 1; }
-            else if ((c & 0xF0) == 0xE0) { code = c & 0x0F; extra = 2; }
-            else if ((c & 0xF8) == 0xF0) { code = c & 0x07; extra = 3; }
-            else tcs_fault("invalid UTF-8 code");
-            for (size_t k = 1; k <= extra; k++) {
-                unsigned char cc;
-                if (i + k >= s->length) tcs_fault("invalid UTF-8 code");
-                cc = s->data[i + k];
-                if ((cc & 0xC0) != 0x80) tcs_fault("invalid UTF-8 code");
-                code = (code << 6) | (cc & 0x3F);
-            }
-            *pos = i + extra + 1;
-            return code;
+            uint32_t rune;
+            *pos += tcs_utf8_decode(s->data + *pos, s->length - *pos, &rune);
+            return (int32_t)rune;
         }
 
         """;

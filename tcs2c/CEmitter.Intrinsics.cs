@@ -9,7 +9,7 @@ namespace TinyCs.Tcs2c;
 internal sealed partial class CEmitter
 {
     private static readonly HashSet<string> IntrinsicPrefixes =
-        ["String.", "Math.", "List.", "string.", "math.", "Random.", "Char."];
+        ["String.", "Math.", "List.", "TcsQueue.", "TcsHashSet.", "string.", "math.", "Random.", "Char."];
 
     private static readonly HashSet<string> IntrinsicNames =
         ["tonumber", "os.getenv", "table.remove", "__tcs_trunc", "__tcs_char",
@@ -22,6 +22,8 @@ internal sealed partial class CEmitter
 
     private bool IsIntrinsicCallee(string rawCallee)
     {
+        // 修飾された名前で来るので、user の class Utf8 とは衝突しない
+        if (rawCallee.StartsWith("TinySystem.Utf8.", StringComparison.Ordinal)) return true;
         var callee = NormalizeCallee(rawCallee);
         if (IntrinsicNames.Contains(callee)) return true;
         var dot = callee.IndexOf('.');
@@ -38,6 +40,8 @@ internal sealed partial class CEmitter
         var args = call.Args;
         if (call.Callee.StartsWith("Random.", StringComparison.Ordinal))
             return TypeOfRandomOp(call);
+        if (call.Callee.StartsWith("Utf8.", StringComparison.Ordinal))
+            return TypeOfUtf8Op(call);
         if (call.Callee.StartsWith("Char.", StringComparison.Ordinal))
         {
             RequireArity(call.Callee, args.Length, 1);
@@ -51,6 +55,10 @@ internal sealed partial class CEmitter
         }
         if (call.Callee.StartsWith("List.", StringComparison.Ordinal))
             return TypeOfListOp(call);
+        if (call.Callee.StartsWith("TcsQueue.", StringComparison.Ordinal))
+            return TypeOfQueueOp(call);
+        if (call.Callee.StartsWith("TcsHashSet.", StringComparison.Ordinal))
+            return TypeOfHashSetOp(call);
         switch (call.Callee)
         {
             case "__tcs_trunc":
@@ -79,19 +87,6 @@ internal sealed partial class CEmitter
                 RequireArity(call.Callee, args.Length, 1);
                 RequireType(CType.String, TypeOf(args[0]), "os.getenv");
                 return CType.String;
-            case "string.sub":
-                if (args.Length is not (2 or 3))
-                    throw new Tcs2cException("string.sub: expected 2 or 3 arguments");
-                RequireType(CType.String, TypeOf(args[0]), "string.sub");
-                for (var i = 1; i < args.Length; i++)
-                    RequireType(CType.I32, TypeOf(args[i]), "string.sub index");
-                return CType.String;
-            case "string.byte":
-                if (args.Length is not (1 or 2))
-                    throw new Tcs2cException("string.byte: expected 1 or 2 arguments");
-                RequireType(CType.String, TypeOf(args[0]), "string.byte");
-                if (args.Length == 2) RequireType(CType.I32, TypeOf(args[1]), "string.byte index");
-                return CType.I32;
             case "string.char":
                 RequireArity(call.Callee, args.Length, 1);
                 RequireType(CType.I32, TypeOf(args[0]), "string.char");
@@ -131,6 +126,8 @@ internal sealed partial class CEmitter
         var args = call.Args;
         if (call.Callee.StartsWith("Random.", StringComparison.Ordinal))
             return RenderRandomOp(call, type);
+        if (call.Callee.StartsWith("Utf8.", StringComparison.Ordinal))
+            return RenderUtf8Op(call, type);
         if (call.Callee.StartsWith("Char.", StringComparison.Ordinal))
         {
             var fn = call.Callee["Char.".Length..] switch
@@ -150,6 +147,10 @@ internal sealed partial class CEmitter
         }
         if (call.Callee.StartsWith("List.", StringComparison.Ordinal))
             return RenderListOp(call);
+        if (call.Callee.StartsWith("TcsQueue.", StringComparison.Ordinal))
+            return RenderQueueOp(call);
+        if (call.Callee.StartsWith("TcsHashSet.", StringComparison.Ordinal))
+            return RenderHashSetOp(call);
         switch (call.Callee)
         {
             case "__tcs_trunc":
@@ -167,17 +168,6 @@ internal sealed partial class CEmitter
                     [(CType.F32, RenderExpr(args[0])), (CType.F32, RenderExpr(args[1]))]);
             case "os.getenv":
                 return $"tcs_getenv({RenderExpr(args[0])})";
-            case "string.sub":
-                return args.Length == 3
-                    ? RenderOrderedCall("tcs_string_sub", type,
-                        [(CType.String, RenderExpr(args[0])),
-                         (CType.I32, RenderExpr(args[1])), (CType.I32, RenderExpr(args[2]))])
-                    : RenderOrderedCall("tcs_string_sub_open", type,
-                        [(CType.String, RenderExpr(args[0])), (CType.I32, RenderExpr(args[1]))]);
-            case "string.byte":
-                return RenderOrderedCall("tcs_string_byte", type,
-                    [(CType.String, RenderExpr(args[0])),
-                     (CType.I32, args.Length == 2 ? RenderExpr(args[1]) : "INT32_C(1)")]);
             case "string.char":
                 return $"tcs_string_from_byte({RenderExpr(args[0])})";
             case "string.upper":
@@ -300,12 +290,6 @@ internal sealed partial class CEmitter
                 RequireArity(call.Callee, args.Length, 2);
                 Str(0, name); Str(1, name);
                 return CType.Bool;
-            case "IndexOf":
-                if (args.Length is not (2 or 3))
-                    throw new Tcs2cException("String.IndexOf: expected 2 or 3 arguments");
-                Str(0, name); Str(1, name);
-                if (args.Length == 3) RequireType(CType.I32, TypeOf(args[2]), "IndexOf start");
-                return CType.I32;
             case "Replace":
                 RequireArity(call.Callee, args.Length, 3);
                 Str(0, name); Str(1, name);
@@ -315,13 +299,6 @@ internal sealed partial class CEmitter
             case "Trim":
                 RequireArity(call.Callee, args.Length, 1);
                 Str(0, name);
-                return CType.String;
-            case "Substring":
-                if (args.Length is not (2 or 3))
-                    throw new Tcs2cException("String.Substring: expected 2 or 3 arguments");
-                Str(0, name);
-                for (var i = 1; i < args.Length; i++)
-                    RequireType(CType.I32, TypeOf(args[i]), "Substring index");
                 return CType.String;
             case "IsNullOrEmpty":
                 RequireArity(call.Callee, args.Length, 1);
@@ -395,15 +372,8 @@ internal sealed partial class CEmitter
             case "Contains": return RenderOrderedCall("tcs_string_contains", type, Strings(0, 1));
             case "StartsWith": return RenderOrderedCall("tcs_string_starts_with", type, Strings(0, 1));
             case "EndsWith": return RenderOrderedCall("tcs_string_ends_with", type, Strings(0, 1));
-            case "IndexOf":
-                return RenderOrderedCall("tcs_string_index_of", type,
-                    [.. Strings(0, 1), (CType.I32, args.Length == 3 ? RenderExpr(args[2]) : "INT32_C(0)")]);
             case "Replace": return RenderOrderedCall("tcs_string_replace", type, Strings(0, 1, 2));
             case "Trim": return $"tcs_string_trim({RenderExpr(args[0])})";
-            case "Substring":
-                return RenderOrderedCall("tcs_string_substring", type,
-                    [.. Strings(0), (CType.I32, RenderExpr(args[1])),
-                     (CType.I32, args.Length == 3 ? RenderExpr(args[2]) : "INT32_C(-1)")]);
             case "IsNullOrEmpty": return $"tcs_string_is_null_or_empty({RenderExpr(args[0])})";
             case "CompareOrdinal":
                 return RenderOrderedCall("tcs_string_compare_ordinal", type,
@@ -451,6 +421,81 @@ internal sealed partial class CEmitter
         CTypeKind.Bool => "TCS_JOIN_BOOL",
         _ => null,
     };
+
+    // ---- TinySystem.Text (TinySystem.Utf8.X の呼び出し。runtime の tcs_utf8_* を呼ぶ) ----
+    private CType TypeOfUtf8Op(IlCall call)
+    {
+        var name = call.Callee["Utf8.".Length..];
+        if (name == "Default")
+        {
+            RequireArity(call.Callee, call.Args.Length, 0);
+            return CType.Utf8Bytes;
+        }
+        var (receiver, result, ints) = name switch
+        {
+            "RuneCount" => (CType.String, CType.I32, 0),
+            "RuneSubstring" => (CType.String, CType.String, 2),
+            "New" => (CType.String, CType.Utf8Bytes, 0),
+            "At" => (CType.Utf8Bytes, CType.I32, 1),
+            "Slice" => (CType.Utf8Bytes, CType.Utf8Bytes, 2),
+            "ToString" => (CType.Utf8Bytes, CType.String, 0),
+            _ => throw new Tcs2cException($"unsupported TinySystem.Text member: {name}"),
+        };
+        RequireArity(call.Callee, call.Args.Length, ints + 1);
+        RequireType(receiver, TypeOf(call.Args[0]), call.Callee);
+        foreach (var arg in call.Args.Skip(1)) RequireType(CType.I32, TypeOf(arg), call.Callee);
+        return result;
+    }
+
+    private string RenderUtf8Op(IlCall call, CType type)
+    {
+        var name = call.Callee["Utf8.".Length..];
+        var bytes = CType.Utf8Bytes.CName;
+        (string Text, string Start, string Length) fields =
+            (Names.Field("Text"), Names.Field("Start"), Names.Field("Length"));
+        switch (name)
+        {
+            case "Default":
+                return $"(({bytes}){{ 0 }})";
+            case "RuneCount":
+                return $"tcs_string_rune_count({RenderExpr(call.Args[0])})";
+            case "RuneSubstring":
+                return RenderOrderedCall("tcs_string_rune_substring", type,
+                    [(CType.String, RenderExpr(call.Args[0])),
+                     (CType.I32, RenderExpr(call.Args[1])), (CType.I32, RenderExpr(call.Args[2]))]);
+            case "New":
+            {
+                var text = Temp("utf8_text");
+                return $"({{ TcsString *{text} = {RenderExpr(call.Args[0])}; " +
+                    $"int32_t {text}_length = tcs_utf8_bytes_text_length({text}); " +
+                    $"({bytes}){{ .{fields.Text} = {text}, .{fields.Start} = 0, .{fields.Length} = {text}_length }}; }})";
+            }
+        }
+        // receiver と引数はこの順に 1 度だけ評価する
+        var u = Temp("utf8");
+        var head = $"{bytes} {u} = {RenderExpr(call.Args[0])}; ";
+        var view = $"{u}.{fields.Text}, {u}.{fields.Start}, {u}.{fields.Length}";
+        switch (name)
+        {
+            case "At":
+            {
+                var index = Temp("utf8_index");
+                return $"({{ {head}int32_t {index} = {RenderExpr(call.Args[1])}; " +
+                    $"tcs_utf8_bytes_at({view}, {index}); }})";
+            }
+            case "Slice":
+            {
+                var start = Temp("utf8_start");
+                var count = Temp("utf8_count");
+                return $"({{ {head}int32_t {start} = {RenderExpr(call.Args[1])}; " +
+                    $"int32_t {count} = {RenderExpr(call.Args[2])}; " +
+                    $"tcs_utf8_bytes_check_slice({u}.{fields.Length}, {start}, {count}); " +
+                    $"({bytes}){{ .{fields.Text} = {u}.{fields.Text}, .{fields.Start} = {u}.{fields.Start} + {start}, .{fields.Length} = {count} }}; }})";
+            }
+            default:
+                return $"({{ {head}tcs_utf8_bytes_to_string({view}); }})";
+        }
+    }
 
     // ---- Random (TinySystem.Random: instance + Shared。Lua 5.5 の
     // math.random と同じ xoshiro256** を runtime の TcsRandom が持つ) ----

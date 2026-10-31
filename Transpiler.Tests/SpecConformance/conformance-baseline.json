@@ -162,7 +162,7 @@
     "category": "CsErr"
   },
   "basic-concepts.md:AccessibilityDomains": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "basic-concepts.md:AccessibilityDomainsNot": {
     "category": "CsErr"
@@ -264,7 +264,7 @@
     "category": "Diag"
   },
   "classes.md:AccessToPrivateAndProtectedMembers1": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "classes.md:AccessToPrivateAndProtectedMembers2": {
     "category": "Diag"
@@ -438,7 +438,7 @@
     "category": "Diag"
   },
   "classes.md:ExternalMethods": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "classes.md:FieldInitialization": {
     "category": "InRun"
@@ -505,7 +505,7 @@
     "category": "Diag"
   },
   "classes.md:NestedTypes": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "classes.md:NestedTypesInGenericClasses1": {
     "category": "CsErr"
@@ -589,7 +589,7 @@
     "category": "Diag"
   },
   "classes.md:RecordDeconstruct": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "classes.md:RecordEqualityMembers1": {
     "category": "Diag"
@@ -643,7 +643,7 @@
     "category": "InCompile"
   },
   "classes.md:ThisAccess": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "classes.md:TypeParameterConstraints0": {
     "category": "InCompile"
@@ -849,7 +849,7 @@
     "category": "InCompile"
   },
   "documentation-comments.md:TagReturns": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "documentation-comments.md:TagSee": {
     "category": "InCompile"
@@ -957,7 +957,7 @@
     "category": "CsErr"
   },
   "expressions.md:BetterParmPassingMode": {
-    "category": "InCompile"
+    "category": "Diag"
   },
   "expressions.md:BinaryNumericPromotions1": {
     "category": "CsErr"
@@ -1002,7 +1002,7 @@
     "category": "CsErr"
   },
   "expressions.md:DeclarationExpressions2": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "expressions.md:DeclarationExpressions3": {
     "category": "CsErr"
@@ -1017,7 +1017,7 @@
     "category": "Diag"
   },
   "expressions.md:DiscardExpressions2": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "expressions.md:DiscardExpressions3": {
     "category": "CsErr"
@@ -1029,7 +1029,7 @@
     "category": "InRun"
   },
   "expressions.md:IdenticalSimpleAndTypeNames": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "expressions.md:InferredReturnType1": {
     "category": "Diag"
@@ -1062,7 +1062,7 @@
     "category": "InRun"
   },
   "expressions.md:NameofExpressions": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "expressions.md:NullCoalescingGenerics": {
     "category": "Diag"
@@ -1474,7 +1474,7 @@
     "category": "CsErr"
   },
   "namespaces.md:UsingStaticDirectives1": {
-    "category": "Diag"
+    "category": "InCompile"
   },
   "namespaces.md:UsingStaticDirectives2": {
     "category": "CsErr"
@@ -1649,7 +1649,7 @@
     "category": "CsErr"
   },
   "structs.md:Constructors1": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "structs.md:Constructors2": {
     "category": "Unextracted",
@@ -1671,7 +1671,7 @@
     "category": "Diag"
   },
   "structs.md:MeaningOfThis1": {
-    "category": "Diag"
+    "category": "InRun"
   },
   "structs.md:MeaningOfThis2": {
     "category": "Diag"
@@ -1736,7 +1736,7 @@
     "category": "InCompile"
   },
   "types.md:ExpressionTreeTypes": {
-    "category": "InRun"
+    "category": "Diag"
   },
   "types.md:LiftedOperator": {
     "category": "Diag"
@@ -1745,7 +1745,7 @@
     "category": "Diag"
   },
   "types.md:NullAutoPropertyAnalysis": {
-    "category": "InRun"
+    "category": "Diag"
   },
   "types.md:NullChecked": {
     "category": "Diag"

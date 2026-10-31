@@ -26,6 +26,28 @@ public class ModuleDescriptorTests
         ModuleLinker.LinkSnapshot(session.Artifacts, session.Revision, entry,
             TinySystemLua, RegistryLua);
 
+    // タプルの struct の型と、保持の helper (__tcs_tupleN) は module の snapshot でも引ける
+    [Fact]
+    public void Snapshot_TupleHeldFromMultiReturn()
+    {
+        var session = Open(("game.cs", """
+            public static class Game
+            {
+                static (int, int) Two() { return (20, 22); }
+                public static int Run() { var t = Two(); var c = t; c.Item1 = 0; return t.Item1 + t.Item2; }
+            }
+            """));
+        Assert.Empty(session.CollectDiagnostics().Errors);
+
+        var output = RunWithSnapshots(
+            """
+            local w = dofile(snap1)
+            print(w.Run())
+            """,
+            Snapshot(session, "Game"));
+        Assert.Equal("42", output);
+    }
+
     // snapshot を一時ファイルへ書き、script (dofile ベース) を実行する
     private static string RunWithSnapshots(string script,
         params string[] snapshots)
@@ -448,10 +470,11 @@ public class ModuleDescriptorTests
     public void StructFieldTypeChangeWithSameDefaultRestarts()
     {
         var src = """
+            using TinySystem.Text;
             public struct P
             {
                 public string X;
-                public int Read() { return X.Length + 1; }
+                public int Read() { return X.RuneCount() + 1; }
             }
             public class App
             {
@@ -463,7 +486,7 @@ public class ModuleDescriptorTests
 
         var r = session.Update("p.cs", src
             .Replace("public string X;", "public int[] X;")
-            .Replace("X.Length + 1", "X[0] + 1")
+            .Replace("X.RuneCount() + 1", "X[0] + 1")
             .Replace("p.X = \"a\";", "p.X = new int[] { 1 };"));
         Assert.True(r.Success, string.Join(";", r.Errors));
         Assert.True(r.RequiresRestart);
