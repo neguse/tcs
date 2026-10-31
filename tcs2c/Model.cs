@@ -5,7 +5,7 @@ namespace TinyCs.Tcs2c;
 
 internal sealed class Tcs2cException(string message) : Exception(message);
 
-internal enum CTypeKind { Void, I32, F32, Bool, String, Ref, Array, List, Null, Dict, Kvp, Closure, StructVal, Nullable, Random, Object }
+internal enum CTypeKind { Void, I32, F32, Bool, String, Ref, Array, List, Null, Dict, Kvp, Closure, StructVal, Nullable, Random, Utf8Bytes, Object }
 
 internal sealed record CType(CTypeKind Kind, string? Name = null,
     CType? Element = null, CType? Key = null,
@@ -19,6 +19,8 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
     public static readonly CType Null = new(CTypeKind.Null);
     /// <summary>TinySystem.Random の instance (runtime の TcsRandom、GC object)。</summary>
     public static readonly CType Random = new(CTypeKind.Random);
+    /// <summary>TinySystem.Text.Utf8Bytes の instance (runtime の TcsUtf8Bytes、GC object)。</summary>
+    public static readonly CType Utf8Bytes = new(CTypeKind.Utf8Bytes);
     /// <summary>`object`: 参照型はそのまま、int / float / bool は box (TcsBox)。
     /// 実行時型 tag (GC header の type_id) で cast を検査する。</summary>
     public static readonly CType Object = new(CTypeKind.Object);
@@ -65,6 +67,7 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
         CTypeKind.Dict => "TcsDict *",
         CTypeKind.Closure => "TcsClosure *",
         CTypeKind.Random => "TcsRandom *",
+        CTypeKind.Utf8Bytes => "TcsUtf8Bytes *",
         CTypeKind.Object => "void *",
         CTypeKind.Nullable => Element!.Kind switch
         {
@@ -101,7 +104,7 @@ internal sealed record CType(CTypeKind Kind, string? Name = null,
 
     public bool IsNullable => Kind is CTypeKind.String or CTypeKind.Ref
         or CTypeKind.Array or CTypeKind.List or CTypeKind.Dict
-        or CTypeKind.Closure or CTypeKind.Random or CTypeKind.Object;
+        or CTypeKind.Closure or CTypeKind.Random or CTypeKind.Utf8Bytes or CTypeKind.Object;
 
     public override string ToString() => Kind switch
     {

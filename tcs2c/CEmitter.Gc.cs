@@ -18,7 +18,7 @@ internal sealed partial class CEmitter
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool => "NULL",
         CTypeKind.String or CTypeKind.Ref or CTypeKind.Array or CTypeKind.List
             or CTypeKind.Dict or CTypeKind.Closure or CTypeKind.Random
-            or CTypeKind.Object => "&tcs_layout_ptr",
+            or CTypeKind.Utf8Bytes or CTypeKind.Object => "&tcs_layout_ptr",
         CTypeKind.StructVal => $"&{Names.StructLayout(type.Name!)}",
         CTypeKind.Nullable => type.Element!.Kind == CTypeKind.StructVal
             ? $"&{Names.NullableLayout(type.Element.Name!)}" : "NULL",
@@ -27,7 +27,8 @@ internal sealed partial class CEmitter
 
     private static bool IsPointerType(CType type) => type.Kind
         is CTypeKind.String or CTypeKind.Ref or CTypeKind.Array or CTypeKind.List
-        or CTypeKind.Dict or CTypeKind.Closure or CTypeKind.Random or CTypeKind.Object;
+        or CTypeKind.Dict or CTypeKind.Closure or CTypeKind.Random or CTypeKind.Utf8Bytes
+        or CTypeKind.Object;
 
     // struct 値 1 個の中の pointer slot (byte offset 式)。struct-in-struct は
     // offsetof の加算で平坦化する

@@ -2640,3 +2640,10 @@
 - 検証: PowerShell で一度も実行していない (この環境に pwsh が無く、CI にも PowerShell の step が無い)。`bash run-tests.sh` は通るが、ps1 は通らない
 - 判断: `run-tests.ps1` の scratch root に空の `Directory.Build.props` を置く案は入れない。bash 版と同じく、自分専用の場所に移すことで足りる
 - 残課題: PowerShell での実行
+
+### TinySystem.Text: RuneCount / RuneSubstring / Utf8Bytes ✓ (2026-10-31)
+- 文字列の文字と byte の位置の API を `TinySystem.Text` に置く。C の正本は `runtime/utf8`、Lua は `tcs_utf8` module、.NET は `TinySystem/Utf8.cs`
+- `Utf8Bytes` は class。Lua は `{ s, o, Length }`、C は `TcsUtf8Bytes` (GC object) で文字列を指す。`ToString` は壊れた並びを `Encoding.UTF8` と同じ位置で U+FFFD にする
+- 検証: `dotnet test tcs2c.Tests --filter "FullyQualifiedName~Utf8"`。`Backends.RunDotnet` で同じ program を実 .NET でも実行し、Lua / C / .NET の stdout を比べる。C の復号は 1〜2 byte の全組み合わせと境界の値の 3〜4 byte の並びで `Encoding.UTF8` と比べる
+- 判断: struct にすると `default(Utf8Bytes)` と未初期化の field の意味を 3 経路で揃える手間がかかるので、null の意味が揃う class にする
+- 残課題: `byte` の `++` と `(byte)x` は Lua / C で 0〜255 に丸めない

@@ -244,6 +244,16 @@ public static partial class TinyCsComplianceFacts
         return true;
     }
 
+    // TinySystem.Text (TinySystem/Utf8.cs) は runtime の実装を呼ぶ。同じ名前を source に宣言した型は user の型
+    private static bool IsTextApiType(INamedTypeSymbol? type) =>
+        type is { Name: "Runes" or "Utf8Bytes", DeclaringSyntaxReferences.Length: 0 }
+        && type.ContainingNamespace.ToDisplayString() == "TinySystem.Text";
+
+    public static bool IsUtf8BytesType(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { Name: "Utf8Bytes" } named && IsTextApiType(named);
+
+    public static bool IsTextApiMember(ISymbol symbol) => IsTextApiType(symbol.ContainingType);
+
     // CompareTo は int / float の同じ型どうしだけを intrinsic (-1 / 0 / 1) に
     // する。object overload・enum・IComparable<T> 経由 (generic の T を含む)・
     // 差を返す char は対象外

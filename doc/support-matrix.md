@@ -114,7 +114,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `bool` (Boolean) | **Y** | boolean | 文字列化 (`ToString()`・連結・補間・`Console.WriteLine`・`string.Join` の要素、`bool?` と object に入れた値も) は .NET と同じ `True` / `False` (`__tcs_bstr`) |
 | `decimal` (Decimal) | **-** | | |
 | `char` (Char) | **Y** | 整数 code unit (byte)。literal は ASCII のみ (非 ASCII は TCS1001 `NonAsciiCharLiteral`、string literal で書く)。`(char)x` の x が 0〜255 の外なら Lua / C とも同じ文言で fault し、`char.ConvertFromUtf32` を案内する (.NET は UTF-16 の code unit を作る)。cast を通らずに範囲を出た値 (`c++`) は文字列化の地点で fault する。算術 / 比較 / switch / pattern は int と同じ、文字列化 (連結・補間・`ToString`・`WriteLine`) は 1 byte の string。`Char.*` は §15b |
-| `byte` (Byte) | **-** | | |
+| `byte` (Byte) | **P** | `Utf8Bytes` の添字 `u[i]` の結果を受ける型で、i32 と同じ表現。`byte` の `++` と `(byte)x` は 0〜255 に丸めない (Lua / C とも。.NET は丸める) ので、整数として読むだけにする | |
 | `sbyte` (SByte) | **-** | | |
 | `short` (Int16) | **-** | | |
 | `ushort` (UInt16) | **-** | | |
@@ -863,6 +863,24 @@ Dictionary の `Keys` / `Values` も受け手にでき (`d.Values.Where(..).Orde
 | `Rune` | **P** | `string.EnumerateRunes()` の foreach 変数と `.Value`、文字列化のみ (§13)。`new Rune(n)` は TCS1002、`string.Join` の要素と `Rune?` の文字列化は TCS1001 |
 
 ---
+
+## 20b. TinySystem.Text
+
+文字列の文字と byte の位置の API。`using TinySystem.Text;` で使う。
+C の正本は `runtime/utf8` で、Lua は `tcs_utf8` module (host が登録する。README) で同じものを呼ぶ。.NET は `TinySystem/Utf8.cs` の同じ結果を返す C# 版。
+文字は Unicode scalar value (`EnumerateRunes` の 1 個)。範囲の外と null の受け手は fault (.NET は例外)。
+
+| メンバー | 状態 | 説明 |
+|---------|:----:|------|
+| `s.RuneCount()` | **Y** | 文字数。文字列の長さに比例する時間 |
+| `s.RuneSubstring(start, count)` | **Y** | `start` 文字目から `count` 文字の string。文字列の長さに比例する時間 |
+| `new Utf8Bytes(s)` | **Y** | UTF-8 の byte 列の view (class)。.NET はここで `byte[]` に 1 度だけ変換し、Lua / C は文字列をそのまま指す |
+| `u.Length` | **Y** | byte 数 |
+| `u[i]` | **Y** | byte。O(1) |
+| `u.Slice(start, count)` | **Y** | byte を複製しない view。view の object は新しく作る |
+| `u.ToString()` | **Y** | byte 列の string。文字の途中で切った slice の壊れた並びは U+FFFD になる (.NET の `Encoding.UTF8` と同じ位置で同じ個数) |
+
+`Runes.RuneCount(s)` の static の形と `?.` も同じ。`Utf8Bytes` の連結・補間・`Console.WriteLine` は TCS1001 `UnsupportedToString` (`ToString()` を書く)。method group は TCS1001 `TextApiMethodGroup`。
 
 ## 21. System.IO
 

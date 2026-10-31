@@ -158,6 +158,7 @@ internal sealed partial class CEmitter
         _output.Append(RuntimePrelude);
         _output.Append(RuntimeMath.Value);
         _output.Append(RuntimeFmt.Value);
+        _output.Append(RuntimeUtf8.Value);
         _output.Append(RuntimeCore);
         _output.Append(RuntimeGc);
         _output.Append(RuntimeCollections);
@@ -241,7 +242,8 @@ internal sealed partial class CEmitter
     {
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool or CTypeKind.String
             or CTypeKind.Ref or CTypeKind.StructVal or CTypeKind.Closure
-            or CTypeKind.Nullable or CTypeKind.Random or CTypeKind.Object => true,
+            or CTypeKind.Nullable or CTypeKind.Random or CTypeKind.Utf8Bytes
+            or CTypeKind.Object => true,
         CTypeKind.Dict => type.Key is not null && type.Element is not null
             && IsStorageType(type.Element),
         CTypeKind.Array or CTypeKind.List => type.Element is not null

@@ -545,13 +545,19 @@ public static partial class TinyCsComplianceFacts
             // `x?.M()` の `.M` (MemberBinding の name) は呼び出し位置
             && (node.Parent is not MemberBindingExpressionSyntax binding
                 || binding.Name != node)
-            && model.GetSymbolInfo(node).Symbol is IMethodSymbol
-            {
-                IsStatic: false, MethodKind: MethodKind.Ordinary
-            })
+            && model.GetSymbolInfo(node).Symbol is IMethodSymbol groupMethod)
         {
-            syntaxName = "InstanceMethodGroup";
-            return true;
+            if (groupMethod is { IsStatic: false, MethodKind: MethodKind.Ordinary })
+            {
+                syntaxName = "InstanceMethodGroup";
+                return true;
+            }
+            // TinySystem.Text の method は Lua / C の関数の値を持たない
+            if (IsTextApiMember(groupMethod.ReducedFrom ?? groupMethod))
+            {
+                syntaxName = "TextApiMethodGroup";
+                return true;
+            }
         }
 
         // 補間 alignment の非リテラルは format 文字列へ式が埋め込まれる

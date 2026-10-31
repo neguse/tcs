@@ -22,6 +22,8 @@ internal sealed partial class CEmitter
 
     private bool IsIntrinsicCallee(string rawCallee)
     {
+        // 修飾された名前で来るので、user の class Utf8 とは衝突しない
+        if (rawCallee.StartsWith("TinySystem.Utf8.", StringComparison.Ordinal)) return true;
         var callee = NormalizeCallee(rawCallee);
         if (IntrinsicNames.Contains(callee)) return true;
         var dot = callee.IndexOf('.');
@@ -38,6 +40,8 @@ internal sealed partial class CEmitter
         var args = call.Args;
         if (call.Callee.StartsWith("Random.", StringComparison.Ordinal))
             return TypeOfRandomOp(call);
+        if (call.Callee.StartsWith("Utf8.", StringComparison.Ordinal))
+            return TypeOfUtf8Op(call);
         if (call.Callee.StartsWith("Char.", StringComparison.Ordinal))
         {
             RequireArity(call.Callee, args.Length, 1);
@@ -131,6 +135,8 @@ internal sealed partial class CEmitter
         var args = call.Args;
         if (call.Callee.StartsWith("Random.", StringComparison.Ordinal))
             return RenderRandomOp(call, type);
+        if (call.Callee.StartsWith("Utf8.", StringComparison.Ordinal))
+            return RenderUtf8Op(call, type);
         if (call.Callee.StartsWith("Char.", StringComparison.Ordinal))
         {
             var fn = call.Callee["Char.".Length..] switch
@@ -451,6 +457,42 @@ internal sealed partial class CEmitter
         CTypeKind.Bool => "TCS_JOIN_BOOL",
         _ => null,
     };
+
+    // ---- TinySystem.Text (TinySystem.Utf8.X の呼び出し。runtime の tcs_utf8_* を呼ぶ) ----
+    private CType TypeOfUtf8Op(IlCall call)
+    {
+        var name = call.Callee["Utf8.".Length..];
+        var (receiver, result, ints) = name switch
+        {
+            "RuneCount" => (CType.String, CType.I32, 0),
+            "RuneSubstring" => (CType.String, CType.String, 2),
+            "New" => (CType.String, CType.Utf8Bytes, 0),
+            "At" => (CType.Utf8Bytes, CType.I32, 1),
+            "Slice" => (CType.Utf8Bytes, CType.Utf8Bytes, 2),
+            "ToString" => (CType.Utf8Bytes, CType.String, 0),
+            _ => throw new Tcs2cException($"unsupported TinySystem.Text member: {name}"),
+        };
+        RequireArity(call.Callee, call.Args.Length, ints + 1);
+        RequireType(receiver, TypeOf(call.Args[0]), call.Callee);
+        foreach (var arg in call.Args.Skip(1)) RequireType(CType.I32, TypeOf(arg), call.Callee);
+        return result;
+    }
+
+    private string RenderUtf8Op(IlCall call, CType type)
+    {
+        var (fn, receiver) = call.Callee["Utf8.".Length..] switch
+        {
+            "RuneCount" => ("tcs_string_rune_count", CType.String),
+            "RuneSubstring" => ("tcs_string_rune_substring", CType.String),
+            "New" => ("tcs_utf8_bytes_new", CType.String),
+            "At" => ("tcs_utf8_bytes_at", CType.Utf8Bytes),
+            "Slice" => ("tcs_utf8_bytes_slice", CType.Utf8Bytes),
+            _ => ("tcs_utf8_bytes_to_string", CType.Utf8Bytes),
+        };
+        return RenderOrderedCall(fn, type,
+            [(receiver, RenderExpr(call.Args[0])),
+             .. call.Args.Skip(1).Select(arg => (CType.I32, RenderExpr(arg)))]);
+    }
 
     // ---- Random (TinySystem.Random: instance + Shared。Lua 5.5 の
     // math.random と同じ xoshiro256** を runtime の TcsRandom が持つ) ----

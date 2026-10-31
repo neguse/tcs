@@ -630,6 +630,7 @@ public partial class LuaEmitter
     {
         // string の添字 (byte) も範囲外を fault にする
         "string.byte" => "__tcs_byte",
+        "TinySystem.Utf8.At" => "__tcs_u8at",
         "Math.Min" => "__tcs_min",
         "Math.Max" => "__tcs_max",
         "Math.Abs" => "math.abs",
