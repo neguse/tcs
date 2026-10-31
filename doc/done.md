@@ -2649,3 +2649,11 @@
 - 検証: `DifferentialTests.StructOperators` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout。`HotReloadTests` / `HotReloadRestartTests` に struct の static を足した
 - 判断: `==` / 比較系 / 変換演算子は class と同じくサブセットの外。Main を struct に置く entry は C backend が class だけを探すので対象外のまま
 - 残課題: なし
+
+### 複数の constructor ✓ (2026-10-31)
+- class / struct / record struct に constructor を複数書けるようにした。Lua は `LuaNaming.CtorName` の名前 (`C.new__int`、`S.ctor__float__float`) の関数を constructor ごとに作り、C は `tcs_new_` / `tcs_init_` / `tcs_ctor_S_` を constructor ごとに作る
+- IL 契約は `IlClassInfo.Ctor` / `IlStructInfo.Ctor` を `Ctors` にし、`IlCtorInfo.Name` と `IlNewObj.Ctor` で宣言と呼び出しを結ぶ
+- 引数のある explicit constructor を持つ record struct は Lua で関数が出ていなかったので、struct と同じ経路で出すようにした
+- 検証: `DifferentialTests.MultipleConstructors` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout
+- 判断: `: this(...)` は入れない (今回の範囲に無い)。TCS1001 `ThisConstructorInitializer` のまま
+- 残課題: なし

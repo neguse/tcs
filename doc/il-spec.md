@@ -172,7 +172,7 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
   その場に残る。rvalue (property / List indexer / 呼び出し結果) は copy を
   渡し、変異は捨てられる (C# と同じ)。backend は place のアドレス渡し
   (C: `Tcs_S *self`) で copy を省いてよい
-- explicit ctor は `IlCall("S.ctor", args)`: zero 値 → field initializer →
+- explicit ctor は `IlCall("S.ctor", args)` (複数あれば `S.ctor__float` の形): zero 値 → field initializer →
   本文の順。`new S()` は ctor を通らない zero 値 (IlNewObj、initializer も
   走らない)。record struct の positional ctor は宣言順の代入
 - 値等価は memberwise (ネスト struct は推移的)。record struct の `==` / `!=`
