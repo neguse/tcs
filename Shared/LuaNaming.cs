@@ -135,12 +135,20 @@ public static class LuaNaming
         return sb.ToString().TrimEnd('_');
     }
 
+    private static bool IsTupleOriginal(this INamedTypeSymbol type) =>
+        type is { Name: "ValueTuple", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
+
     /// <summary>source に宣言された型の Lua global 名。namespace の中の型は
     /// namespace 修飾名を `_` で結合し (`Game.Gfx.Color` → `Game_Gfx_Color`)、
     /// namespace に属さない型は simple 名。</summary>
     public static string TypeGlobalName(INamedTypeSymbol type)
     {
-        var parts = new List<string> { type.Name };
+        // System.ValueTuple は型引数の数ごとに別の型で、Lua の global も分ける
+        var parts = new List<string>
+        {
+            type.OriginalDefinition.IsTupleOriginal()
+                ? $"ValueTuple{type.Arity}" : type.Name,
+        };
         // ToDisplayString は keyword の namespace を `@event` と逃がすので Name をつなぐ
         for (var ns = type.ContainingNamespace; ns is { IsGlobalNamespace: false };
             ns = ns.ContainingNamespace)
