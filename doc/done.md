@@ -2640,3 +2640,10 @@
 - 検証: PowerShell で一度も実行していない (この環境に pwsh が無く、CI にも PowerShell の step が無い)。`bash run-tests.sh` は通るが、ps1 は通らない
 - 判断: `run-tests.ps1` の scratch root に空の `Directory.Build.props` を置く案は入れない。bash 版と同じく、自分専用の場所に移すことで足りる
 - 残課題: PowerShell での実行
+
+### 一覧に無い BCL の型を既定で止める ✓ (2026-10-31)
+- `TinyCsComplianceFacts` の TCS1002 を、止める namespace と型を列挙する形から、support-matrix の一覧にある型だけを通す形に変えた。`System.*` / `Microsoft.*` の型は member を使う地点に加えて型を書く地点でも止まる。`Enum` の static member も止まる
+- 修正前は `HashSet` や `Convert` などが診断なしで通り、実行時に nil で落ちていた
+- 検証: `dotnet test` の全通過。追加した `UnlistedBclType_IsUnsupportedApi`、`UnlistedBclTypeMention_ReportsUnsupportedApi`、`UnsupportedApi_BothBackendsStopWithDiagnostic` は修正前に fail
+- 判断: 属性の中は Lua / C に出ないので対象外。`IEnumerable<T>` などの N/A の型は書くのを許し member を止める。`StringComparison.Ordinal` のように overload の引数にしか使えない enum の member も型の一覧に無いので止まり、1 文に TCS1002 が 2 つ出ることがある
+- 残課題: なし
