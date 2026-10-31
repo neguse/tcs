@@ -602,6 +602,12 @@ public static partial class TinyCsComplianceFacts
         if (TryGetUnsupportedToString(node, model, out syntaxName))
             return true;
 
+        if (IsByteNarrowing(node, model))
+        {
+            syntaxName = "ByteNarrowing";
+            return true;
+        }
+
         // struct を object / interface に入れる (boxing)。Lua の struct は型を持たない table で
         // `is` と interface 経由の呼び出しが効かず、C backend は受け付けない
         if (IsStructBoxing(node, model))
@@ -650,7 +656,8 @@ public static partial class TinyCsComplianceFacts
         // foreach の反復変数の型への変換 (`foreach (IShape s in List<Sq>)`)
         if (node is ForEachStatementSyntax loop)
             return model.GetForEachStatementInfo(loop).ElementType
-                    is { TypeKind: TypeKind.Struct, DeclaringSyntaxReferences.Length: > 0 }
+                    is { TypeKind: TypeKind.Struct } element
+                && (element.DeclaringSyntaxReferences.Length > 0 || IsUtf8BytesType(element))
                 && model.GetTypeInfo(loop.Type).Type is { IsReferenceType: true };
         if (node is not ExpressionSyntax expr) return false;
         var info = model.GetTypeInfo(expr);
@@ -658,7 +665,8 @@ public static partial class TinyCsComplianceFacts
         var source = node is CastExpressionSyntax cast ? model.GetTypeInfo(cast.Expression).Type : info.Type;
         if (source is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
             source = nullable.TypeArguments[0];
-        return source is { TypeKind: TypeKind.Struct, DeclaringSyntaxReferences.Length: > 0 }
+        return source is { TypeKind: TypeKind.Struct }
+            && (source.DeclaringSyntaxReferences.Length > 0 || IsUtf8BytesType(source))
             && target is { IsReferenceType: true };
     }
 

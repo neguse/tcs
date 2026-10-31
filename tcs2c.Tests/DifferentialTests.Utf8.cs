@@ -9,7 +9,9 @@ public partial class DifferentialTests
         using System;
         using System.Collections.Generic;
         using TinySystem.Text;
-        public class Holder { public Utf8Bytes Bytes; public string Name; }
+        public class Holder { public Utf8Bytes Bytes; public Utf8Bytes? Maybe; public static Utf8Bytes Shared; }
+        public struct Wrap { public Utf8Bytes U; public int N; }
+        public class Box<T> { public T Value; }
         public class P
         {
             public static void Main()
@@ -66,34 +68,105 @@ public partial class DifferentialTests
     }
 
     [CFact]
-    public void Utf8Bytes_FlowsThroughLocalsFieldsListsAndNull()
+    public void Utf8Bytes_FlowsThroughLocalsFieldsListsAndStructs()
     {
         var output = Backends.AssertAllPathsAgree(Utf8Program("""
             var h = new Holder();
-            Console.WriteLine(h.Bytes == null);
-            Console.WriteLine(h.Bytes?.Length ?? -1);
             h.Bytes = new Utf8Bytes("日本");
             int first = h.Bytes[0];
             byte second = h.Bytes[1];
             var third = h.Bytes[2];
             Console.WriteLine(first + second + third);
-            Console.WriteLine(h.Bytes?.Length ?? -1);
-            Console.WriteLine(h.Bytes?.Slice(3, 3)?.ToString() ?? "null");
             var list = new List<Utf8Bytes> { h.Bytes, h.Bytes.Slice(3, 3) };
-            Console.WriteLine(list[1].ToString() + list[1].Length + (list[0] == h.Bytes) + (list[1] == list[0]));
-            Utf8Bytes same = list[0];
-            Console.WriteLine(same == h.Bytes);
-            Console.WriteLine(h.Bytes?[0] ?? -1);
+            Console.WriteLine(list[1].ToString() + list[1].Length);
+            var w = new Wrap { U = list[1], N = 1 };
+            var copy = w;
+            copy.U = copy.U.Slice(0, 0);
+            Console.WriteLine(w.U.Length + ":" + copy.U.Length);
+            var array = new Utf8Bytes[] { list[1] };
+            Console.WriteLine(array[0].ToString());
+            var d = new Dictionary<string, Utf8Bytes>();
+            d["k"] = list[1];
+            Console.WriteLine(d["k"].Length);
+            foreach (var u in list) Console.WriteLine(u.Length);
             """), "P");
         Assert.Equal("""
-            True
-            -1
             546
-            6
+            本3
+            3:0
             本
-            本3TrueFalse
-            True
-            230
+            3
+            6
+            3
+            """.ReplaceLineEndings("\n"), output);
+    }
+
+    [CFact]
+    public void Utf8Bytes_DefaultIsAnEmptyViewEverywhere()
+    {
+        var output = Backends.AssertAllPathsAgree(Utf8Program("""
+            Utf8Bytes local = default;
+            var d = new Dictionary<string, Utf8Bytes>();
+            d.TryGetValue("none", out var missing);
+            var views = new List<Utf8Bytes>
+            {
+                default(Utf8Bytes), new Utf8Bytes(), local, new Holder().Bytes, Holder.Shared,
+                (new Utf8Bytes[2])[1], new Wrap().U, new Box<Utf8Bytes>().Value, missing,
+                new Utf8Bytes(""),
+            };
+            foreach (var u in views)
+                Console.WriteLine(u.Length + "[" + u.ToString() + "]" + u.Slice(0, 0).Length + "[" + u.Slice(0, 0).ToString() + "]");
+            """), "P");
+        Assert.Equal(string.Join("\n", Enumerable.Repeat("0[]0[]", 10)), output);
+    }
+
+    [CTheory]
+    [InlineData("default(Utf8Bytes)[0]")]
+    [InlineData("new Holder().Bytes[0]")]
+    [InlineData("new Wrap().U[-1]")]
+    [InlineData("(new Utf8Bytes[1])[0].Slice(0, 1).Length")]
+    [InlineData("new Box<Utf8Bytes>().Value.Slice(1, 0).Length")]
+    public void Utf8Bytes_DefaultIsOutOfRange(string call)
+    {
+        Assert.Equal("before", Backends.AssertFaultOnAllPaths(Utf8Program($$"""
+            Console.WriteLine("before");
+            Console.WriteLine({{call}});
+            """), "P"));
+    }
+
+    [CFact]
+    public void Utf8Bytes_NullableFollowsStructNullable()
+    {
+        var output = Backends.AssertAllPathsAgree(Utf8Program("""
+            var h = new Holder();
+            Utf8Bytes? none = h.Maybe;
+            Console.WriteLine((none == null) + ":" + none.HasValue);
+            Console.WriteLine(none?.Length ?? -1);
+            Console.WriteLine(none?[0] ?? -1);
+            Console.WriteLine(none?.ToString() ?? "null");
+            Console.WriteLine(none?.Slice(0, 0).Length ?? -1);
+            h.Maybe = new Utf8Bytes("ab");
+            Utf8Bytes? some = h.Maybe;
+            Console.WriteLine((some == null) + ":" + some.HasValue + ":" + some.Value.Length);
+            Console.WriteLine(some?.Length ?? -1);
+            Console.WriteLine(some?[1] ?? -1);
+            Console.WriteLine(some?.ToString() ?? "null");
+            Console.WriteLine(some?.Slice(1, 1).ToString() ?? "null");
+            var d = none ?? new Utf8Bytes("x");
+            Console.WriteLine(d.ToString());
+            """), "P");
+        Assert.Equal("""
+            True:False
+            -1
+            -1
+            null
+            -1
+            False:True:2
+            2
+            98
+            ab
+            b
+            x
             """.ReplaceLineEndings("\n"), output);
     }
 
@@ -133,9 +206,20 @@ public partial class DifferentialTests
     [InlineData("Func<string, int> f = Runes.RuneCount;", "TCS1001")]
     [InlineData("Func<int> f = \"\".RuneSubstring(0, 0).RuneCount;", "TCS1001")]
     [InlineData("Func<int, int, Utf8Bytes> f = new Utf8Bytes(\"\").Slice;", "TCS1001")]
-    [InlineData("Console.WriteLine(\"\" + new Utf8Bytes(\"\"));", "UnsupportedToString")]
-    [InlineData("Console.WriteLine($\"{new Utf8Bytes(\"\")}\");", "UnsupportedToString")]
-    [InlineData("Console.WriteLine(new Utf8Bytes(\"\"));", "UnsupportedToString")]
+    [InlineData("Console.WriteLine(\"\" + new Utf8Bytes(\"\"));", "TCS1001")]
+    [InlineData("Console.WriteLine($\"{new Utf8Bytes(\"\")}\");", "TCS1001")]
+    [InlineData("Console.WriteLine(new Utf8Bytes(\"\"));", "TCS1001")]
+    [InlineData("object o = new Utf8Bytes(\"\");", "StructBoxing")]
+    [InlineData("Utf8Bytes? n = null; object o = n;", "StructBoxing")]
+    [InlineData("var o = (object)new Utf8Bytes(\"\");", "StructBoxing")]
+    [InlineData("var d = new Dictionary<Utf8Bytes, int>();", "TCS1001")]
+    [InlineData("var u = new Utf8Bytes(\"\"); Console.WriteLine(u == null);", "CS0019")]
+    [InlineData("var u = new Utf8Bytes(\"\"); var v = u; Console.WriteLine(u == v);", "CS0019")]
+    [InlineData("var u = new Utf8Bytes(\"\"); Console.WriteLine(u?.Length);", "CS0023")]
+    [InlineData("var u = new Utf8Bytes(\"\"); Console.WriteLine(u.Equals(u));", "TCS1002")]
+    [InlineData("var l = new List<Utf8Bytes>(); Console.WriteLine(l.Contains(default));", "TCS1002")]
+    [InlineData("var l = new List<Utf8Bytes>(); Console.WriteLine(l.IndexOf(default));", "TCS1002")]
+    [InlineData("var l = new List<Utf8Bytes>(); l.Remove(default);", "TCS1002")]
     public void Utf8_UnsupportedForms_AreDiagnosed(string statement, string expected)
     {
         var ex = Assert.Throws<InvalidOperationException>(() => Backends.EmitC([Utf8Program(statement)], "P"));
@@ -202,6 +286,110 @@ public partial class DifferentialTests
         Assert.Contains("a||b||c", output);
     }
 
+    [Theory]
+    [InlineData("int x = 5; byte b = (byte)x;")]
+    [InlineData("int x = 5; byte? b = (byte?)x;")]
+    [InlineData("byte b = unchecked((byte)300);")]
+    [InlineData("byte b = unchecked((byte)-1);")]
+    [InlineData("byte b = (byte)1.5f;")]
+    [InlineData("byte b = 1; b++;")]
+    [InlineData("byte b = 1; b--;")]
+    [InlineData("byte b = 1; ++b;")]
+    [InlineData("byte b = 1; --b;")]
+    [InlineData("byte b = 1; b += 1;")]
+    [InlineData("byte b = 1; b -= 1;")]
+    [InlineData("byte b = 1; b *= 2;")]
+    [InlineData("byte b = 1; b <<= 1;")]
+    [InlineData("byte? b = 1; b++;")]
+    [InlineData("var f = new ByteField(); f.B++;")]
+    [InlineData("var f = new ByteField(); f.B += 1;")]
+    [InlineData("var a = new byte[1]; a[0]++;")]
+    public void ByteNarrowing_BothBackendsStop(string statement)
+    {
+        var program = ByteProgram(statement);
+        foreach (var run in new Func<string>[]
+                 {
+                     () => Backends.RunLua([program], "P"),
+                     () => Backends.EmitC([program], "P"),
+                 })
+            Assert.Contains("error TCS1001: unsupported syntax: ByteNarrowing",
+                Assert.Throws<InvalidOperationException>(run).Message);
+    }
+
+    [CFact]
+    public void Byte_ReadingAndInRangeConstants_Agree()
+    {
+        var output = Backends.AssertAllPathsAgree(ByteProgram("""
+            const int K = 7;
+            byte a = 200;
+            byte b = (byte)201;
+            byte c = (byte)K;
+            byte d = (byte)'a';
+            byte e = new Utf8Bytes("é")[1];
+            var f = new ByteField();
+            f.B = e;
+            e = new Utf8Bytes("é")[0];
+            int sum = a + b;
+            Console.WriteLine(a + ":" + b + ":" + c + ":" + d + ":" + e + ":" + f.B + ":" + sum);
+            """), "P");
+        Assert.Equal("200:201:7:97:195:169:401", output);
+    }
+
+    private static string ByteProgram(string body) => $$"""
+        using System;
+        using TinySystem.Text;
+        public class ByteField { public byte B; }
+        public class P
+        {
+            public static void Main()
+            {
+                {{body}}
+            }
+        }
+        """;
+
+    // 壊れた列の EnumerateRunes: program の中の string は (char) の 1 byte の連結でだけ壊れる (.NET では別の文字になる) ので、
+    // 同じ byte 列の Encoding.UTF8 の結果を期待値にする
+    [CTheory]
+    [InlineData(0xF0, 0x9F)]
+    [InlineData(0xF0, 0x9F, 0x98)]
+    [InlineData(0x80)]
+    [InlineData(0xBF, 0x80, 0x41)]
+    [InlineData(0xC0, 0x80)]
+    [InlineData(0xC1, 0x41)]
+    [InlineData(0xE0, 0x80, 0x80)]
+    [InlineData(0xE9, 0x41)]
+    [InlineData(0xED, 0xA0, 0x80)]
+    [InlineData(0xF0, 0x80, 0x80, 0x80)]
+    [InlineData(0xF4, 0x90, 0x80, 0x80)]
+    [InlineData(0xF5, 0x41)]
+    [InlineData(0xFF)]
+    [InlineData(0x41, 0xE6, 0x97, 0xA5, 0xE6, 0x97, 0x42)]
+    [InlineData(0xEF, 0xBF, 0xBD)]
+    public void EnumerateRunes_BrokenBytes_ReadsLikeEncodingUtf8(params int[] bytes)
+    {
+        var concat = string.Concat(bytes.Select(b => $" + (char)Id({b})"));
+        var output = Backends.AssertParity($$"""
+            using System;
+            using TinySystem.Text;
+            public class P
+            {
+                static int Id(int x) { return x; }
+                public static void Main()
+                {
+                    string s = ""{{concat}};
+                    string runes = "";
+                    int count = 0;
+                    foreach (var r in s.EnumerateRunes()) { runes += r.Value + ","; count++; }
+                    Console.WriteLine(runes + count + ":" + s.RuneCount());
+                }
+            }
+            """, "P");
+        var text = Encoding.UTF8.GetString([.. bytes.Select(b => (byte)b)]);
+        var expected = text.EnumerateRunes().Select(r => r.Value).ToList();
+        Assert.Equal(string.Concat(expected.Select(v => v + ",")) + expected.Count + ":" + expected.Count, output);
+    }
+
     // lib 形のフレーム境界 GC を越えて、Utf8Bytes が持つ文字列が生き残る
     [CFact]
     public void Utf8Bytes_SurvivesFrameBoundaryGc()
@@ -209,9 +397,13 @@ public partial class DifferentialTests
         var output = Backends.AssertParityLib("""
             using System;
             using TinySystem.Text;
+            public class Holder { public Utf8Bytes Bytes; }
             public class G
             {
                 static Utf8Bytes kept;
+                static Holder holder = new Holder();
+                static System.Collections.Generic.List<Utf8Bytes> views = new System.Collections.Generic.List<Utf8Bytes>();
+                static Utf8Bytes? maybe;
                 static int frame;
                 static int sum;
                 public static void Setup()
@@ -219,6 +411,9 @@ public partial class DifferentialTests
                     string text = "";
                     for (int i = 0; i < 40; i++) text += "日" + i;
                     kept = new Utf8Bytes(text).Slice(3, 30);
+                    holder.Bytes = new Utf8Bytes(text + "h");
+                    views.Add(new Utf8Bytes(text + "l"));
+                    maybe = new Utf8Bytes(text + "m");
                 }
                 public static void Frame()
                 {
@@ -231,10 +426,12 @@ public partial class DifferentialTests
                 public static void Report()
                 {
                     Console.WriteLine(sum + ":" + kept.Length + ":" + kept.ToString().RuneCount());
+                    Console.WriteLine(holder.Bytes.Length + ":" + views[0].Length + ":" + maybe?.Length);
+                    Console.WriteLine(holder.Bytes[holder.Bytes.Length - 1] + ":" + views[0][views[0].Length - 1] + ":" + maybe?[maybe.Value.Length - 1]);
                 }
             }
             """, "G", 5);
-        Assert.Equal("1175:25:13", output);
+        Assert.StartsWith("1175:25:13\n", output);
     }
 
     // runtime/utf8 の復号が .NET の UTF8 と同じ位置で U+FFFD を出す。tcs の program からは壊れた byte 列を作れないので、C を直接比べる
@@ -257,6 +454,11 @@ public partial class DifferentialTests
                 tcs_utf8_scrub(s, n, out);
                 for (i = 0; i < length; i++) hash = (hash ^ out[i]) * 16777619u;
                 hash = (hash ^ (uint32_t)tcs_utf8_rune_count(s, n)) * 16777619u;
+                for (i = 0; i < n;) {
+                    uint32_t rune;
+                    i += tcs_utf8_decode(s + i, n - i, &rune);
+                    hash = (hash ^ rune) * 16777619u;
+                }
             }
             int main(void)
             {
@@ -293,6 +495,7 @@ public partial class DifferentialTests
             var text = Encoding.UTF8.GetString(s, 0, n);
             foreach (var b in Encoding.UTF8.GetBytes(text)) hash = unchecked((hash ^ b) * 16777619u);
             hash = unchecked((hash ^ (uint)text.EnumerateRunes().Count()) * 16777619u);
+            foreach (var rune in text.EnumerateRunes()) hash = unchecked((hash ^ (uint)rune.Value) * 16777619u);
         }
         for (var a = 0; a < 256; a++)
         {

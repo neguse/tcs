@@ -1,5 +1,5 @@
 /* TinyC# の文字列の操作 (runtime/utf8) を Lua の table として出す module。
-   tinysystem.lua は global の tcs_utf8 を呼ぶので、Lua を動かす host は VM を作るときに登録する:
+   tcs の Lua 出力と tinysystem.lua は global の tcs_utf8 を呼ぶので、Lua を動かす host は VM を作るときに登録する:
      luaL_requiref(L, "tcs_utf8", luaopen_tcs_utf8, 1); lua_pop(L, 1);
    runtime/utf8 の C と一緒に build する。 */
 #include "lauxlib.h"
@@ -57,12 +57,34 @@ static int tcs_utf8_l_find_white_space(lua_State *L) {
   return 2;
 }
 
+/* for _, r in codes(s) do: 位置 (0 始まりの byte) を control にして 1 文字ずつ読む。壊れた並びは U+FFFD */
+static int tcs_utf8_l_codes_next(lua_State *L) {
+  size_t length;
+  const char *s = lua_tolstring(L, 1, &length);
+  size_t at = (size_t)lua_tointeger(L, 2);
+  uint32_t rune;
+  if (at >= length) return 0;
+  at += tcs_utf8_decode((const unsigned char *)s + at, length - at, &rune);
+  lua_pushinteger(L, (lua_Integer)at);
+  lua_pushinteger(L, (lua_Integer)rune);
+  return 2;
+}
+
+static int tcs_utf8_l_codes(lua_State *L) {
+  luaL_checktype(L, 1, LUA_TSTRING);
+  lua_pushcfunction(L, tcs_utf8_l_codes_next);
+  lua_pushvalue(L, 1);
+  lua_pushinteger(L, 0);
+  return 3;
+}
+
 static const luaL_Reg tcs_utf8_funcs[] = {
     {"rune_count", tcs_utf8_l_rune_count},
     {"rune_substring", tcs_utf8_l_rune_substring},
     {"scrub", tcs_utf8_l_scrub},
     {"trim", tcs_utf8_l_trim},
     {"find_white_space", tcs_utf8_l_find_white_space},
+    {"codes", tcs_utf8_l_codes},
     {NULL, NULL}};
 
 LUAMOD_API int luaopen_tcs_utf8(lua_State *L) {

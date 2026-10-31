@@ -282,7 +282,7 @@ internal sealed partial class CEmitter
             && right.Kind is CTypeKind.I32 or CTypeKind.F32) return;
         if (left == right && left.Kind is CTypeKind.Bool or CTypeKind.String
             or CTypeKind.Ref or CTypeKind.Array or CTypeKind.List
-            or CTypeKind.Random or CTypeKind.Utf8Bytes) return;
+            or CTypeKind.Random) return;
         if (left.Kind == CTypeKind.Null && right.IsNullable
             || right.Kind == CTypeKind.Null && left.IsNullable) return;
         if (left.Kind == CTypeKind.Nullable && right.Kind is CTypeKind.Null or CTypeKind.Nullable
