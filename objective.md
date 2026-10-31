@@ -62,13 +62,17 @@ Roslynを「パーサー兼型チェッカー」として利用し、自前実�
 
 ### 選定基準
 
-TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味を保てる小さな核を狙う。機能を足すか切るかは、次の 6 つの基準で判断する。
+TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味を保てる小さな核を狙う。
+
+機能を足すか切るかは、書く人の効率とランタイムの効率で比べて、いちばん効率が良い選択をする。「他の書き方で書けるから要らない」は理由にならない。今使っている箇所の数も、その機能を禁止しているサブセットの中で数えたものなら根拠にならない。性能は C (tcs2c) と .NET の Release を第一に、Lua を次に見て、実測で比べる。
+
+その選択は次の 6 つの基準を満たす。
 
 1. **全 backend で同じ結果になる**。評価順、丸め、エラーの扱いが Lua / C / .NET で異なる機能は、仕様を定めて揃えるか、サブセットから外す。差異を黙って残さない (Dictionary の列挙順は backend ごとに異なるため未規定と定め、順序に依存する演算は置かない)。
-2. **名前と意味を C# から変えない**。残す API は C# と同じ名前で同じ意味を持つ。C# と意味が異なるものに C# の名前を付けない。対応しない機能は TCS1001 / TCS1002 で明示的に外す。意図して認める差異は LINQ の即時評価のみ (Dictionary を返す Select は C# の Select と意味が異なるため置かない)。
-3. **暗黙のコストを持ち込まない**。暗黙の確保、copy、遅延評価、仮想呼び出しを伴う機能は外す (遅延評価の `IEnumerable<T>` は持たず、LINQ は `List<T>` を即時に返す)。
+2. **名前と意味を C# から変えない**。残す API は C# と同じ名前で同じ意味を持つ。C# と意味が異なるものに C# の名前を付けない。対応しない機能は TCS1001 / TCS1002 で明示的に外す。C# と意味が異なる Select (Dictionary を返すもの) は置かない。LINQ の即時評価は C# との差で、`System.Linq` ではなく `TinySystem.Linq` の名前で提供する。
+3. **コストを書いた形から読めるようにする**。書いた形から読めない確保や遅延評価は持ち込まない (遅延評価の `IEnumerable<T>` は持たず、LINQ は `List<T>` を即時に返す)。struct の代入の copy、ラムダの確保、interface の呼び出しは C# を読む人が形から分かるので残す。
 4. **同じことを書く方法を 1 つにする**。C# は言語仕様が増えるたびに同じ目的の手段を重ねてきたが、tcs は目的ごとに一番よい方法だけを残す (`List<T>` があれば `ArrayList` は要らない)。
-5. **語彙を増やさない**。新しい型や名前は既存の語彙で表せない場合にだけ足し、足すときは BCL の名前を使う (見つける演算は `FindIndex` と `RemoveAll` を BCL の名前のまま足し、独自の名前を作らない)。
+5. **語彙を増やさない**。BCL に同じ意味のものがあれば BCL の名前で足し、独自の名前を作らない (見つける演算は `FindIndex` と `RemoveAll` を BCL の名前のまま足す)。BCL に無いものだけ `TinySystem` に置く (UTF-8 の byte 列の `TinySystem.Text.Utf8Bytes`)。
 6. **C# コンパイラが受理するものだけを受理する**。Roslyn をそのまま型検査器として使い、tcs 独自の緩和を入れない。C# の警告を準拠 error に格上げするなど、C# より厳しくすることは許容する (enum と int の暗黙変換を tcs だけ通すような緩和は持たない)。
 
 基準 2 と 4 が対立する場合 (C# の名前と意味を保ったままでは一番よい方法にならない場合) は、基準 2 を優先してその演算を外す。
@@ -77,24 +81,25 @@ TinyC# は C# の全部入りではなく、C# 開発者が現代的な書き味
 
 ### 残すもの
 
-- **型**: int, float, bool, string, class, enum, record, interface
-  - ユーザー定義 `struct` / `record struct` は現時点で TCS1001 未対応診断にし、値セマンティクスが必要なサンプルが出るまでは `class` / `record class` で代替する。
+- **型**: int, float, bool, string, class, struct, enum, record, record struct, interface, タプル, 入れ子の型
+- **引数**: `out` は `out var` / `out _` だけ
 - **メンバー**: メソッド, プロパティ, フィールド
 - **制御構文**: if/else, for, foreach, while, switch式（パターンマッチング）
 - **ラムダ**: `(x) => expr` / `(x) => { stmts }`
 - **Nullable annotations**: コンパイル時型チェックのみ（ランタイムコストなし）
 - **コレクション初期化構文**
 - **継承**: class / record の継承は対象外 (q.md Q15)。多態は interface の実装と型 switch、組み合わせは field (Go と同じ構成)
-- **演算子オーバーロード**: 二項 `+ - * / %` と単項 `-` のみ（class table 上の static 関数へ写像し、呼び出し箇所で静的に解決して直呼び）。
-  `==` / `!=` は record の値等価 (`__eq`) だけを提供し、通常 class の operator 宣言は対象外。
+- **演算子オーバーロード**: class と struct の二項 `+ - * / %` と単項 `-` のみ（型の table 上の static 関数へ写像し、呼び出し箇所で静的に解決して直呼び）。
+  `==` / `!=` は record と record struct の値等価だけを提供し、operator の宣言は対象外。
 
 ### 切るもの
 
 - async / await / Task系全般
 - LINQ クエリ構文（`from x in y select`）
 - reflection, dynamic, Expression Tree
-- unsafe, Span, ref struct
-- イベント / デリゲートのマルチキャスト
+- unsafe, Span, ref struct, `ref` / `in`
+- イベント / デリゲートのマルチキャストと同一性 (`+=` / `-=` / `==` / `!=` / `Equals`)
+- `Equals` / `GetHashCode` の `override` (値の比較は record / record struct で書く)
 - 変換演算子 (implicit / explicit) と `==` / `!=` / 比較系の演算子オーバーロード
 - using statement / using declaration / IDisposable 自動 dispose
 
@@ -133,9 +138,11 @@ dotnet側では `TinySystem.Random`, `TinySystem.Math`, `TinySystem.String`, `Ti
 |型                         |Lua表現                                       |
 |--------------------------|--------------------------------------------|
 |`List<T>`                 |Lua 5.5 sequence table `{[1]=v, [2]=v, ...}`|
+|`Queue<T>`                |先頭と末尾の添字を持つ table (O(1))             |
+|`HashSet<T>`              |.NET と同じ列挙順を保つ table                   |
 |`Dictionary<TKey, TValue>`|Lua 5.5 hash table `{[k]=v, ...}`           |
 
-Lua table の制約により、`List<T>` の null 要素と `Dictionary<TKey, TValue>` の null 値は未対応として診断する。
+要素が null になりうる `List<T>` は `n` field に要素数を持ち、null を格納できる。Lua table の制約により、配列の null 要素と `Dictionary<TKey, TValue>` の null 値は未対応として診断する。
 
 ### 数学
 
@@ -147,7 +154,11 @@ Lua table の制約により、`List<T>` の null 要素と `Dictionary<TKey, TV
 
 ### 文字列
 
-`String` 基本操作 — Contains, Split, Replace, StartsWith, EndsWith, Trim, Substring, IndexOf, Join
+文字列は UTF-8 と定める。.NET の `string` だけが UTF-16 で位置を扱う API の結果が backend で揃わないので、`Length`、`Substring`、`IndexOf`、添字、`foreach (char c in s)` は外す。
+
+`String` 基本操作 — Contains, Split, Replace, StartsWith, EndsWith, Trim, Join
+
+`TinySystem.Text` — `s.RuneCount()`, `s.RuneSubstring(start, count)`, `Utf8Bytes`
 
 ### 関数型
 
