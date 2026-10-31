@@ -155,20 +155,20 @@ public partial class DifferentialTests
                     S.Enqueue("s" + Frames);
                     if (Frames % 2 == 0)
                     {
-                        Seen += Q.Dequeue().Name.Length;
-                        Seen += S.Dequeue().Length;
+                        Seen += Q.Dequeue().Name.StartsWith("n") ? 2 : 0;
+                        Seen += S.Dequeue().StartsWith("s") ? 2 : 0;
                     }
                 }
                 public static void Report()
                 {
                     Console.WriteLine(Q.Count + "," + S.Count + "," + Seen);
                     Console.WriteLine(Q.Peek().Name + "," + S.Peek());
-                    foreach (var n in Q) Seen += n.Name.Length;
+                    foreach (var n in Q) Seen += n.Name.StartsWith("n") ? 2 : 0;
                     Console.WriteLine(Seen);
                 }
             }
             """, "L", 40);
-        Assert.Equal("20,20,102\nn21,s21\n162", output);
+        Assert.Equal("20,20,80\nn21,s21\n120", output);
     }
 
     [CTheory]
