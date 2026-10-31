@@ -21,6 +21,7 @@ public partial class LuaEmitter
         var info = BeginType(name, "record", symbol);
         AppendLine($"{name}.__index = {name}");
         info.DefinitionKeys.Add("__index");
+        EmitImplementedInterfaces(name, info, symbol);
         if (baseRecord != null)
         {
             var baseName = TypeName(baseRecord);
@@ -117,6 +118,8 @@ public partial class LuaEmitter
                 case OperatorDeclarationSyntax op
                     when TinyCsComplianceFacts.TryGetOperatorMetamethod(op, out _):
                     operators.Add(op);
+                    break;
+                case BaseTypeDeclarationSyntax:
                     break;
                 default:
                     ReportUnsupportedMember(member);

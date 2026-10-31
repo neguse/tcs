@@ -162,6 +162,12 @@ public partial class LuaEmitter
         AppendLine("  end");
         AppendLine("  return false");
         AppendLine("end");
+        // class の interface の検査 (il-spec §9)。class table の __interfaces は実装する interface の名前の集合
+        AppendLine("local function __tcs_implements(x, name)");
+        AppendLine("  local mt = getmetatable(x)");
+        AppendLine("  local set = mt and mt.__interfaces");
+        AppendLine("  return set ~= nil and set[name] == true");
+        AppendLine("end");
         // f32 の既定の文字列化 (il-spec §13)。
         // .NET の float.ToString() と同じ文字列を、host が登録する tcs_rt (runtime/lua/tcs_rt_lua.c) が作る
         AppendLine("local function __tcs_fstr(v) return tcs_rt.fstr(v) end");
@@ -198,6 +204,14 @@ public partial class LuaEmitter
         // struct / List / Dictionary の値) の文字列化はサブセット外 (TCS1001 UnsupportedToString)。
         // object / 型引数の値は実行時に fault する
         // bool は .NET と同じ True / False
+        // multi-return のタプルを保持するときの struct の table
+        for (var arity = 2; arity <= 7; arity++)
+        {
+            var names = Enumerable.Range(1, arity).Select(i => $"v{i}").ToList();
+            var fields = Enumerable.Range(1, arity).Select(i => $"Item{i} = v{i}");
+            AppendLine($"local function __tcs_tuple{arity}({string.Join(", ", names)}) " +
+                $"return {{{string.Join(", ", fields)}}} end");
+        }
         AppendLine("local function __tcs_bstr(b) return b and \"True\" or \"False\" end");
         AppendLine("local function __tcs_nstr(v)");
         AppendLine("  if v == nil then return \"\" end");
@@ -230,7 +244,7 @@ public partial class LuaEmitter
         AppendLine("end");
         // static method group の struct parameter を copy してから呼ぶ wrapper (il-spec §10)。
         // c は parameter ごとの copy 関数 (不要なら false)。
-        // 同じ関数には同じ wrapper を返し delegate の == を C# と揃えるので、cache は chunk をまたいで 1 つにする (module mode は TinySystem.mg)
+        // 同じ関数には同じ wrapper を返す。cache は chunk をまたいで 1 つにする (module mode は TinySystem.mg)
         AppendLine("local __tcs_mg = __tcs_mg");
         AppendLine("if __tcs_mg == nil then");
         AppendLine("  local cache = setmetatable({}, { __mode = \"k\" })");

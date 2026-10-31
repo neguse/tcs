@@ -60,6 +60,8 @@ public static partial class TinyCsComplianceFacts
         SyntaxKind.FileScopedNamespaceDeclaration,
         SyntaxKind.DelegateDeclaration,
         SyntaxKind.QueryExpression,
+        SyntaxKind.TupleType,
+        SyntaxKind.TupleExpression,
     ];
 
     // Lua 5.5 reserved words (deps/lua llex.c luaX_tokens). C# identifiers
@@ -107,12 +109,10 @@ public static partial class TinyCsComplianceFacts
 
         syntaxName = node switch
         {
-            // データ struct (field のみ) はサブセット内。
-            // ctor / method / property 等の member は引き続き拒否する
-            // (メソッド付き値型は metatable 無し表現と両立しないため)。
-            StructDeclarationSyntax nestedStruct
-                when nestedStruct.Parent is TypeDeclarationSyntax
-                    => "NestedTypeDeclaration",
+            // generic な型の中の型は外側の型引数を持つ。Lua は型を消し、C は top level の型の閉じた copy だけを作る
+            BaseTypeDeclarationSyntax nestedInGeneric
+                when InGenericType(nestedInGeneric)
+                    => "NestedTypeInGenericType",
             // field / method / property / operator / パラメータ付き ctor は対応
             // (型の table の静的自由関数へ emit)。record struct 本体の member も同じ規則。
             // indexer 等はサブセット外
@@ -124,15 +124,6 @@ public static partial class TinyCsComplianceFacts
             TypeDeclarationSyntax type
                 when type.Modifiers.Any(SyntaxKind.PartialKeyword)
                     => "PartialTypeDeclaration",
-            // nested class は Lua 出力に emit されず、参照時に実行時 nil の
-            // silent wrong-code になる
-            ClassDeclarationSyntax nested
-                when nested.Parent is TypeDeclarationSyntax
-                    => "NestedTypeDeclaration",
-            RecordDeclarationSyntax nestedRecord
-                when nestedRecord.Parent is TypeDeclarationSyntax
-                    && nestedRecord.Kind() == SyntaxKind.RecordDeclaration
-                    => "NestedTypeDeclaration",
             LockStatementSyntax => "LockStatement",
             TryStatementSyntax => "TryStatement",
             ThrowStatementSyntax => "ThrowStatement",
@@ -178,7 +169,7 @@ public static partial class TinyCsComplianceFacts
             // named argument は引数の並べ替え + optional 補完が必要で、
             // 現行 emit は位置渡しに黙って落ちる。
             ArgumentSyntax named
-                when named.NameColon is not null => "NamedArgument",
+                when named.NameColon is not null && named.Parent is not TupleExpressionSyntax => "NamedArgument",
             // delegate 型宣言と event は Lua 表現を持たない (`D.new` は存在せず、
             // multicast はサブセット外)。callback は BCL の Action/Func を使う。
             DelegateDeclarationSyntax => "DelegateDeclaration",
@@ -227,12 +218,9 @@ public static partial class TinyCsComplianceFacts
             InterpolatedStringTextSyntax interpText
                 when ContainsLoneSurrogate(interpText.TextToken.ValueText)
                     => "LoneSurrogateLiteral",
-            // tuple は Lua 表現を持たない (ValueTuple.new は存在しない)。
-            // 分解代入の LHS `(x, y) = rhs` だけは deconstruction lowering が
-            // 受け持つため除外する。
-            TupleTypeSyntax => "TupleType",
-            TupleExpressionSyntax tuple
-                when !IsDeconstructionTarget(tuple) => "TupleExpression",
+            // タプルは 7 要素まで (8 要素以上は BCL で入れ子の Rest になる)
+            TupleTypeSyntax { Elements.Count: > 7 } => "TupleArity",
+            TupleExpressionSyntax { Arguments.Count: > 7 } => "TupleArity",
             ListPatternSyntax => "ListPattern",
             SlicePatternSyntax => "SlicePattern",
             // static abstract / virtual operator (C# 11)。型消去の Lua では制約付き
@@ -244,12 +232,11 @@ public static partial class TinyCsComplianceFacts
                 when !TryGetOperatorMetamethod(op, out _)
                     => $"OperatorDeclaration({op.OperatorToken.Text})",
             ConversionOperatorDeclarationSyntax => "ConversionOperatorDeclaration",
-            // out/ref multi-return is only supported on --ref host method
-            // declarations (which are never emitted). A user-defined method
-            // with out/ref parameters transpiles to plain value passing, so
-            // reject the declaration instead of emitting silent wrong code.
+            // out はメソッドの宣言だけ (Lua は multi-return、C はポインタ)。delegate / lambda /
+            // ctor の out は呼び出しの形が決まらないので止める
             ParameterSyntax param
                 when param.Modifiers.Any(SyntaxKind.OutKeyword)
+                    && param.Parent?.Parent is not MethodDeclarationSyntax
                     => "OutParameter",
             ParameterSyntax param
                 when param.Modifiers.Any(SyntaxKind.RefKeyword)
@@ -354,15 +341,48 @@ public static partial class TinyCsComplianceFacts
         return Array.IndexOf(CallerInfoAttributeNames, simple) >= 0 ? simple : "";
     }
 
-    private static bool IsDeconstructionTarget(TupleExpressionSyntax tuple)
+    // タプルで backend が写さないもの: 比較 (要素ごとの `==`)、要素の型が違うタプルへの変換 (literal の
+    // 要素の変換は別)、パターン、ValueTuple の型名
+    private static bool TryGetUnsupportedTupleUse(SyntaxNode node, SemanticModel model,
+        out string syntaxName)
     {
-        SyntaxNode node = tuple;
-        while (node.Parent is TupleExpressionSyntax parent)
-            node = parent;
-        return node.Parent is AssignmentExpressionSyntax assignment
-            && assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
-            && assignment.Left == node;
+        syntaxName = node switch
+        {
+            BinaryExpressionSyntax binary
+                when (binary.IsKind(SyntaxKind.EqualsExpression)
+                        || binary.IsKind(SyntaxKind.NotEqualsExpression))
+                    && (IsTuple(model.GetTypeInfo(binary.Left).Type)
+                        || IsTuple(model.GetTypeInfo(binary.Right).Type))
+                    => "TupleEquality",
+            RecursivePatternSyntax { PositionalPatternClause: not null } pattern
+                when IsTuple(model.GetTypeInfo(pattern).Type)
+                    => "TuplePattern",
+            ExpressionSyntax value and not TupleExpressionSyntax
+                when model.GetTypeInfo(value) is var info
+                    && IsTuple(info.Type) && IsTuple(info.ConvertedType)
+                    && !SameTupleShape(info.Type!, info.ConvertedType!)
+                    => "TupleConversion",
+            SimpleNameSyntax { Identifier.ValueText: "ValueTuple" } name
+                when model.GetSymbolInfo(name).Symbol is INamedTypeSymbol
+                    {
+                        ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true },
+                    }
+                    => "ValueTupleName",
+            _ => "",
+        };
+        return syntaxName.Length > 0;
     }
+
+    private static bool IsTuple(ITypeSymbol? type) => type is { IsTupleType: true };
+
+    // 要素の名前を除いて同じ型か
+    private static bool SameTupleShape(ITypeSymbol a, ITypeSymbol b) =>
+        a is INamedTypeSymbol { IsTupleType: true } left
+        && b is INamedTypeSymbol { IsTupleType: true } right
+            ? left.TupleElements.Length == right.TupleElements.Length
+                && left.TupleElements.Zip(right.TupleElements,
+                    (x, y) => SameTupleShape(x.Type, y.Type)).All(same => same)
+            : SymbolEqualityComparer.Default.Equals(a, b);
 
     // struct instance member は静的自由関数へ emit できる。
     // パラメータなし明示 ctor は `new S()` (zero 値) と衝突するため除外。
@@ -387,6 +407,7 @@ public static partial class TinyCsComplianceFacts
             ConstructorDeclarationSyntax c =>
                 !c.Modifiers.Any(SyntaxKind.StaticKeyword)
                 && c.ParameterList.Parameters.Count > 0,
+            BaseTypeDeclarationSyntax => true,
             _ => false,
         };
 
@@ -497,6 +518,26 @@ public static partial class TinyCsComplianceFacts
         if (TryGetUnsupportedOverload(node, model, isReferenceTree, out syntaxName))
             return true;
 
+        // 自作メソッドの out は `out var` / `out _` の新しい変数だけ受ける。既存の変数を渡すと
+        // 別名ができ、Lua の multi-return では呼び出し中の書き込みが見えない
+        if (node is ArgumentSyntax outArgument
+            && outArgument.RefKindKeyword.IsKind(SyntaxKind.OutKeyword)
+            && outArgument.Expression is not DeclarationExpressionSyntax
+            && !(outArgument.Expression is IdentifierNameSyntax discard
+                && model.GetSymbolInfo(discard).Symbol is IDiscardSymbol)
+            && outArgument.Parent?.Parent is InvocationExpressionSyntax outCall
+            && model.GetSymbolInfo(outCall).Symbol is IMethodSymbol outTarget
+            && outTarget.DeclaringSyntaxReferences.Any(r => isReferenceTree?.Invoke(r.SyntaxTree) != true))
+        {
+            syntaxName = "OutArgumentNotDeclaration";
+            return true;
+        }
+
+        if (TryGetUnsupportedTupleUse(node, model, out syntaxName)) return true;
+
+        if (TryGetDelegateOperation(node, model, out syntaxName))
+            return true;
+
         // [Conditional] は呼び出し削除の意味論を持ち、tcs は常に呼んでしまう。
         // metadata のみで意味論を変えない他の属性は対象外。
         if (node is AttributeSyntax attribute
@@ -554,9 +595,7 @@ public static partial class TinyCsComplianceFacts
             return true;
         }
 
-        // interface は実行時表現を持たず (型チェックのみ)、interface を対象と
-        // する type test は常に偽の silent wrong-code になる (il-spec §2)。
-        if (IsInterfaceTypeTest(node, model))
+        if (IsInterfaceTypeTest(node, model, isReferenceTree))
         {
             syntaxName = "InterfaceTypeTest";
             return true;
@@ -638,38 +677,30 @@ public static partial class TinyCsComplianceFacts
             && target is { IsReferenceType: true };
     }
 
-    private static bool IsInterfaceTypeTest(SyntaxNode node,
-        SemanticModel model) => node switch
-    {
-        BinaryExpressionSyntax bin
-            when bin.IsKind(SyntaxKind.IsExpression)
-                && bin.Right is TypeSyntax right =>
-            IsInterfaceType(model.GetTypeInfo(right).Type),
-        DeclarationPatternSyntax dp =>
-            IsInterfaceType(model.GetTypeInfo(dp.Type).Type),
-        TypePatternSyntax tp =>
-            IsInterfaceType(model.GetTypeInfo(tp.Type).Type),
-        RecursivePatternSyntax { Type: { } recType } =>
-            IsInterfaceType(model.GetTypeInfo(recType).Type),
-        ConstantPatternSyntax cp =>
-            model.GetSymbolInfo(cp.Expression).Symbol
-                is ITypeSymbol { TypeKind: TypeKind.Interface },
-        _ => false,
-    };
-
-    private static bool IsInterfaceType(ITypeSymbol? type) =>
-        type?.TypeKind == TypeKind.Interface;
-
-    private static bool IsMalformedFormatSpecifier(string format) =>
-        format.Length > 1 && "FfNnDdXxEeGgRr".IndexOf(format[0]) >= 0
-        && !format.Skip(1).All(c => c is >= '0' and <= '9');
-
-    private static bool IsTypeTestWithoutRuntimeType(SyntaxNode node, SemanticModel model,
+    // class の interface の検査は、class の table / 型 id が持つ実装の一覧で判定する。
+    // 一覧に載らない interface と、一覧を持たない値が来る入力は止める:
+    //   - metadata と --ref の interface、generic な interface (Lua は型引数を消す)
+    //   - 参照型でない入力 (struct は型を持たない table で、`T` には struct が入る)
+    private static bool IsInterfaceTypeTest(SyntaxNode node, SemanticModel model,
         Func<SyntaxTree, bool>? isReferenceTree)
     {
-        var (input, type) = node switch
+        var (input, type) = TypeTestOperands(node, model);
+        if (type is not { TypeKind: TypeKind.Interface }) return false;
+        return input is not { IsReferenceType: true }
+            || type is INamedTypeSymbol { IsGenericType: true }
+            || type.DeclaringSyntaxReferences.Length == 0
+            || (isReferenceTree != null
+                && type.DeclaringSyntaxReferences.Any(r => isReferenceTree(r.SyntaxTree)));
+    }
+
+    // 型 test の (入力の型, 照合する型)。型 test でなければ (null, null)
+    private static (ITypeSymbol? Input, ITypeSymbol? Type) TypeTestOperands(SyntaxNode node,
+        SemanticModel model)
+    {
+        return node switch
         {
-            BinaryExpressionSyntax bin when bin.IsKind(SyntaxKind.IsExpression)
+            BinaryExpressionSyntax bin when (bin.IsKind(SyntaxKind.IsExpression)
+                    || bin.IsKind(SyntaxKind.AsExpression))
                 && bin.Right is TypeSyntax right =>
                 (model.GetTypeInfo(bin.Left).Type, model.GetTypeInfo(right).Type),
             DeclarationPatternSyntax dp => (PatternInput(dp), model.GetTypeInfo(dp.Type).Type),
@@ -680,6 +711,21 @@ public static partial class TinyCsComplianceFacts
                 (PatternInput(cp), model.GetSymbolInfo(cp.Expression).Symbol as ITypeSymbol),
             _ => (null, null),
         };
+
+        ITypeSymbol? PatternInput(SyntaxNode pattern) =>
+            (model.GetOperation(pattern) as IPatternOperation)?.InputType;
+    }
+
+    private static bool IsMalformedFormatSpecifier(string format) =>
+        format.Length > 1 && "FfNnDdXxEeGgRr".IndexOf(format[0]) >= 0
+        && !format.Skip(1).All(c => c is >= '0' and <= '9');
+
+    private static bool IsTypeTestWithoutRuntimeType(SyntaxNode node, SemanticModel model,
+        Func<SyntaxTree, bool>? isReferenceTree)
+    {
+        // `as` の型は class か interface の検査だけが受け持つ
+        if (node is BinaryExpressionSyntax { RawKind: (int)SyntaxKind.AsExpression }) return false;
+        var (input, type) = TypeTestOperands(node, model);
         if (type is not INamedTypeSymbol named) return false;
         if (named.DeclaringSyntaxReferences.Length > 0)
             return named.TypeKind == TypeKind.Delegate
@@ -697,9 +743,6 @@ public static partial class TinyCsComplianceFacts
         return !(named.IsValueType && SymbolEqualityComparer.Default.Equals(
             input is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } wrap
                 ? wrap.TypeArguments[0] : input, named));
-
-        ITypeSymbol? PatternInput(SyntaxNode pattern) =>
-            (model.GetOperation(pattern) as IPatternOperation)?.InputType;
     }
 
     private static bool ContainsLoneSurrogate(string value)
