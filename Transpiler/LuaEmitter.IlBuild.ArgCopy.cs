@@ -67,7 +67,8 @@ public partial class LuaEmitter
         if (KeepsArgumentCopies) return;
         foreach (var syntax in parameterList.Parameters)
         {
-            if (model.GetDeclaredSymbol(syntax) is not { } parameter
+            // out parameter は呼び出し元の値を受け取らないので copy する値が無い
+            if (model.GetDeclaredSymbol(syntax) is not { RefKind: not RefKind.Out } parameter
                 || !CopiesOnEntryWhenWritten(parameter.Type)
                 || !(IsCapturedByLambda(model, member, parameter) || IsWritten(model, member, parameter)))
                 continue;
