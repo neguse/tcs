@@ -24,8 +24,9 @@ public partial class LuaEmitter
         AppendLine("local function __tcs_irem(a, b)");
         AppendLine("  return a - __tcs_idiv(a, b) * b");
         AppendLine("end");
-        // List / 配列 / string の添字は範囲外で fault する (il-spec §12)。要素は nil を
-        // 持たない (TCS1003) ので、範囲内の key は必ず値を持つ (読み書きとも nil なら範囲外)
+        // List / 配列 / string の添字は範囲外で fault する (il-spec §12)。値型の要素は nil を
+        // 持たないので、範囲内の key は必ず値を持つ (読み書きとも nil なら範囲外)。
+        // 要素が null になりうる List は nil か false を読んだときだけ長さと比べる
         AppendLine("local function __tcs_oob() error(\"Index was out of range.\") end");
         AppendLine("local function __tcs_get(t, i)");
         AppendLine("  local v = t[i + 1]");
@@ -34,6 +35,19 @@ public partial class LuaEmitter
         AppendLine("end");
         AppendLine("local function __tcs_set(t, i, v)");
         AppendLine("  if t[i + 1] == nil then __tcs_oob() end");
+        AppendLine("  t[i + 1] = v");
+        AppendLine("end");
+        AppendLine("local function __tcs_count(t) return t.n or #t end");
+        AppendLine("local function __tcs_lchk(t, i)");
+        AppendLine("  if i < 0 or i >= (t.n or #t) then __tcs_oob() end");
+        AppendLine("end");
+        AppendLine("local function __tcs_lget(t, i)");
+        AppendLine("  local v = t[i + 1]");
+        AppendLine("  if not v then __tcs_lchk(t, i) end");
+        AppendLine("  return v");
+        AppendLine("end");
+        AppendLine("local function __tcs_lset(t, i, v)");
+        AppendLine("  if t[i + 1] == nil then __tcs_lchk(t, i) end");
         AppendLine("  t[i + 1] = v");
         AppendLine("end");
         // string.byte は負の位置を末尾から数えるので、1 未満は範囲外にする
@@ -166,6 +180,12 @@ public partial class LuaEmitter
         AppendLine("  end");
         AppendLine("  return false");
         AppendLine("end");
+        // class の interface の検査 (il-spec §9)。class table の __interfaces は実装する interface の名前の集合
+        AppendLine("local function __tcs_implements(x, name)");
+        AppendLine("  local mt = getmetatable(x)");
+        AppendLine("  local set = mt and mt.__interfaces");
+        AppendLine("  return set ~= nil and set[name] == true");
+        AppendLine("end");
         // f32 の既定の文字列化 (il-spec §13)。
         // .NET の float.ToString() と同じ文字列を、host が登録する tcs_rt (runtime/lua/tcs_rt_lua.c) が作る
         AppendLine("local function __tcs_fstr(v) return tcs_rt.fstr(v) end");
@@ -176,6 +196,11 @@ public partial class LuaEmitter
         AppendLine("local function __tcs_dv(d)");
         AppendLine("  if type(d) == \"table\" and d.__tcs_td then return d.n() end");
         AppendLine("  return d");
+        AppendLine("end");
+        // `new T()` の型引数。class を入れた型引数は作り方を持たない (既定値は null)
+        AppendLine("local function __tcs_nt(d)");
+        AppendLine("  if d == nil then error(\"new T() of a class type argument is not supported\") end");
+        AppendLine("  return __tcs_dv(d)");
         AppendLine("end");
         AppendLine("local function __tcs_tc(d, v)");
         AppendLine("  if type(d) == \"table\" and d.__tcs_td then return d.c(v) end");
@@ -193,15 +218,28 @@ public partial class LuaEmitter
         AppendLine("  return t");
         AppendLine("end");
         // T? と object の文字列化: null は C# と同じく空文字列
-        // table (class / record / struct / List / Dictionary の値) の文字列化はサブセット外
-        // (TCS1001 UnsupportedToString)。object / 型引数の値は実行時に fault する
+        // class の値は ToString の override を呼ぶ。他の table (override の無い class / record /
+        // struct / List / Dictionary の値) の文字列化はサブセット外 (TCS1001 UnsupportedToString)。
+        // object / 型引数の値は実行時に fault する
         // bool は .NET と同じ True / False
+        // multi-return のタプルを保持するときの struct の table
+        for (var arity = 2; arity <= 7; arity++)
+        {
+            var names = Enumerable.Range(1, arity).Select(i => $"v{i}").ToList();
+            var fields = Enumerable.Range(1, arity).Select(i => $"Item{i} = v{i}");
+            AppendLine($"local function __tcs_tuple{arity}({string.Join(", ", names)}) " +
+                $"return {{{string.Join(", ", fields)}}} end");
+        }
         AppendLine("local function __tcs_bstr(b) return b and \"True\" or \"False\" end");
         AppendLine("local function __tcs_nstr(v)");
         AppendLine("  if v == nil then return \"\" end");
         AppendLine("  if math.type(v) == \"float\" then return __tcs_fstr(v) end");
         AppendLine("  if type(v) == \"boolean\" then return __tcs_bstr(v) end");
-        AppendLine("  if type(v) == \"table\" then error(\"ToString of this value is not supported\") end");
+        AppendLine("  if type(v) == \"table\" then");
+        AppendLine("    local mt = getmetatable(v)");
+        AppendLine("    if mt and mt.ToString then return mt.ToString(v) or \"\" end");
+        AppendLine("    error(\"ToString of this value is not supported\")");
+        AppendLine("  end");
         AppendLine("  return tostring(v)");
         AppendLine("end");
         // enum を入れた型引数の記述子 (名前の表ごとに 1 つ。module mode は TinySystem.etd)
@@ -224,7 +262,7 @@ public partial class LuaEmitter
         AppendLine("end");
         // static method group の struct parameter を copy してから呼ぶ wrapper (il-spec §10)。
         // c は parameter ごとの copy 関数 (不要なら false)。
-        // 同じ関数には同じ wrapper を返し delegate の == を C# と揃えるので、cache は chunk をまたいで 1 つにする (module mode は TinySystem.mg)
+        // 同じ関数には同じ wrapper を返す。cache は chunk をまたいで 1 つにする (module mode は TinySystem.mg)
         AppendLine("local __tcs_mg = __tcs_mg");
         AppendLine("if __tcs_mg == nil then");
         AppendLine("  local cache = setmetatable({}, { __mode = \"k\" })");

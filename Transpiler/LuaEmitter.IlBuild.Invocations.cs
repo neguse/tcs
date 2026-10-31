@@ -41,6 +41,18 @@ public partial class LuaEmitter
                     return false;
             }
         }
+        if (IsQueueType(typeDef))
+        {
+            if (BuildExpr(model, receiver) is { } queue)
+                result = BuildQueueCall(receiverType, queue, methodName, args);
+            return true;
+        }
+        if (IsHashSetType(typeDef))
+        {
+            if (BuildExpr(model, receiver) is { } set)
+                result = new IlCall($"TcsHashSet.{methodName}", [set, .. args]);
+            return true;
+        }
         if (!IsListType(typeDef)) return false;
 
         var recv = BuildExpr(model, receiver);
@@ -48,7 +60,7 @@ public partial class LuaEmitter
         switch (methodName)
         {
             case "Add":
-                result = new IlCall("table.insert", [recv, .. args]);
+                result = ListAdd(model.GetTypeInfo(receiver).Type, recv, args);
                 return true;
             case "Remove":
                 result = new IlCall("List.Remove", [recv, .. WithStructElementOps(
@@ -56,7 +68,8 @@ public partial class LuaEmitter
                 return true;
             case "RemoveAt":
                 result = new IlCall("table.remove",
-                    [recv, new IlBin(IlBinOp.AddNum, args[0], new IlLit("1"))]);
+                    [recv, new IlBin(IlBinOp.AddNum, args[0], new IlLit("1"))],
+                    HasNilListElements(model.GetTypeInfo(receiver).Type));
                 return true;
             case "Clear":
                 result = BuildListClear(recv);
@@ -68,8 +81,12 @@ public partial class LuaEmitter
                 result = new IlCall($"List.{methodName}", [recv, .. WithStructElementOps(
                     model.GetTypeInfo(receiver).Type, methodName, args)]);
                 return true;
-            case "FindIndex" or "RemoveAll":
+            case "FindIndex" or "RemoveAll" or "Insert":
                 result = new IlCall($"List.{methodName}", [recv, .. args]);
+                return true;
+            case "GetRange":
+                result = new IlCall("List.GetRange", [recv, .. args, ..
+                    ListElementCopier(model.GetTypeInfo(receiver).Type)]);
                 return true;
         }
         return false;
@@ -108,6 +125,18 @@ public partial class LuaEmitter
                 result[i] = new IlCall("string.char", [result[i]]);
         return [.. result];
     }
+
+    private IlExpr? BuildQueueCall(ITypeSymbol? queueType, IlExpr queue, string methodName,
+        ImmutableArray<IlExpr> args) => methodName switch
+    {
+        "Enqueue" or "Dequeue" or "Clear" => new IlCall($"TcsQueue.{methodName}", [queue, .. args]),
+        // 要素は queue に残るので、変更可能な struct は copy を返す
+        "Peek" => CopyIfMutableStruct(((INamedTypeSymbol)queueType!).TypeArguments[0],
+            new IlCall("TcsQueue.Peek", [queue])),
+        "Contains" => new IlCall("TcsQueue.Contains", [queue, .. WithStructElementOps(
+            queueType, methodName, args)]),
+        _ => null,
+    };
 
     // List.Clear: 全 key を nil に (IIFE。C backend は runtime 呼びに認識する)
     private static IlExpr BuildListClear(IlExpr recv) =>
@@ -236,7 +265,8 @@ public partial class LuaEmitter
             return args;
         var typeArgDefaults = TypeArgDefaultArgs(method).ToList();
         var filled = args.ToBuilder();
-        foreach (var parameter in method.Parameters.Skip(args.Length))
+        foreach (var parameter in method.Parameters
+            .Where(p => p.RefKind != RefKind.Out).Skip(args.Length))
         {
             if (OmittedDefault(model, parameter) is { } built)
                 filled.Add(built);

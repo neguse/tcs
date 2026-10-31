@@ -48,6 +48,10 @@ public partial class LuaEmitter
                 when model.GetSymbolInfo(generic).Symbol is IMethodSymbol
                     { IsStatic: true, ContainingType: not null } genericGroup:
                 return MethodGroup(genericGroup);
+            // 型引数を書いた型の static member の受け手 (`Box<int>.Of(1)`)
+            case GenericNameSyntax genericType
+                when model.GetSymbolInfo(genericType).Symbol is INamedTypeSymbol named:
+                return new IlVar(TypeRef(named));
             case BinaryExpressionSyntax bin:
                 return BuildBinary(model, bin);
             case PrefixUnaryExpressionSyntax prefix:
@@ -67,6 +71,8 @@ public partial class LuaEmitter
             }
             case InvocationExpressionSyntax invocation:
                 return BuildInvocation(model, invocation);
+            case TupleExpressionSyntax tuple:
+                return BuildTupleLiteral(model, tuple);
             case MemberAccessExpressionSyntax ma:
                 return BuildMemberAccess(model, ma);
             case ObjectCreationExpressionSyntax creation:
@@ -178,7 +184,8 @@ public partial class LuaEmitter
                     || receiverType is IArrayTypeSymbol;
                 return new IlIndex(recv, DictKey(model, receiverType,
                     elemAccess.ArgumentList.Arguments[0].Expression, index), plusOne,
-                    HasNilableElements(receiverType), HasBoolElements(receiverType));
+                    HasNilableElements(receiverType), HasBoolElements(receiverType),
+                    HasNilListElements(receiverType));
             }
             case DefaultExpressionSyntax def:
             {
@@ -289,6 +296,10 @@ public partial class LuaEmitter
                 patternType, typeRef);
             return check == null ? null : new IlParen(check);
         }
+
+        if (bin.IsKind(SyntaxKind.AsExpression)
+            && model.GetTypeInfo(bin.Right).Type is { TypeKind: TypeKind.Interface })
+            return BuildAsInterface(model, bin);
 
         var left = BuildExpr(model, bin.Left);
         var right = BuildExpr(model, bin.Right);
@@ -401,7 +412,7 @@ public partial class LuaEmitter
     // T? と object と型引数は値で決まる (__tcs_nstr)。enum は member 名 (WrapEnumToString)
     private IlExpr WrapFloatToString(SemanticModel model,
         ExpressionSyntax src, IlExpr built) =>
-        WrapEnumToString(model.GetTypeInfo(src).Type, built) ?? (
+        UserToString(model, src, built) ?? WrapEnumToString(model.GetTypeInfo(src).Type, built) ?? (
         IsStringifiedByValue(model.GetTypeInfo(src).Type)
             ? StringifyByValue(model.GetTypeInfo(src).Type, built)
             : IsFloatingType(model.GetTypeInfo(src).Type)
@@ -413,6 +424,26 @@ public partial class LuaEmitter
                         : model.GetTypeInfo(src).Type?.SpecialType == SpecialType.System_Boolean
                             ? new IlCall("__tcs_bstr", [built])
                             : new IlCall("tostring", [built]));
+
+    // ToString を override した型の値の文字列化 (連結 / 補間 / Console.WriteLine): 直接呼ぶ。
+    // C# は null の値と、ToString が返した null を空文字列にする。struct は値の copy の上で呼ぶ
+    // (連結と補間は boxing の copy の ToString で、書き換えは変数に残らない)
+    private IlExpr? UserToString(SemanticModel model, ExpressionSyntax src, IlExpr built)
+    {
+        var type = model.GetTypeInfo(src).Type;
+        if (TinyCsComplianceFacts.ToStringOverride(type) is not { } method) return null;
+        IlExpr EmptyIfNull(IlExpr text) => new IlParen(new IlBin(IlBinOp.Or, text, new IlLit("\"\"")));
+        if (IsUserStruct(type))
+            return EmptyIfNull(new IlCall($"{TypeRef((INamedTypeSymbol)type!)}.{N(method)}",
+                [WrapStructCopy(model, src, built)]));
+        var value = new IlVar("__tcs_v");
+        return new IlIife([
+            new IlLocal("__tcs_v", built),
+            new IlReturn(EmptyIfNull(new IlTernary(
+                new IlBin(IlBinOp.Ne, value, new IlLit("nil")),
+                new IlInvoke(value, N(method), []),
+                new IlLit("\"\""))))]);
+    }
 
     // Rune の値は codepoint 整数そのもの
     private static IlExpr RuneToString(IlExpr rune) => new IlCall("Char.ConvertFromUtf32", [rune]);
@@ -430,6 +461,8 @@ public partial class LuaEmitter
         ExpressionSyntax expr, IlExpr rendered)
     {
         var type = model.GetTypeInfo(expr).Type;
+        if (UserToString(model, expr, rendered) is { } userText)
+            return userText;
         if (WrapEnumToString(type, rendered) is { } enumName)
             return enumName;
         // T? と object と型引数は C# と同じく null を空文字列に、float の値を __tcs_fstr に (__tcs_nstr)
@@ -459,6 +492,15 @@ public partial class LuaEmitter
 
     // legacy VisitInvocation の funnel を同じ順序で写像する
     private IlExpr? BuildInvocation(SemanticModel model,
+        InvocationExpressionSyntax invocation) =>
+        UserOutMethod(model, invocation) is { } outMethod
+            ? BuildUserOutExpr(model, invocation, outMethod)
+            : MultiReturnMethod(model, invocation) is { } tupleMethod
+                ? BuildInvocationCall(model, invocation) is { } call
+                    ? PackTuple(tupleMethod, call) : null
+                : BuildInvocationCall(model, invocation);
+
+    private IlExpr? BuildInvocationCall(SemanticModel model,
         InvocationExpressionSyntax invocation)
     {
         // nameof(x) は C# のコンパイル時定数 (識別子名の文字列)
@@ -484,15 +526,21 @@ public partial class LuaEmitter
                 return BuildNumericTryParse(model, invocation, tryParseKind);
         }
 
-        if (invocation.ArgumentList.Arguments
-            .Any(a => !a.RefKindKeyword.IsKind(SyntaxKind.None)))
+        var userOut = UserOutMethod(model, invocation) != null;
+        if (invocation.ArgumentList.Arguments.Any(a => !a.RefKindKeyword.IsKind(SyntaxKind.None)
+                && !(userOut && a.RefKindKeyword.IsKind(SyntaxKind.OutKeyword))))
             return null;
         var args = new List<IlExpr>();
-        foreach (var a in invocation.ArgumentList.Arguments)
+        var calledMethod = model.GetSymbolInfo(invocation).Symbol as IMethodSymbol;
+        var argExprs = invocation.ArgumentList.Arguments.Select(a => a.Expression).ToList();
+        var callReceiver = (invocation.Expression as MemberAccessExpressionSyntax)?.Expression;
+        for (var i = 0; i < argExprs.Count; i++)
         {
-            var built = BuildExpr(model, a.Expression);
+            // out は multi-return の受け手で、呼び出しの引数にならない
+            if (invocation.ArgumentList.Arguments[i].RefKindKeyword.IsKind(SyntaxKind.OutKeyword)) continue;
+            var built = BuildExpr(model, argExprs[i]);
             if (built == null) return null;
-            args.Add(WrapStructCopy(model, a.Expression, built));
+            args.Add(WrapArgumentCopy(model, calledMethod, argExprs, i, callReceiver, built));
         }
         var argArr = WithOmittedDefaults(model, invocation, [.. args]);
 
@@ -574,7 +622,10 @@ public partial class LuaEmitter
                 {
                     var argType = model.GetTypeInfo(invocation.ArgumentList
                         .Arguments[i].Expression).Type;
-                    if (WrapEnumToString(argType, printArgs[i]) is { } enumName)
+                    var printed = invocation.ArgumentList.Arguments[i].Expression;
+                    if (UserToString(model, printed, printArgs[i]) is { } userText)
+                        printArgs[i] = userText;
+                    else if (WrapEnumToString(argType, printArgs[i]) is { } enumName)
                         printArgs[i] = enumName;
                     else if (IsStringifiedByValue(argType))
                         printArgs[i] = StringifyByValue(argType, printArgs[i]);
@@ -629,7 +680,8 @@ public partial class LuaEmitter
                     return strCall;
             }
 
-            if (methodName == "ToString")
+            // source に宣言した ToString は下の instance method の呼び出しの経路を通る
+            if (methodName == "ToString" && symbol is not IMethodSymbol { IsImplicitlyDeclared: false, DeclaringSyntaxReferences.Length: > 0 })
             {
                 var recvAny = BuildExpr(model, ma.Expression);
                 if (recvAny == null) return null;
@@ -763,11 +815,15 @@ public partial class LuaEmitter
                 if (member == "HasValue") return new IlNullableHasValue(obj);
                 if (member == "Value") return new IlNullableValue(obj);
             }
+            if (member == "Count" && IsQueueType(typeDef))
+                return new IlCall("TcsQueue.Count", [obj]);
+            if (member == "Count" && IsHashSetType(typeDef))
+                return new IlCall("TcsHashSet.Count", [obj]);
             if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)
                     || IsDictCollectionType(typeDef)))
                 return IsDictType(typeDef)
                     ? new IlCall("Dict.Count", [obj])
-                    : new IlLen(obj);
+                    : new IlLen(obj, HasNilListElements(receiverType));
             if (member == "Keys" && IsDictType(typeDef))
                 return DictKeys(receiverType, obj);
             if (member == "Values" && IsDictType(typeDef))
@@ -810,14 +866,17 @@ public partial class LuaEmitter
             p.RefKind == RefKind.None && IsMutableStruct(p.Type)
                 ? Copier(p.Type) : null).ToImmutableArray();
         var typeArgDefaults = TypeArgDefaultArgs(method).ToList();
-        if (typeArgDefaults.Count == 0)
+        var multiReturn = IsMultiReturnMethod(method);
+        if (typeArgDefaults.Count == 0 && !multiReturn)
             return new IlMethodGroup(TypeRef(method.ContainingType), N(method), copyTypes);
         var parameters = method.Parameters.Select((_, i) => $"__tcs_a{i}").ToImmutableArray();
         IlExpr[] args = [.. parameters.Select((p, i) => copyTypes[i] != null
             ? CopyIfMutableStruct(method.Parameters[i].Type, new IlVar(p)) : (IlExpr)new IlVar(p)),
             .. typeArgDefaults];
+        // delegate の呼び出し側は multi-return を知らないので 1 つの値にして返す
+        IlExpr groupCall = new IlCall($"{TypeRef(method.ContainingType)}.{N(method)}", [.. args]);
         return new IlClosure(parameters, null,
-            new IlCall($"{TypeRef(method.ContainingType)}.{N(method)}", [.. args]), []);
+            multiReturn ? PackTuple(method, groupCall) : groupCall, []);
     }
 
     private IlExpr? BuildObjectCreation(SemanticModel model,
@@ -853,10 +912,7 @@ public partial class LuaEmitter
                     return null;
                 var source = BuildExpr(model, sourceArg.Expression);
                 if (source == null) return null;
-                var elem = (typeSymbol as INamedTypeSymbol)?.TypeArguments.FirstOrDefault();
-                return new IlCall("List.Copy", elem != null && IsMutableStruct(elem)
-                    ? [source, new IlField(new IlVar(TypeName(elem)), "__copy")]
-                    : [source]);
+                return new IlCall("List.Copy", [source, .. ListElementCopier(typeSymbol)]);
             }
             if (initializer == null) return new IlTable([], TypeArg(0));
             var items = new List<IlTableEntry>();
@@ -866,7 +922,24 @@ public partial class LuaEmitter
                 if (built == null) return null;
                 items.Add(new IlTableEntry(null, WrapStructCopy(model, e, built)));
             }
-            return new IlTable([.. items], TypeArg(0));
+            return new IlTable([.. items], TypeArg(0), NilElements: HasNilListElements(typeSymbol));
+        }
+        if (IsQueueType(typeDef))
+            return new IlNewQueue(typeSymbol!.ToDisplayString());
+        if (IsHashSetType(typeDef))
+        {
+            var created = new IlNewHashSet(typeSymbol!.ToDisplayString());
+            if (initializer == null) return created;
+            // C# と同じく項ごとに Add する
+            var stats = new List<IlStat> { new IlLocal("__tcs_set", created) };
+            foreach (var e in initializer.Expressions)
+            {
+                var built = BuildExpr(model, e);
+                if (built == null) return null;
+                stats.Add(new IlCallStat(new IlCall("TcsHashSet.Add", [new IlVar("__tcs_set"), built])));
+            }
+            stats.Add(new IlReturn(new IlVar("__tcs_set")));
+            return new IlIife([.. stats]);
         }
         if (IsDictType(typeDef))
         {
@@ -909,14 +982,18 @@ public partial class LuaEmitter
         }
 
         if (typeSymbol == null) return null;
+        if (typeSymbol is ITypeParameterSymbol typeArg && TypeArgDefaultIl(typeArg) is { } typeArgDefault)
+            return new IlCall("__tcs_nt", [typeArgDefault]);
         var args = new List<IlExpr>();
+        var ctorArgs = argumentList?.Select(a => a.Expression).ToList() ?? [];
+        var calledCtor = model.GetSymbolInfo(creation).Symbol as IMethodSymbol;
         foreach (var a in argumentList ?? [])
         {
             if (!a.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
             var built = BuildExpr(model, a.Expression);
             if (built == null) return null;
             // ctor 引数も by-value (il-spec §10 の引数 copy 地点)
-            args.Add(WrapStructCopy(model, a.Expression, built));
+            args.Add(WrapArgumentCopy(model, calledCtor, ctorArgs, args.Count, null, built));
         }
         if (IsReferenceOnlyType(typeSymbol))
             // ctor 引数つきは legacy が警告する経路 — fallback
@@ -939,9 +1016,12 @@ public partial class LuaEmitter
             args.AddRange(TypeArgDefaultArgs(genericCtor));
         if (TinyCsComplianceFacts.IsUtf8BytesType(typeSymbol))
             return new IlCall(args.Count == 0 ? "TinySystem.Utf8.Default" : "TinySystem.Utf8.New", [.. args]);
+        var ctorName = ctorSymbol is { MethodKind: MethodKind.Constructor }
+            && !ctorSymbol.IsImplicitlyDeclared && ctorSymbol.Locations.Any(l => l.IsInSource)
+                ? LuaNaming.CtorName(ctorSymbol) : "ctor";
         var ctor = IsUserStruct(typeSymbol) && hasCtorArgs
-            ? (IlExpr)new IlCall($"{TypeName(typeSymbol)}.ctor", [.. args])
-            : new IlNewObj(newName, [.. args]);
+            ? (IlExpr)new IlCall($"{TypeName(typeSymbol)}.{ctorName}", [.. args])
+            : new IlNewObj(newName, [.. args], ctorName == "ctor" ? "new" : ctorName);
         return initializer != null
             ? BuildObjectInitializerExpr(model, ctor, initializer)
             : ctor;

@@ -143,7 +143,16 @@ public static class HotReload
             sb.AppendLine("    return old");
             sb.AppendLine("  end");
             foreach (var name in plainTables)
+            {
+                var retained = RetainedStructStatics(oldExport, newExport, name);
+                var keep = string.Join(", ", retained.Select(f =>
+                    $"{f.Name} = __tcs_reload_old.{name}.{f.Name}"));
+                if (retained.Count > 0)
+                    sb.AppendLine($"  local __kept_{name} = {{{keep}}}");
                 sb.AppendLine($"  {name} = __tcs_reload_replace(__tcs_reload_old.{name}, {name})");
+                if (retained.Count > 0)
+                    sb.AppendLine($"  for k, v in pairs(__kept_{name}) do {name}[k] = v end");
+            }
         }
         // --trace: v2 定義が登録した fresh の型 table を、identity を戻した
         // global (旧 table) に向け直す。v2 で足した型は fresh のまま
@@ -152,12 +161,27 @@ public static class HotReload
 
         EmitStructMigrators(sb, ctx, oldStructs);
 
+        foreach (var st in newStructs.Values.Where(s => oldStructs.ContainsKey(s.Name)))
+            foreach (var field in RetainedStructStatics(oldExport, newExport, st.Name))
+                EmitStructReserialize(sb, "  ", $"{st.Name}.{field.Name}", field.Type, ctx);
+
         foreach (var pair in pairs)
             EmitClassMerge(sb, pair.Old, pair.New, ctx);
 
         EmitInstanceMigration(sb, ctx);
         sb.AppendLine("end");
         return sb.ToString();
+    }
+
+    // 型の table を置き換えても残す static (class の retained と同じ)。追加は fresh の初期値
+    private static List<IlFieldInfo> RetainedStructStatics(IlExportResult oldExport,
+        IlExportResult newExport, string name)
+    {
+        if (newExport.Structs.FirstOrDefault(s => s.Name == name) is not { } @new
+            || oldExport.Structs.FirstOrDefault(s => s.Name == name) is not { } old
+            || @new.StaticFields.IsDefault || old.StaticFields.IsDefault)
+            return [];
+        return [.. @new.StaticFields.Where(f => old.StaticFields.Any(o => o.Name == f.Name))];
     }
 
     private static IEnumerable<string> PlainTypeNames(IlExportResult export) =>
@@ -216,12 +240,10 @@ public static class HotReload
 
         // method は全面差し替え (accessor / operator metamethod / new を含む)。
         // __index は旧 table の自己参照のまま維持する
-        var newMethods = @new.Methods.Select(m => m.Name)
-            .Append("new").Distinct().ToList();
+        var newMethods = MethodAndCtorNames(@new).Append("new").Distinct().ToList();
         foreach (var name in newMethods)
             sb.AppendLine($"    __old.{name} = __fresh.{name}");
-        foreach (var removed in old.Methods.Select(m => m.Name)
-            .Except(@new.Methods.Select(m => m.Name)))
+        foreach (var removed in MethodAndCtorNames(old).Except(newMethods))
             sb.AppendLine($"    __old.{removed} = nil");
 
         // static: retained は生存値を保持 (struct 型は再直列化)、added は fresh の
@@ -242,6 +264,10 @@ public static class HotReload
             sb.AppendLine($"    __old.{removed} = nil");
         sb.AppendLine("  end");
     }
+
+    private static IEnumerable<string> MethodAndCtorNames(IlClassInfo cls) =>
+        cls.Methods.Select(m => m.Name)
+            .Concat(cls.Ctors.IsDefault ? [] : cls.Ctors.Select(c => c.Name));
 
     // target が変更 struct (直接 / 配列) なら再直列化文を出す
     private static void EmitStructReserialize(StringBuilder sb, string indent,
