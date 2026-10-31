@@ -10,10 +10,9 @@ namespace TinyCs;
 // 経由せずに公開する。契約の正本は doc/il-reference.md。
 
 /// <summary>class / record class の migration metadata (il-spec §14) と
-/// 骨格 IL。Ctor は explicit constructor (無ければ null — default 初期化
-/// のみ)。custom property の accessor は get_/set_ 名の IlMethodInfo として
+/// 骨格 IL。Ctors は explicit constructor (無ければ空 — default 初期化のみ)。custom property の accessor は get_/set_ 名の IlMethodInfo として
 /// Methods に現れる。IsRecord の class は positional parameter が Fields の
-/// 先頭に並び、Ctor がそれらへの代入 (positional ctor) になる。== / != は
+/// 先頭に並び、Ctors の 1 つがそれらへの代入 (positional ctor) になる。== / != は
 /// 構造等価 (backend が field 比較を生成)、with は shallow copy。</summary>
 public sealed record IlClassInfo(
     string Name,
@@ -21,7 +20,7 @@ public sealed record IlClassInfo(
     ImmutableArray<IlFieldInfo> Fields,
     string LayoutHash,
     ImmutableArray<IlMethodInfo> Methods,
-    IlCtorInfo? Ctor = null,
+    ImmutableArray<IlCtorInfo> Ctors = default,
     bool IsRecord = false,
     ImmutableArray<string> Interfaces = default,
     bool IsInterface = false,
@@ -30,13 +29,15 @@ public sealed record IlClassInfo(
 
 /// <summary>explicit constructor。構築順は base ctor → 自 class の field
 /// default/initializer → Body (Lua backend と同順)。BaseArgs は base(...)
-/// 初期化子の引数 IL (無指定の暗黙 base() は空配列)。</summary>
+/// 初期化子の引数 IL (無指定の暗黙 base() は空配列)。Name は呼び出し側の
+/// IlNewObj.Ctor / IlCall("S.Name") と同じ名前 (LuaNaming.CtorName)。</summary>
 public sealed record IlCtorInfo(
     ImmutableArray<string> Parameters,
     ImmutableArray<string> ParameterTypes,
     IlBlock? Body,
     ImmutableArray<IlExpr> BaseArgs = default,
-    ImmutableArray<IlExpr?> ParameterDefaults = default);
+    ImmutableArray<IlExpr?> ParameterDefaults = default,
+    string Name = "new");
 
 /// <summary>InitHash は initializer の hash (無ければ null、ReloadRules.InitializerHash)。
 /// hot reload が既存 static の initializer 変更を restart と判定するのに使う。</summary>
@@ -44,7 +45,8 @@ public sealed record IlFieldInfo(string Name, string Type, bool IsStatic,
     IlExpr? Init = null, string? InitHash = null);
 
 /// <summary>method body の IL。Body が null なら IL 未対応 (診断構文等) で
-/// backend は対象外にできる。</summary>
+/// backend は対象外にできる。OutParameters は Parameters のうち out の名前で、
+/// 呼び出しは out を除いた引数で IlMultiAssign([戻り値?, out...], [call]) になる。</summary>
 public sealed record IlMethodInfo(
     string Name,
     bool IsStatic,
@@ -53,16 +55,18 @@ public sealed record IlMethodInfo(
     string ReturnType = "void",
     ImmutableArray<string> ParameterTypes = default,
     ImmutableArray<IlExpr?> ParameterDefaults = default,
-    bool IsAbstract = false);
+    bool IsAbstract = false,
+    ImmutableArray<string> OutParameters = default);
 
 /// <summary>struct / record struct の契約 (il-spec §10)。Fields は instance
 /// field (auto property / record struct の positional parameter 込み)。
 /// LayoutHash は class と同じ展開規則で、struct 値は reload 時に owner 経由で
-/// 再直列化される (il-design §6)。Methods は instance method と custom
-/// property accessor (static member は診断済み) で、呼び出し側 IL は
-/// IlCall("S.M", [receiver, args...]) の静的ディスパッチ (receiver は
-/// 変数なら place、rvalue なら copy)。Ctor は explicit ctor (record struct
-/// は positional 代入) で IlCall("S.ctor", args)。`new S()` は IlNewObj の
+/// 再直列化される (il-design §6)。Methods は method、custom property accessor、
+/// operator で、instance の呼び出し側 IL は IlCall("S.M", [receiver, args...]) の
+/// 静的ディスパッチ (receiver は変数なら place、rvalue なら copy)。static は
+/// IsStatic の IlMethodInfo で、receiver が無いことだけが違う。StaticFields は
+/// static field と static auto property で、値の layout には入らない。Ctors は explicit ctor (record struct
+/// は positional 代入) で IlCall("S.ctor", args) (複数なら CtorName の名前)。`new S()` は IlNewObj の
 /// zero 値で Init も走らない (C# の struct 意味論)。IsRecord の ==/!= は
 /// IlCall("S.op_Equality", [a, b]) の構造等価、with は IlWith。</summary>
 public sealed record IlStructInfo(
@@ -70,9 +74,10 @@ public sealed record IlStructInfo(
     ImmutableArray<IlFieldInfo> Fields,
     string LayoutHash,
     ImmutableArray<IlMethodInfo> Methods = default,
-    IlCtorInfo? Ctor = null,
+    ImmutableArray<IlCtorInfo> Ctors = default,
     bool IsRecord = false,
-    string? DisplayName = null);
+    string? DisplayName = null,
+    ImmutableArray<IlFieldInfo> StaticFields = default);
 
 /// <summary>enum の定数表。member 名は C# の識別子のままで、IL の
 /// IlField(IlVar(enum 名), member 名) と一致する。</summary>
@@ -110,7 +115,7 @@ public static partial class IlExport
             trees.Concat(libraryTrees).Concat(references), Transpiler.References,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         var userTrees = trees;
-        if (Transpiler.UsesLibrary(probe, trees)) trees = [.. libraryTrees, .. trees];
+        trees = [.. Transpiler.UsedLibraryTrees(probe, trees).Where(libraryTrees.Contains), .. trees];
         var inputTrees = trees;
         if (specializeGenerics)
         {
@@ -153,7 +158,7 @@ public static partial class IlExport
                 TinyCsComplianceFacts.AnalyzeUnsupportedSyntaxes(tree, model, references.Contains));
             diagnostics.AddRange(TinyCsComplianceFacts.AnalyzeUnsupportedApis(tree, model));
         }
-        var emitter = new LuaEmitter { StructuralTypeTests = true };
+        var emitter = new LuaEmitter { StructuralTypeTests = true, KeepsArgumentCopies = true };
         emitter.ReferenceTrees.UnionWith(references);
         var reservedTypeNames = emitter.ReservedTypeNames(compilation.Assembly);
         // Lua 出力と同じ名前で IL を出す (予約語ローカルの写し、LuaLocalRenamer)
@@ -254,28 +259,30 @@ public static partial class IlExport
         return new IlClassInfo(emitter.TypeName(symbol!), baseName,
             [.. fields], LayoutHash(fields, structLayouts),
             [.. CollectMethods(emitter, model, cls)],
-            BuildCtor(emitter, model, cls),
+            BuildCtors(emitter, model, cls),
             IsRecord: cls is RecordDeclarationSyntax,
             Interfaces: symbol == null ? []
                 : [.. symbol.AllInterfaces.Select(i => i.ToDisplayString())],
             DisplayName: symbol!.ToDisplayString());
     }
 
-    // struct / record struct: field (positional 込み) + instance member +
-    // explicit / positional ctor。static member / operator / override は
-    // 診断済みなので現れない (const は CollectFields が落とす)
+    // struct / record struct: field (positional 込み) + member +
+    // explicit / positional ctor。override は診断済みなので現れない
+    // (const は CollectFields が落とす)
     private static IlStructInfo ExportStruct(LuaEmitter emitter,
         SemanticModel model, TypeDeclarationSyntax st,
         Dictionary<string, List<(string Name, string Type)>> structLayouts)
     {
         var symbol = model.GetDeclaredSymbol(st);
-        var fields = CollectFields(emitter, model, st, symbol);
+        var all = CollectFields(emitter, model, st, symbol);
+        var fields = all.Where(f => !f.IsStatic).ToList();
         return new IlStructInfo(emitter.TypeName(symbol!), [.. fields],
             LayoutHash(fields, structLayouts),
             [.. CollectMethods(emitter, model, st)],
-            BuildCtor(emitter, model, st),
+            BuildCtors(emitter, model, st),
             IsRecord: st is RecordDeclarationSyntax,
-            DisplayName: symbol!.ToDisplayString());
+            DisplayName: symbol!.ToDisplayString(),
+            StaticFields: [.. all.Where(f => f.IsStatic)]);
     }
 
     // instance / static field と auto property (backing field 相当)。
@@ -347,7 +354,7 @@ public static partial class IlExport
             ? LuaNaming.MemberName(symbol)
             : symbol.Name;
 
-    private static IlCtorInfo? BuildCtor(LuaEmitter emitter, SemanticModel model,
+    private static ImmutableArray<IlCtorInfo> BuildCtors(LuaEmitter emitter, SemanticModel model,
         TypeDeclarationSyntax cls)
     {
         var record = cls as RecordDeclarationSyntax;
@@ -377,21 +384,26 @@ public static partial class IlExport
                     new IlField(new IlVar("self"),
                         p.Identifier.ValueText),
                     new IlVar(p.Identifier.ValueText)));
-            return new IlCtorInfo(
+            return [new IlCtorInfo(
                 [.. positional.Select(p => p.Identifier.ValueText)],
                 [.. positional.Select(p =>
                     model.GetDeclaredSymbol(p)?.Type.ToDisplayString() ?? "?")],
                 new IlBlock([.. body]),
                 baseArgs == null ? [] : [.. baseArgs],
                 [.. positional.Select(p => p.Default is { } d
-                    ? emitter.ExportExprIl(model, d.Value) : null)]);
+                    ? emitter.ExportExprIl(model, d.Value) : null)],
+                symbol?.TypeKind == TypeKind.Struct ? "ctor" : "new")];
         }
         // struct の parameterless ctor は Shared facts が診断する (C# 10 だが
         // `new S()` の zero 意味論と衝突する) ので、引数ありの instance ctor のみ
-        if (cls.Members.OfType<ConstructorDeclarationSyntax>()
-                .FirstOrDefault(c => !c.Modifiers.Any(SyntaxKind.StaticKeyword))
-            is not { } ctorDecl)
-            return null;
+        return [.. cls.Members.OfType<ConstructorDeclarationSyntax>()
+            .Where(c => !c.Modifiers.Any(SyntaxKind.StaticKeyword))
+            .Select(c => BuildExplicitCtor(emitter, model, c))];
+    }
+
+    private static IlCtorInfo BuildExplicitCtor(LuaEmitter emitter, SemanticModel model,
+        ConstructorDeclarationSyntax ctorDecl)
+    {
         var ctorSymbol = model.GetDeclaredSymbol(ctorDecl);
         var ctorBaseArgs = ImmutableArray<IlExpr>.Empty;
         if (ctorDecl.Initializer is { } init
@@ -416,7 +428,8 @@ public static partial class IlExport
             emitter.ExportStatsIl(model, ctorDecl.Body?.Statements),
             ctorBaseArgs,
             [.. ctorDecl.ParameterList.Parameters.Select(p => p.Default is { } d
-                ? emitter.ExportExprIl(model, d.Value) : null)]);
+                ? emitter.ExportExprIl(model, d.Value) : null)],
+            ctorSymbol == null ? "new" : LuaNaming.CtorName(ctorSymbol));
     }
 
     private static List<IlMethodInfo> CollectMethods(LuaEmitter emitter,
@@ -501,10 +514,15 @@ public static partial class IlExport
                         .Select(p => p.Type.ToDisplayString())],
                 [.. method.ParameterList.Parameters.Select(p => p.Default is { } d
                     ? emitter.ExportExprIl(model, d.Value) : null)],
-                methodSymbol?.IsAbstract ?? false));
+                methodSymbol?.IsAbstract ?? false,
+                [.. OutParameterNames(method.ParameterList)]));
         }
         return methods;
     }
+
+    private static IEnumerable<string> OutParameterNames(ParameterListSyntax parameters) =>
+        parameters.Parameters.Where(p => p.Modifiers.Any(SyntaxKind.OutKeyword))
+            .Select(p => p.Identifier.ValueText);
 
     // layout version hash (il-spec §14): instance field の (名前, 型) 列の
     // FNV-1a。field の追加・削除・改名・型変更で変わる。struct 型の field は

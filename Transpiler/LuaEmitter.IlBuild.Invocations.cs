@@ -236,7 +236,8 @@ public partial class LuaEmitter
             return args;
         var typeArgDefaults = TypeArgDefaultArgs(method).ToList();
         var filled = args.ToBuilder();
-        foreach (var parameter in method.Parameters.Skip(args.Length))
+        foreach (var parameter in method.Parameters
+            .Where(p => p.RefKind != RefKind.Out).Skip(args.Length))
         {
             if (OmittedDefault(model, parameter) is { } built)
                 filled.Add(built);
