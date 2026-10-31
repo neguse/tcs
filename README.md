@@ -123,7 +123,8 @@ interface / `--ref` 型 / 曖昧な simple 名はエラーになる。
 `m.Color` で引ける (simple 名が出力内で重複するときだけ Lua の global 名)。
 
 namespace の中の型は Lua では namespace 修飾名の global になり
-(`Game.Gfx.Color` → `Game_Gfx_Color`)、namespace に属さない型は simple 名の
+(`Game.Gfx.Color` → `Game_Gfx_Color`)、入れ子の型は外側の型の名前をつなぎ
+(`Outer.Inner` → `Outer_Inner`)、どちらでもない型は simple 名の
 global になる。
 `--prelude <shim.lua>` は任意のユーザー Lua (host API を tcs stub の形に
 橋渡しする shim など) を出力の先頭に前置する。
@@ -322,7 +323,7 @@ Rider 実機確認の手順:
 
 ## サポートしている C# 機能
 
-class, enum, interface(型チェックのみ。class / record の継承は対象外で、多態は interface と型 switch), コンストラクタ, auto/custom プロパティ,
+class, enum, interface(class の `is I` / `as I` / 型 switch も。class / record の継承は対象外で、多態は interface と型 switch), コンストラクタ, auto/custom プロパティ,
 static/instance メソッド, if/else/while/for/foreach/switch, ラムダ,
 List\<T\>, Dictionary\<K,V\>, LINQ (`using TinySystem.Linq;` の Where/Select/Any/All/Count/FirstOrDefault/OrderBy/OrderByDescending/Min/Max/MinBy/MaxBy/Sum。Dictionary の Keys / Values も受け手。.NET の project は `TinySystem/TinySystem.props` で同じ実装をコンパイルする),
 文字列補間, null 条件演算子 (`?.`), is パターン, switch 式 など。
