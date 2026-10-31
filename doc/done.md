@@ -2672,3 +2672,40 @@
 - 検証: `DifferentialTests.StructArgumentCopy` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout。`IncrementalSessionTests.BodyEdit_ThatStartsWritingStructParameter_KeepsCallerValue`
 - 判断: 省略の判断を呼び出し側が呼ばれた側の本文を見て決める形は採らない。呼ばれた側の本文だけの hot reload で判断が古くなる。同じ理由で readonly でない instance member の呼び出しは本文を見ずに書き換えとみなす
 - 残課題: なし
+
+### 自作メソッドの out (`out var` / `out _`) ✓ (2026-10-31)
+- 自作メソッドの宣言に `out` を書ける。呼び出しに渡せるのは `out var` / `out T x` / `out _` だけで、前もって宣言した変数、field、配列の要素、out parameter は TCS1001 (`OutArgumentNotDeclaration`)
+- Lua は `return 戻り値, out...` の multi-return で、条件の位置の呼び出しは IIFE を作らず文に下ろす。C は signature の末尾の `T *` で、本体は普通の local に書き、return の位置で呼び出し側の stack の一時変数へ書く
+- 検証: `dotnet test tcs2c.Tests --filter "FullyQualifiedName~OutParameters"` の Lua、C、GC stress が一致し、期待値は CoreCLR の実行結果。`dotnet test Transpiler.Tests --filter "FullyQualifiedName~MultiReturn"`、`dotnet test TinyCs.Analyzers.Tests --filter "FullyQualifiedName~Out"` が通過
+- 判断: delegate / lambda / constructor の out は呼び出しの形が決まらないので TCS1001 のまま
+- 残課題: なし
+
+### タプル ✓ (2026-10-31)
+- 戻り値、分解 (入れ子、`foreach`、`(a, b) = (b, a)`、field と配列の要素への代入)、変数と field への保持、`List<(int, int)>`、配列、`T?` を使える。比較、パターン、要素の型が違うタプルへの変換、8 要素以上、`ValueTuple` の型名は TCS1001
+- `TinySystem/ValueTuple.cs` を library として user のコードと一緒にコンパイルすると、タプルの構文は Roslyn がこの宣言に結び付くので、struct の copy、既定値、List の等価はそのまま動く。C は `IlSpecialization` がタプルの構文を閉じた struct に置き換える。.NET はこのファイルを読まず BCL の ValueTuple を使う
+- Lua は戻り値の宣言がタプルの method を multi-return にし、保持する位置だけ table に詰める
+- 検証: `dotnet test tcs2c.Tests --filter "FullyQualifiedName~Tuples"` の Lua、C、GC stress が一致し、期待値は CoreCLR の実行結果。`dotnet test Transpiler.Tests --filter "FullyQualifiedName~TupleTests"`、`dotnet test TinyCs.Analyzers.Tests --filter "FullyQualifiedName~Tuple"` が通過
+- 判断: 分解の左辺の custom property は TCS1001 のまま (setter を呼ぶ経路が要る)。library は使う tree だけを emit する (タプルだけの program に Linq を入れない)
+- 残課題: なし
+
+### delegate の同一性と合成を TCS1001 で止める ✓ (2026-10-31)
+- delegate どうしの `==` / `!=` は `DelegateEquality`、`+` / `-` / `+=` / `-=` は `DelegateCombine` の TCS1001。`Equals` は既に TCS1002 で止まる。null との比較、呼び出し、代入は残す
+- 検証: `DifferentialTests.DelegateOperations` が修正前に 8 件 fail、修正後は全通過。残す形の期待値は CoreCLR の stdout。analyzer の parity にも足した
+- 判断: `== null` は値の有無だけで全経路の結果が同じなので止めない
+- 残課題: なし
+
+### 入れ子の型を扱う ✓ (2026-10-31)
+- class / struct / record / record struct / enum / interface の中の型を、外側の型の名前を `_` でつないだ独立の型 (`Outer_Inner`) にする。Lua と C で同じ名前。generic でない型の中の generic な型も、C は閉じた copy を同じ外側の型に置く
+- generic な型の中の型は TCS1001 `NestedTypeInGenericType`
+- C の struct の typedef の順は、field の型名を写した名前で比べる (修飾名の struct の依存を見落としていた)。本文編集の差し替えは method を直接持つ class だけにする (class の中の struct の method を外側の class の同名 method に当てていた)
+- 検証: `DifferentialTests.NestedTypes` は Lua / C / C (GC stress) の stdout と、同じ program の CoreCLR の stdout が一致する。`NestedTypeTests` で名前、本文編集、module の登録、診断を確かめる
+- 判断: generic な型の中の型は外側の型引数を持つので、Lua の型消去と C の閉じた copy のどちらにも単純には写らない。実装は需要を見てから
+- 残課題: なし
+
+### class の interface の検査 ✓ (2026-10-31)
+- class / record class への `is I`、`as I`、型 switch を判定する。Lua は class table の `__interfaces` (名前の集合) を `__tcs_implements` で引き、C は既存の型 id の switch を使う
+- 型 switch の designation の local は宣言の型にする。C で object / interface の入力から宣言の型の member を引ける
+- 参照型でない入力 (struct、`T?`、`class` 制約の無い `T`)、generic な interface、metadata と `--ref` の interface は TCS1001 `InterfaceTypeTest` のまま
+- 検証: `DifferentialTests.InterfaceTypeTest` は Lua / C / C (GC stress) の stdout と、同じ program の CoreCLR の stdout が一致する。止める形は両 backend の診断を確かめる。module mode は `InterfaceTests` で確かめる
+- 判断: generic な interface は Lua が型引数を消すので、`I<int>` と `I<string>` を区別する名前を別に決める必要がある。需要を見てから
+- 残課題: `as` は interface だけで、class の `as` は TCS1001 のまま
