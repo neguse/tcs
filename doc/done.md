@@ -2666,3 +2666,9 @@
 - 検証: `DifferentialTests.Queue` (Lua / C 通常 + GC stress の stdout が CoreCLR の stdout と一致)、`AssertParityLib` でフレーム境界の GC を跨ぐ
 - 判断: `foreach` は今の要素の写しを反復する (Dictionary の `Keys` / `Values` と同じ)。`TryDequeue` と容量つきの constructor は入れない
 - 残課題: なし
+
+### HashSet\<T\> ✓ (2026-10-31)
+- `new HashSet<T>()`、initializer、`Add`、`Remove`、`Contains`、`Count`、`Clear`、`foreach` を Lua / C に足した。.NET の HashSet と同じく slot に要素を持つので、列挙の順も 3 経路で同じになる
+- 検証: `DifferentialTests.HashSet` (Lua / C 通常 + GC stress の stdout が CoreCLR の stdout と一致)、`AssertParityLib` でフレーム境界の GC を跨ぐ (class の要素は昇格で address が変わる)
+- 判断: 値で比べる要素と float は TCS1001 で止める。C の TcsDict は key が i32 / string / host handle だけで、class の同一性と列挙の順を持たないので使わない。集合演算と `new HashSet<T>(source)` は入れない
+- 残課題: なし
