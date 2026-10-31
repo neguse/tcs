@@ -5,7 +5,8 @@ namespace TinyCs.Tcs2c;
 
 // struct / record struct の member (il-spec §10): instance method と
 // accessor は `self` を格納場所へのポインタ (Tcs_S *) で受ける自由関数、
-// explicit / positional ctor は zero 値から組み立てて値で返す関数。
+// explicit / positional ctor は zero 値から組み立てて値で返す関数、static method と
+// operator は self の無い自由関数。
 // 呼び出しサイトは IlCall("S.M", [receiver, args]) の静的ディスパッチで、
 // receiver が place (変数 / field / 配列要素) ならそのアドレスを渡し (変異が
 // その場に残る = C# の変数 receiver)、rvalue (copy / 呼び出し結果) なら
@@ -17,6 +18,21 @@ internal sealed partial class CEmitter
 
     private IEnumerable<IlStructInfo> StructInfos =>
         _program.Structs.IsDefault ? [] : _program.Structs;
+
+    // static field を持つ型。struct の static は class の static と同じ置き場と初期化の規則に乗る
+    private IEnumerable<IlClassInfo> StaticOwners =>
+        _program.Classes.Concat(StructStaticOwners.Values);
+
+    private Dictionary<string, IlClassInfo>? _structStaticOwners;
+
+    private Dictionary<string, IlClassInfo> StructStaticOwners =>
+        _structStaticOwners ??= StructInfos
+            .Where(st => !st.StaticFields.IsDefaultOrEmpty)
+            .ToDictionary(st => st.Name,
+                st => new IlClassInfo(st.Name, null, st.StaticFields, st.LayoutHash, []));
+
+    private bool IsStaticMemberOwner(string name) =>
+        _classes.ContainsKey(name) || _facts.Structs.ContainsKey(name);
 
     private bool TryStructCallee(string callee, out IlStructInfo st,
         out string member)
@@ -41,11 +57,14 @@ internal sealed partial class CEmitter
             foreach (var field in st.Fields)
             {
                 Names.Id(field.Name);
-                if (field.IsStatic)
-                    throw new Tcs2cException(
-                        $"static struct member is not supported: {st.Name}.{field.Name}");
                 EnsureSupportedStorageType(_facts.MapType(field.Type),
                     $"field {st.Name}.{field.Name}");
+            }
+            foreach (var field in st.StaticFields.IsDefault ? [] : st.StaticFields)
+            {
+                Names.Id(field.Name);
+                EnsureSupportedStorageType(_facts.MapType(field.Type),
+                    $"static field {st.Name}.{field.Name}");
             }
             foreach (var method in st.Methods.IsDefault ? [] : st.Methods)
             {
@@ -53,9 +72,6 @@ internal sealed partial class CEmitter
                 if (method.Body is null)
                     throw new Tcs2cException(
                         $"method has no IL body: {st.Name}.{method.Name}");
-                if (method.IsStatic)
-                    throw new Tcs2cException(
-                        $"static struct member is not supported: {st.Name}.{method.Name}");
                 var fact = _facts.Method(st.Name, method.Name);
                 EnsureSupportedStorageType(fact.ReturnType,
                     $"return type of {st.Name}.{method.Name}", allowVoid: true);
@@ -63,15 +79,20 @@ internal sealed partial class CEmitter
                     EnsureSupportedStorageType(parameter.Type,
                         $"parameter {st.Name}.{method.Name}.{parameter.Name}");
             }
-            if (st.Ctor is { Body: null })
+            if (StructCtors(st).Any(c => c.Body is null))
                 throw new Tcs2cException(
                     $"constructor body is not IL-exportable: {st.Name}");
         }
     }
 
-    private List<ParameterFact> StructCtorParamFacts(IlStructInfo st)
+    private static IEnumerable<IlCtorInfo> StructCtors(IlStructInfo st) =>
+        st.Ctors.IsDefault ? [] : st.Ctors;
+
+    private static string StructCtorFunction(IlStructInfo st, IlCtorInfo ctor) =>
+        Names.StructCtor(ctor.Name == "ctor" ? st.Name : $"{st.Name}_{ctor.Name}");
+
+    private List<ParameterFact> StructCtorParamFacts(IlStructInfo st, IlCtorInfo ctor)
     {
-        if (st.Ctor is not { } ctor) return [];
         if (ctor.Parameters.Length != ctor.ParameterTypes.Length)
             throw new Tcs2cException($"ctor metadata mismatch: {st.Name}");
         return ctor.Parameters.Select((name, i) => new ParameterFact(
@@ -82,11 +103,11 @@ internal sealed partial class CEmitter
     {
         foreach (var st in StructInfos)
         {
-            if (st.Ctor is not null)
+            foreach (var ctor in StructCtors(st))
             {
-                var parameters = StructCtorParamFacts(st);
+                var parameters = StructCtorParamFacts(st, ctor);
                 Line($"static {CType.Struct(st.Name).CName} " +
-                    $"{Names.StructCtor(st.Name)}(" +
+                    $"{StructCtorFunction(st, ctor)}(" +
                     (parameters.Count == 0 ? "void"
                         : string.Join(", ", parameters.Select(p => p.Type.CName))) +
                     ");");
@@ -104,13 +125,13 @@ internal sealed partial class CEmitter
     {
         foreach (var st in StructInfos)
         {
-            if (st.Ctor is { } ctor) EmitStructCtor(st, ctor);
+            foreach (var ctor in StructCtors(st)) EmitStructCtor(st, ctor);
             foreach (var method in st.Methods.IsDefault ? [] : st.Methods)
             {
                 var fact = _facts.Method(st.Name, method.Name);
-                _structSelfOwner = true;
-                EmitMethodCore(method, fact,
-                    new Variable("v_self", CType.Struct(st.Name)) { Boxed = true });
+                _structSelfOwner = !fact.IsStatic;
+                EmitMethodCore(method, fact, fact.IsStatic ? null
+                    : new Variable("v_self", CType.Struct(st.Name)) { Boxed = true });
                 _structSelfOwner = false;
             }
         }
@@ -121,9 +142,9 @@ internal sealed partial class CEmitter
     private void EmitStructCtor(IlStructInfo st, IlCtorInfo ctor)
     {
         var type = CType.Struct(st.Name);
-        var parameters = StructCtorParamFacts(st);
-        _currentMethodFact = new MethodFact(st.Name, "ctor", true, type,
-            [.. parameters], new IlMethodInfo("ctor", true,
+        var parameters = StructCtorParamFacts(st, ctor);
+        _currentMethodFact = new MethodFact(st.Name, ctor.Name, true, type,
+            [.. parameters], new IlMethodInfo(ctor.Name, true,
                 ctor.Parameters, ctor.Body, st.Name, ctor.ParameterTypes));
         _currentMethod = _currentMethodFact.Metadata;
         _scopes.Clear();
@@ -137,7 +158,7 @@ internal sealed partial class CEmitter
                     parameters[i].Type));
         AddVariable("self", new Variable("v_self", type) { Boxed = true });
         Line($"static {type.CName}");
-        Line($"{Names.StructCtor(st.Name)}(" +
+        Line($"{StructCtorFunction(st, ctor)}(" +
             (parameters.Count == 0 ? "void"
                 : string.Join(", ", parameters.Select((p, i) =>
                     $"{p.Type.CName} v_{Names.Id(p.Name)}_{i}"))) + ")");
@@ -173,19 +194,19 @@ internal sealed partial class CEmitter
         IReadOnlyList<IlExpr> args)
     {
         var type = CType.Struct(st.Name);
+        if (StructCtors(st).FirstOrDefault(c => c.Name == member) is { } ctor)
+        {
+            var parameters = StructCtorParamFacts(st, ctor);
+            RequireArity($"{st.Name}.{member}", args.Count, parameters.Count);
+            for (var i = 0; i < args.Count; i++)
+                CheckAssignable(parameters[i].Type, args[i],
+                    $"argument {i} of {st.Name}.{member}");
+            return type;
+        }
         switch (member)
         {
             case "ctor":
-            {
-                if (st.Ctor is null)
-                    throw new Tcs2cException($"struct has no constructor: {st.Name}");
-                var parameters = StructCtorParamFacts(st);
-                RequireArity($"{st.Name}.ctor", args.Count, parameters.Count);
-                for (var i = 0; i < args.Count; i++)
-                    CheckAssignable(parameters[i].Type, args[i],
-                        $"argument {i} of {st.Name}.ctor");
-                return type;
-            }
+                throw new Tcs2cException($"struct has no constructor: {st.Name}");
             case "op_Equality":
                 RequireArity($"{st.Name}.op_Equality", args.Count, 2);
                 CheckAssignable(type, args[0], $"{st.Name}.op_Equality left");
@@ -194,6 +215,7 @@ internal sealed partial class CEmitter
             default:
             {
                 var fact = _facts.Method(st.Name, member);
+                if (fact.IsStatic) return ValidateMethodCall(fact, null, args);
                 if (args.Count != fact.Parameters.Count + 1)
                     throw new Tcs2cException(
                         $"struct method call is missing its receiver: {st.Name}.{member}");
@@ -207,15 +229,15 @@ internal sealed partial class CEmitter
         IReadOnlyList<IlExpr> args)
     {
         var type = CType.Struct(st.Name);
+        if (StructCtors(st).FirstOrDefault(c => c.Name == member) is { } ctor)
+        {
+            var parameters = StructCtorParamFacts(st, ctor);
+            return RenderOrderedCall(StructCtorFunction(st, ctor), type,
+                [.. args.Select((a, i) =>
+                    (parameters[i].Type, RenderCoerced(a, parameters[i].Type)))]);
+        }
         switch (member)
         {
-            case "ctor":
-            {
-                var parameters = StructCtorParamFacts(st);
-                return RenderOrderedCall(Names.StructCtor(st.Name), type,
-                    [.. args.Select((a, i) =>
-                        (parameters[i].Type, RenderCoerced(a, parameters[i].Type)))]);
-            }
             case "op_Equality":
             {
                 var left = Temp("eq_l");
@@ -227,6 +249,8 @@ internal sealed partial class CEmitter
             default:
             {
                 var fact = _facts.Method(st.Name, member);
+                if (fact.IsStatic) return RenderMethodCall(fact, null, args);
+                var outArguments = TakeOutArguments();
                 var sb = new StringBuilder();
                 var receiver = Temp("recv");
                 var owner = Temp("owner");
@@ -250,6 +274,7 @@ internal sealed partial class CEmitter
                         $"{RenderCoerced(args[i + 1], fact.Parameters[i].Type)}; ");
                     rendered.Add(temp);
                 }
+                rendered.AddRange(outArguments);
                 sb.Append($"{Names.Method(st.Name, member)}({string.Join(", ", rendered)}); ");
                 return $"({{ {sb}}})";
             }
