@@ -74,6 +74,11 @@ public partial class LuaEmitter
         AppendLine("  if x >= 0 then return math.floor(x) end");
         AppendLine("  return math.ceil(x)");
         AppendLine("end");
+        // (char)x: char は 1 byte の code unit
+        AppendLine("local function __tcs_char(x)");
+        AppendLine("  if x < 0 or x > 255 then error(\"(char) cast: value is not in 0-255; use char.ConvertFromUtf32 for a codepoint\") end");
+        AppendLine("  return x");
+        AppendLine("end");
         // float.Parse: tonumber は整数の文字列を integer で返すので float に
         // する (不正な文字列の nil はそのまま)
         AppendLine("local function __tcs_tofloat(v)");
@@ -143,6 +148,7 @@ public partial class LuaEmitter
         AppendLine("local function __tcs_op_gt(a, b) return a > b end");
         AppendLine("local function __tcs_op_ge(a, b) return a >= b end");
         AppendLine("local function __tcs_op_neg(a) return -a end");
+        AppendLine("local function __tcs_op_tofloat(a) return a * 1.0 end");
         AppendLine("local function __tcs_op_bnot(a) return ~a end");
         // C# の `is T` は「T またはその派生」(il-spec §9)。継承は
         // instance の metatable = class table、class table の

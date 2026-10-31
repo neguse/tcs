@@ -2550,6 +2550,77 @@
 - 判断: enum ごとに記述子を型の table に置く案は、名前の表を文字列化しない enum にも出すことになる (EnumToStringTests.NameTable_IsEmittedOnlyWhereStringified) ので、渡す地点で作る形にした
 - 残課題: `object` に入れた enum の文字列化 (値に型の札を付けないと区別できない)
 
+### 単項マイナスのオペランドが `-` で始まっても `--` にしない ✓ (2026-10-31)
+- 負の int 定数のインライン化 (`const int K = -5; -K`) と入れ子の単項マイナス (`- -x`) で、Lua は `--` (行の残りがコメントになる)、C は `--INT32_C(5)` (減算子) を出していた。`-` で始まるオペランドを括弧で包む
+- 検証: DifferentialTests.UnaryMinus_OperandStartingWithMinus は CoreCLR の stdout と Lua / C が一致 (修正前は Lua の構文エラーと C の compile エラー)
+- 残課題: なし
+
+### 生成 Lua に構文ノードの生テキストを使わない (型パターンの型参照、補間の書式句と配置句) ✓ (2026-10-31)
+- 型パターンの型参照は `FormatTypeSyntax` の fallback (`type.ToString()`) を消し、名前で表せない型は TCS1001 にする。delegate、`object`、metadata の class、`--ref` の generic な型への型 test は Shared の規則 `TypeTestWithoutRuntimeType` で analyzer / check / transpiler が同じ診断を出す (修正前は `__tcs_is(o, Func<int>)` やコメントの中身がそのまま Lua に出た)
+- 補間の配置句は `GetConstantValue` の int から、書式句は `ValueText` から作り、どちらも `EscapeLuaString` を通す。精度に数字以外がある書式指定子は規則 `MalformedFormatSpecifier` で拒否する
+- 検証: SubsetDiagnosticTests の TypeTest* / MalformedFormatSpecifier_IsRejected / InterpolationAlignment_UsesConstantValueNotSyntaxText、analyzer の SemanticRules_MatchTranspilerDiagnostics。配置句にコメントを含む program は CoreCLR の stdout と Lua / C が一致
+- 判断: 同じ値型の入力への `is` は値の有無だけで型の表現が要らないので規則の対象外
+- 残課題: なし
+
+### 括弧付きの pattern を中の pattern に透過して lower する ✓ (2026-10-31)
+- `(Sq or Ci) or Tri` や `(Sq s)` の `ParenthesizedPatternSyntax` は lower できず TCS1001 になっていた (analyzer は診断しない)。switch 式 / 文の照合と `is` の sub-pattern は中の pattern に透過し、designation の前宣言、discard の arm、`is` の宣言 pattern の判定も括弧を外して見る。`((Ci))` の型名は括弧の中の型参照を使う
+- 検証: DifferentialTests.ParenthesizedPattern_IsTransparent は CoreCLR の stdout と Lua / C が一致。TypePatternTests.ParenthesizedPattern_BindsDesignation (Lua)
+- 判断: `CoversAll` は master に無い (T265 の PR は未 merge) ので触らない
+- 残課題: なし
+
+### int? → float? の変換で整数を f32 に丸める ✓ (2026-10-31)
+- 暗黙の `int?` → `float?` (比較の昇格、代入、引数) と `(float?)x` は Lua で整数のまま残り、`16777217 <= 16777216f` が nullable だけ false だった。C は `(float?)x` を受けなかった。値があるときだけ変換する lifted の単項 `IlUnOp.ToFloat` を IL に足し、Lua は `__tcs_nlift1(x, __tcs_op_tofloat)`、C は `{ has, v }` の変換で出す
+- 検証: DifferentialTests.NullableIntToNullableFloat_RoundsToFloat32 は CoreCLR の stdout と Lua / C が一致
+- 残課題: なし
+
+### nullable の `??` の未選択の右辺を Lua で評価しない ✓ (2026-10-31)
+- Lua は呼び出しを含まない右辺を `__tcs_nget(left, right)` の引数として先に評価し、左に値があってもゼロ除算や null の field 参照で停止した。`__tcs_nget` は評価しても fault しない右辺 (literal / local と、その括弧・wrap) だけに使い、他は文への lowering か IIFE で遅延する
+- 検証: DifferentialTests.NullableCoalesce_DoesNotEvaluateUnselectedRight は CoreCLR の stdout と Lua / C が一致
+- 残課題: なし
+
+### `??=` の右辺が local の受け手を差し替えても元の object に書く ✓ (2026-10-31)
+- `box.Name ??= (box = other).Name + "!"` で、Lua は差し替え後の object に書き、C は式の値を差し替え後の object から読み直していた。右辺が受け手 / 添字の読む local を書き換えるときは、文でも式でも受け手を右辺より先に temp に固定する
+- 検証: DifferentialTests.CoalesceAssignment_RightReplacesLocalReceiver は CoreCLR の stdout と Lua / C が一致
+- 残課題: なし
+### Rune の文字列化と char.ConvertFromUtf32 を UTF-8 の文字列にする ✓ (2026-10-31)
+- `Rune` の `ToString`・連結・補間・`WriteLine` と `char.ConvertFromUtf32` は codepoint の UTF-8 文字列を返す。範囲外は Lua / C とも同じ文言で fault
+- 検証: DifferentialTests の Rune_ / ConvertFromUtf32_ は CoreCLR の stdout と Lua / C が一致
+- 判断: 文字列は byte 単位のまま。CoreCLR は BCL の同名 API が動くので facade を足さない
+- 残課題: なし
+
+### (char)x の範囲外を Lua / C で同じ fault にする ✓ (2026-10-31)
+- `(char)x` の x が 0〜255 の外なら fault し、`char.ConvertFromUtf32` を案内する。C の char の文字列化も範囲外で fault する (Lua の `string.char` と同じ)
+- 検証: DifferentialTests の CharCast_ / CharIncrement_ は Lua / C とも同じ stdout の後に fault
+- 判断: 定数の範囲外も TCS1001 にせず同じ fault にして、診断の範囲を広げない
+- 残課題: なし
+### Array の member と SortedDictionary を TCS1002 にする ✓ (2026-10-31)
+- `Array.Sort` などの System.Array の member (配列の `Length` 以外) と `new SortedDictionary<,>()` を TCS1002 にした。support-matrix ではどちらも未対応なのに check を通り、Lua は実行時に nil の index、C は emit の error だった
+- 検証: ApiSignatureComplianceTests.UnimplementedOverload_ReportsTcs1002 (transpiler と analyzer) と DifferentialTests.UnsupportedApi_BothBackendsStopWithDiagnostic
+- 残課題: 同じ表の `HashSet` / `Queue` / `Stack` / `LinkedList` / `SortedList` / `SortedSet` は扱っていない。名前の無い BCL の型を既定で通す判定 (TryGetUnsupportedApi) はそのまま
+
+### 補間の数値の書式を .NET の ToString(format) と同じ文字列にする ✓ (2026-10-31)
+- int の G / E / F / N / D / X / R (`String.FormatInt`) と float の F / N / R (`String.FormatFloat`) を runtime/fmt の実装で書く。修正前は printf の書式に写していて、整数の `{x:E}` の指数が 2 桁、`{x:G}` が `1.23457e+06`、精度なしの F が 6 桁、N に区切りが無く、Lua は 3 桁以上の精度を `string.format` が受けなかった
+- float は正確な値を偶数に丸め、int の E / G はちょうど中間を絶対値の大きい方に丸める (CoreCLR の実測)。int の R は G と同じく精度を使い、float の R は精度を見ない
+- 検証: DifferentialTests.IntFormat_MatchesDotnet、FloatFormat_FixedAndRoundTripMatchDotnet、NumberFormat_WideRangeHashMatchesDotnet は CoreCLR の文字列と Lua / C が一致
+- 判断: 新しい source file を足すと host (tcs_rt を build する側) の build の変更が要るので、int の書式も runtime/fmt/f2s.c に置いた
+- 残課題: C / P と custom の書式 (T267)。float の D / X は .NET の FormatException と同じく Lua / C も実行時の error で止まる。2^31 以上の uint の書式は、lua32 は実行時の error、C は emit の error、64 bit の Lua も `tcs_rt.ifmt` の範囲検査で実行時の error で止まる
+### tcs_rt.sort_strings で __len の返す長さに上限を設ける ✓ (2026-10-31)
+- `__len` が返す長さをそのまま掛け算していたので、64bit の lua で 2^61 + 1 を返すと確保の大きさが wrap し、確保した外へ書いて segfault した。`table.sort` と同じく `INT_MAX` 以上と `size_t` に収まらない長さを "array too big" で止める
+- 検証: RuntimeTests.SortStrings_RejectsLengthThatDoesNotFit (lua32 と lua)。修正前は lua の 2^61 + 1 が exit 139、他は "block too big"
+
+### tcs2c: string.Join と enum の文字列化の長さの合計に桁あふれ検査を入れる ✓ (2026-10-31)
+- `tcs_string_join_items` と `tcs_enum_format` の `total` を `tcs_string_concat` と同じく `string-length-overflow` で止める。`tcs_string_join_values` と `tcs_string_join_enum` の `count * sizeof(*items)` は `allocation-overflow` で止める
+- 検証: StringLengthOverflowTests (長さだけを持つ TcsString を runtime の関数へ渡す 6 件)。修正前は 6 件とも fault せず失敗
+
+### Lua の String.Trim を空白の連続の長さに線形にする ✓ (2026-10-31)
+- `^%s*(.-)%s*$` は `.-` の各位置で `%s*$` をやり直すので、内側の空白の連続に対して 2 乗の時間がかかっていた。先頭の非空白を `find` で探し、そこから `.*%S` で最後の非空白まで取る
+- 検証: StringMethodTests.String_Trim_LongInnerWhitespaceIsLinear (内側に 100 万個の空白)。修正前は RunLua の 10 秒の timeout で失敗。String_Trim_Runtime は修正の前後で通る
+
+### seed 未指定の Random の仕様を実装に合わせ、lua32 で os.clock の項が消えるのを直す ✓ (2026-10-31)
+- il-spec と C runtime のコメントの「`luai_makeseed` 相当」を取り下げ、il-spec と support-matrix に時刻由来で予測でき、敵対的な用途には向かないと書く。実装は時刻由来のまま
+- lua32 では CPU 時間が 2^31 µs を越えると `os.clock` の項が `math.tointeger` の nil で 0 になっていた。2^31 の剰余を取って項を残す
+- 検証: RandomSemanticTests.Random_AutoSeed_UsesClockBeyondLua32IntegerRange。修正前は `os.clock` が 3000 秒と 4000 秒で同じ列になり失敗
+- 判断: OS の entropy から 4 語を埋める案は取らない (seed 未指定の Random は `math.random` 相当のゲーム用 PRNG)
 ### watch: reload chunk を組めない例外でも restart を求める ✓ (2026-10-31)
 - `--reload-chunks` の watch で `PlanReload` が例外を投げたら、例外の message を理由に `restart_required` を送り、ホストの build を進める (restart の理由がある編集と同じ経路)
 - 修正前は log だけを出して build を進めなかったので、出力から起動し直したホストに次の chunk が当たらなかった

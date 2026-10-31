@@ -113,7 +113,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `double` (Double) | **N/A** | | 数値は i32 / f32 だけ (il-spec §3)。`double` の型と、suffix の無い実数リテラル (`1.5`、`1e3`、`1d`) は TCS1001 `DoubleType` / `DoubleLiteral`。実数は `f` suffix の float で書く |
 | `bool` (Boolean) | **Y** | boolean | 文字列化 (`ToString()`・連結・補間・`Console.WriteLine`・`string.Join` の要素、`bool?` と object に入れた値も) は .NET と同じ `True` / `False` (`__tcs_bstr`) |
 | `decimal` (Decimal) | **-** | | |
-| `char` (Char) | **Y** | 整数 code unit (byte)。literal は ASCII のみ (非 ASCII は TCS1001 `NonAsciiCharLiteral`、string literal で書く)。算術 / 比較 / switch / pattern は int と同じ、文字列化 (連結・補間・`ToString`・`WriteLine`) は 1 byte の string。`Char.*` は §15b |
+| `char` (Char) | **Y** | 整数 code unit (byte)。literal は ASCII のみ (非 ASCII は TCS1001 `NonAsciiCharLiteral`、string literal で書く)。`(char)x` の x が 0〜255 の外なら Lua / C とも同じ文言で fault し、`char.ConvertFromUtf32` を案内する (.NET は UTF-16 の code unit を作る)。cast を通らずに範囲を出た値 (`c++`) は文字列化の地点で fault する。算術 / 比較 / switch / pattern は int と同じ、文字列化 (連結・補間・`ToString`・`WriteLine`) は 1 byte の string。`Char.*` は §15b |
 | `byte` (Byte) | **-** | | |
 | `sbyte` (SByte) | **-** | | |
 | `short` (Int16) | **-** | | |
@@ -276,7 +276,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `bool` (`true`/`false`) | **Y** | そのまま | |
 | `null` | **Y** | `nil` | |
 | 文字列 (`"hello"`) | **Y** | そのまま | |
-| 補間文字列 (`$"...{x}..."`) | **Y** | `tostring` + `..` | object の hole は `__tcs_nstr` (値が float なら .NET と同じ文字列、null は `""`。C backend は object の補間を受けない)。書式 `D` の精度は符号を除いた桁数 (`%.Nd`。精度 0 は精度なしと同じ `%d` で、値 0 も `0`)。float (と `float?`) の書式 `G` / `E` (小文字・精度つきも) は .NET の `float.ToString(format)` と同じ文字列 (`String.FormatFloat`、il-spec §13。`float?` の null は空文字列)。他の書式は printf の書式に写す。raw 補間 (`$$"""..."""`) の `$` の個数より短い brace の連続は文字のまま |
+| 補間文字列 (`$"...{x}..."`) | **Y** | `tostring` + `..` | object の hole は `__tcs_nstr` (値が float なら .NET と同じ文字列、null は `""`。C backend は object の補間を受けない)。float (と `float?`) の書式 `G` / `E` / `F` / `N` / `R`、int (と `int?`) の書式 `G` / `E` / `F` / `N` / `D` / `X` / `R` (小文字・精度つきも) は .NET の `ToString(format)` と同じ文字列 (`String.FormatFloat` / `String.FormatInt`、il-spec §13。`T?` の null は空文字列)。他の書式は printf の書式に写す。raw 補間 (`$$"""..."""`) の `$` の個数より短い brace の連続は文字のまま。書式指定子 `F N D X E G R` の精度に数字以外があれば TCS1001 `MalformedFormatSpecifier` |
 | 文字 (`'A'`) | **Y** | 1文字 string | |
 | 2進数 (`0b1010`, C# 7) | **Y** | 10進数へ変換 | |
 | 16進数 (`0xFF`) | **Y** | `_` 除去して出力 | |
@@ -307,7 +307,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `is null` / `is not null` | **Y** | `== nil` / `~= nil` | |
 | `is Type` | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定。designation なしの binary 形も対応 | |
 | `new T(args)` | **Y** | `T.new(args)` | |
-| `??=` (null 合体代入, C# 8) | **Y** | nil check + assignment | 式位置の値は代入後の左辺。左辺が `T?` なら値は `T` (C# の型) |
+| `??=` (null 合体代入, C# 8) | **Y** | nil check + assignment | 式位置の値は代入後の左辺。左辺が `T?` なら値は `T` (C# の型)。受け手 / 添字は右辺より先に確定する (右辺が受け手の local を差し替えても元の object に書く) |
 | `?[]` (null 条件インデクサ, C# 6) | **Y** | IIFE nil チェック | List/array は 0→1 indexed |
 | `?.Prop = v` (null条件代入, C# 14) | **-** | | |
 | `as` (安全キャスト) | **-** | | |
@@ -367,7 +367,7 @@ C# `int` と一致する。シフトは `__tcs_shl` / `__tcs_shr` (count を 31 
 | パターン | C# ver | 状態 | Lua マッピング | 備考 |
 |---------|--------|:----:|--------------|------|
 | 定数パターン `is 42`, `is null` | 7 | **Y** | `== 42`, `== nil` | |
-| 型パターン `is MyClass` | 7 | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定 | struct `S` / `S?` の入力を同じ struct 型で照合するのは値の有無だけ。`object` に入れた `List<T>` / 配列 / `Dictionary<K,V>` への型 test は Lua では TCS1001 (table は構造型の tag を持たない。C backend は構造型 id で判定) |
+| 型パターン `is MyClass` | 7 | **Y** | class は `getmetatable() ==`、値型/string は `type()` 判定 | struct `S` / `S?` の入力を同じ struct 型で照合するのは値の有無だけ。`object` に入れた `List<T>` / 配列 / `Dictionary<K,V>` への型 test は Lua では TCS1001 (table は構造型の tag を持たない。C backend は構造型 id で判定)。実行時表現の無い型 (delegate、`object`、metadata の class、`--ref` の generic な型) への型 test は TCS1001 `TypeTestWithoutRuntimeType` |
 | `not` パターン `is not null` | 9 | **Y** | `~= nil` | |
 | 破棄パターン `_` | 7 | **Y** | switch 式の default | `_ when 条件` は条件付きの arm |
 | 宣言パターン `is int i` | 7 | **Y** | 型判定 + local 束縛 | if / ternary / 複合条件 / lambda / switch で束縛。struct は入力 (`S?` は中の値) の copy を束縛 |
@@ -378,7 +378,7 @@ C# `int` と一致する。シフトは `__tcs_shl` / `__tcs_shr` (count を 31 
 | 関係パターン `is > 0` | 9 | **Y** | 比較式展開 | |
 | `and` パターン `is > 0 and < 100` | 9 | **Y** | and 結合 | 入力が呼び出しを含む式なら temp に 1 回評価してから照合 (`or` / 複数条件の property パターンも同じ) |
 | `or` パターン `is 1 or 2` | 9 | **Y** | or 結合 | |
-| 括弧パターン `is not (A or B)` | 9 | **-** | | |
+| 括弧パターン `is not (A or B)` | 9 | **Y** | 中の pattern と同じ | switch 式 / 文、`is` |
 | 拡張プロパティパターン `{ A.B: v }` | 10 | **-** | | |
 | リストパターン `[1, 2, ..]` | 11 | **-** | | |
 | スライスパターン `[.., last]` | 11 | **-** | | |
@@ -571,7 +571,7 @@ using(宣言)  virtual  volatile  yield
 | `int` / `float` の `CompareTo(同じ型)` | **Y** | `Math.CompareTo(a, b)` | -1 / 0 / 1。float の NaN は他のどの値より小さく、NaN 同士は 0 (Single.CompareTo と同じ)。それ以外の CompareTo (object overload の `i.CompareTo(5L)`、enum、`IComparable<T>` 経由と generic の `T`、差を返す `char`、`string`) は TCS1002 |
 | `Convert` | **-** | | |
 | `Environment` | **P** | `GetEnvironmentVariable(s)` → `os.getenv(s)` | 他メンバーは未対応 |
-| `Array` | **-** | | List で代替 |
+| `Array` | **-** | | List で代替。`Array.Sort` などの member (配列の `Length` 以外) は TCS1002 |
 | `Tuple` | **-** | | |
 | `ValueTuple` | **-** | | |
 | `Nullable<T>` | **Y** | `int?` 等 (Part I 参照) | collection 要素の null は TCS1003 |
@@ -632,10 +632,10 @@ using(宣言)  virtual  volatile  yield
 | `String.Empty` (static) | **-** | | |
 | `.ReplaceLineEndings()` | **-** | | |
 | `[int]` (char indexer) | **Y** | `string.byte(s, i + 1)` (整数 code unit = byte) | T |
-| `(int)ch` / `(char)n` (char ↔ int) | **Y** | 恒等 (char は整数)。`(int)'a'` は定数畳み込み | T |
+| `(int)ch` / `(char)n` (char ↔ int) | **Y** | `(int)ch` は恒等 (char は整数)、`(int)'a'` は定数畳み込み。`(char)n` は `__tcs_char(n)` で範囲を検査する (byte と範囲内の定数からは恒等) | T |
 | `foreach (char c in s)` | **Y** | `for i = 1, #s do local c = string.byte(s, i)` (byte 単位。codepoint は `EnumerateRunes`) | T |
 | `.IndexOf(char)` / `.Contains(char)` / `.StartsWith(char)` / `.EndsWith(char)` / `.Replace(char, char)` / `.Split(char)` | **Y** | char 引数を `string.char` で 1 文字 string にして同名 runtime へ | T+R |
-| `.EnumerateRunes()` | **Y** | `foreach` の collection 位置限定: `for _, r in utf8.codes(s)`。`r.Value` (`System.Text.Rune`) は codepoint 整数そのもの | T |
+| `.EnumerateRunes()` | **Y** | `foreach` の collection 位置限定: `for _, r in utf8.codes(s)`。`r.Value` (`System.Text.Rune`) は codepoint 整数そのもの。`r` の文字列化 (`ToString`・連結・補間・`WriteLine`) は `Char.ConvertFromUtf32(r)` | T+R |
 
 引数なし`Split()`のwhitespace判定はLua `%s`によるbyte/locale単位であり、
 .NETのUnicode `Char.IsWhiteSpace`とは一致しない。これはUTF-8 byte列を使う既知制約に含む。
@@ -649,6 +649,7 @@ using(宣言)  virtual  volatile  yield
 | `char.IsDigit(c)` / `IsLetter` / `IsLetterOrDigit` / `IsWhiteSpace` / `IsUpper` / `IsLower` | **Y** | `Char.IsDigit(c)` 等 (ASCII 範囲。C backend も同じ表) | R |
 | `char.ToUpper(c)` / `char.ToLower(c)` | **Y** | `Char.ToUpper(c)` / `Char.ToLower(c)` (ASCII) | R |
 | `c.ToString()` | **Y** | `string.char(c)` | T |
+| `char.ConvertFromUtf32(n)` | **Y** | `Char.ConvertFromUtf32(n)`: codepoint の UTF-8 文字列 (Lua は `utf8.char`)。負の値、surrogate (0xD800〜0xDFFF)、0x10FFFF 超は Lua / C とも同じ文言で fault (.NET は ArgumentOutOfRangeException)。結果は byte 列なので `Length` は UTF-8 の byte 数 | R |
 | `char.IsPunctuation` / `IsSymbol` / `IsControl` / `GetNumericValue` | **-** | | |
 
 ---
@@ -696,7 +697,7 @@ using(宣言)  virtual  volatile  yield
 
 | メンバー | 状態 | Lua マッピング | 区分 |
 |---------|:----:|--------------|:----:|
-| `new Random()` / `new Random(seed)` | **Y** | `Random.new(seed)` (pure-Lua xoshiro256**) | System.Random と同じ形。seed 固定時は Lua / C で列が bit 一致し、`Random.Seed(seed)` 後の `Shared` とも一致 (il-spec §13)。C backend は GC object |
+| `new Random()` / `new Random(seed)` | **Y** | `Random.new(seed)` (pure-Lua xoshiro256**) | System.Random と同じ形。seed 固定時は Lua / C で列が bit 一致し、`Random.Seed(seed)` 後の `Shared` とも一致 (il-spec §13)。seed 未指定は時刻などから作る seed で予測できるので、敵対的な用途には向かない。C backend は GC object |
 | `Random.Shared` (static) | **Y** | `Random.Shared` (VM の `math.random` 状態) | |
 | `Random.Seed(seed)` | **Y** | `math.randomseed(seed)` | `Shared` の列の固定 (tcs 独自。System.Random に無い) |
 | `r.Next()` / `r.Next(max)` / `r.Next(min, max)` | **Y** | `r:Next(...)` | .NET 標準 API (上限は exclusive。空の範囲 `Next(0)` / `Next(n, n)` は下限を返す) |
@@ -719,7 +720,7 @@ using(宣言)  virtual  volatile  yield
 | `Stack<T>` | **-** | | |
 | `LinkedList<T>` | **-** | | |
 | `SortedList<TK, TV>` | **-** | | |
-| `SortedDictionary<TK, TV>` | **-** | | |
+| `SortedDictionary<TK, TV>` | **-** | | TCS1002 |
 | `SortedSet<T>` | **-** | | |
 | `KeyValuePair<TK, TV>` | **-** | | foreach 内で暗黙使用 |
 | `IEnumerable<T>` | **N/A** | | Roslyn 型チェックのみ |
@@ -800,6 +801,10 @@ target-typed `new()`) を TCS1001 `ValueEqualityDictionaryKey(K)`
 とし、transpiler は build を止める (Lua / C とも出力しない。analyzer は warning)。
 key 型が型 parameter の dict (generic method の中で作るもの) は対象外。
 
+C backend の `Dictionary<string, V>` のハッシュは seed を持たない FNV-1a で、chain の長さに上限が無い。
+同じ key を同じ順で入れれば、列挙の順序は実行ごとに同じになる (Lua は実行ごとの seed で変わるので、backend をまたいだ順序は未規定のまま)。
+その代わり、同じハッシュ値の文字列を作るのは容易で、host が外から受け取った信頼できない文字列を key にすると、N 回の操作に N の 2 乗に比例する時間がかかりうる。
+
 | メンバー | 状態 | Lua マッピング | 区分 |
 |---------|:----:|--------------|:----:|
 | `new Dictionary<K,V>()` | **Y** | `{}` | T |
@@ -855,7 +860,7 @@ Dictionary の `Keys` / `Values` も受け手にでき (`d.Values.Where(..).Orde
 | `StringBuilder` | **-** | |
 | `Encoding` | **-** | |
 | `Regex` (`System.Text.RegularExpressions`) | **-** | Lua パターンで部分代替可能 |
-| `Rune` | **P** | `string.EnumerateRunes()` の foreach 変数と `.Value` のみ (§13) |
+| `Rune` | **P** | `string.EnumerateRunes()` の foreach 変数と `.Value`、文字列化のみ (§13)。`new Rune(n)` は TCS1002、`string.Join` の要素と `Rune?` の文字列化は TCS1001 |
 
 ---
 
