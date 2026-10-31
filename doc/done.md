@@ -2655,3 +2655,25 @@
 - 検証: `dotnet test tcs2c.Tests --filter "FullyQualifiedName~Tuples"` の Lua、C、GC stress が一致し、期待値は CoreCLR の実行結果。`dotnet test Transpiler.Tests --filter "FullyQualifiedName~TupleTests"`、`dotnet test TinyCs.Analyzers.Tests --filter "FullyQualifiedName~Tuple"` が通過
 - 判断: 分解の左辺の custom property は TCS1001 のまま (setter を呼ぶ経路が要る)。library は使う tree だけを emit する (タプルだけの program に Linq を入れない)
 - 残課題: なし
+
+### delegate の同一性と合成を TCS1001 で止める ✓ (2026-10-31)
+- delegate どうしの `==` / `!=` は `DelegateEquality`、`+` / `-` / `+=` / `-=` は `DelegateCombine` の TCS1001。`Equals` は既に TCS1002 で止まる。null との比較、呼び出し、代入は残す
+- 検証: `DifferentialTests.DelegateOperations` が修正前に 8 件 fail、修正後は全通過。残す形の期待値は CoreCLR の stdout。analyzer の parity にも足した
+- 判断: `== null` は値の有無だけで全経路の結果が同じなので止めない
+- 残課題: なし
+
+### 入れ子の型を扱う ✓ (2026-10-31)
+- class / struct / record / record struct / enum / interface の中の型を、外側の型の名前を `_` でつないだ独立の型 (`Outer_Inner`) にする。Lua と C で同じ名前。generic でない型の中の generic な型も、C は閉じた copy を同じ外側の型に置く
+- generic な型の中の型は TCS1001 `NestedTypeInGenericType`
+- C の struct の typedef の順は、field の型名を写した名前で比べる (修飾名の struct の依存を見落としていた)。本文編集の差し替えは method を直接持つ class だけにする (class の中の struct の method を外側の class の同名 method に当てていた)
+- 検証: `DifferentialTests.NestedTypes` は Lua / C / C (GC stress) の stdout と、同じ program の CoreCLR の stdout が一致する。`NestedTypeTests` で名前、本文編集、module の登録、診断を確かめる
+- 判断: generic な型の中の型は外側の型引数を持つので、Lua の型消去と C の閉じた copy のどちらにも単純には写らない。実装は需要を見てから
+- 残課題: なし
+
+### class の interface の検査 ✓ (2026-10-31)
+- class / record class への `is I`、`as I`、型 switch を判定する。Lua は class table の `__interfaces` (名前の集合) を `__tcs_implements` で引き、C は既存の型 id の switch を使う
+- 型 switch の designation の local は宣言の型にする。C で object / interface の入力から宣言の型の member を引ける
+- 参照型でない入力 (struct、`T?`、`class` 制約の無い `T`)、generic な interface、metadata と `--ref` の interface は TCS1001 `InterfaceTypeTest` のまま
+- 検証: `DifferentialTests.InterfaceTypeTest` は Lua / C / C (GC stress) の stdout と、同じ program の CoreCLR の stdout が一致する。止める形は両 backend の診断を確かめる。module mode は `InterfaceTests` で確かめる
+- 判断: generic な interface は Lua が型引数を消すので、`I<int>` と `I<string>` を区別する名前を別に決める必要がある。需要を見てから
+- 残課題: `as` は interface だけで、class の `as` は TCS1001 のまま

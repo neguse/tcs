@@ -531,8 +531,7 @@ public sealed partial class IncrementalCompilationSession
         var method = node.FirstAncestorOrSelf<MethodDeclarationSyntax>();
         if (method == null)
             return null;
-        var cls = method.FirstAncestorOrSelf<ClassDeclarationSyntax>();
-        if (cls == null || cls.FirstAncestorOrSelf<ClassDeclarationSyntax>(c => c != cls) != null)
+        if (method.Parent is not ClassDeclarationSyntax cls)
             return null;
 
         var emitter = new LuaEmitter();

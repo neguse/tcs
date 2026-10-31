@@ -857,6 +857,14 @@ function TinySystem.instanceof(x, T)
   return false
 end
 
+-- class の interface の検査。class table の __interfaces は実装する interface の名前の集合。
+-- 生成コードは __tcs_implements global 経由でこちらを使う。
+function TinySystem.implements(x, name)
+  local mt = getmetatable(x)
+  local set = mt and mt.__interfaces
+  return set ~= nil and set[name] == true
+end
+
 -- TryGetValue の lowering 先 (il-spec §13)。(found, value or default) を返す
 function Dict.TryGet(dict, key, default)
   local v = dict[key]
@@ -943,7 +951,7 @@ end
 -- static method group の wrapper (module mode の __tcs_mg global の実体)。
 -- struct parameter を copy してから呼ぶ。
 -- c は parameter ごとの copy 関数 (不要なら false)。
--- 同じ関数には同じ wrapper を返す (delegate の ==)
+-- 同じ関数には同じ wrapper を返す
 local mg_cache = setmetatable({}, { __mode = "k" })
 function TinySystem.mg(f, c1, c2, ...)
   local w = mg_cache[f]
