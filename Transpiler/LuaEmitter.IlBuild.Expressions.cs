@@ -71,6 +71,8 @@ public partial class LuaEmitter
             }
             case InvocationExpressionSyntax invocation:
                 return BuildInvocation(model, invocation);
+            case TupleExpressionSyntax tuple:
+                return BuildTupleLiteral(model, tuple);
             case MemberAccessExpressionSyntax ma:
                 return BuildMemberAccess(model, ma);
             case ObjectCreationExpressionSyntax creation:
@@ -292,6 +294,10 @@ public partial class LuaEmitter
             return check == null ? null : new IlParen(check);
         }
 
+        if (bin.IsKind(SyntaxKind.AsExpression)
+            && model.GetTypeInfo(bin.Right).Type is { TypeKind: TypeKind.Interface })
+            return BuildAsInterface(model, bin);
+
         var left = BuildExpr(model, bin.Left);
         var right = BuildExpr(model, bin.Right);
         if (left == null || right == null) return null;
@@ -461,6 +467,15 @@ public partial class LuaEmitter
 
     // legacy VisitInvocation の funnel を同じ順序で写像する
     private IlExpr? BuildInvocation(SemanticModel model,
+        InvocationExpressionSyntax invocation) =>
+        UserOutMethod(model, invocation) is { } outMethod
+            ? BuildUserOutExpr(model, invocation, outMethod)
+            : MultiReturnMethod(model, invocation) is { } tupleMethod
+                ? BuildInvocationCall(model, invocation) is { } call
+                    ? PackTuple(tupleMethod, call) : null
+                : BuildInvocationCall(model, invocation);
+
+    private IlExpr? BuildInvocationCall(SemanticModel model,
         InvocationExpressionSyntax invocation)
     {
         // nameof(x) は C# のコンパイル時定数 (識別子名の文字列)
@@ -486,12 +501,15 @@ public partial class LuaEmitter
                 return BuildNumericTryParse(model, invocation, tryParseKind);
         }
 
-        if (invocation.ArgumentList.Arguments
-            .Any(a => !a.RefKindKeyword.IsKind(SyntaxKind.None)))
+        var userOut = UserOutMethod(model, invocation) != null;
+        if (invocation.ArgumentList.Arguments.Any(a => !a.RefKindKeyword.IsKind(SyntaxKind.None)
+                && !(userOut && a.RefKindKeyword.IsKind(SyntaxKind.OutKeyword))))
             return null;
         var args = new List<IlExpr>();
         foreach (var a in invocation.ArgumentList.Arguments)
         {
+            // out は multi-return の受け手で、呼び出しの引数にならない
+            if (a.RefKindKeyword.IsKind(SyntaxKind.OutKeyword)) continue;
             var built = BuildExpr(model, a.Expression);
             if (built == null) return null;
             args.Add(WrapStructCopy(model, a.Expression, built));
@@ -806,14 +824,17 @@ public partial class LuaEmitter
             p.RefKind == RefKind.None && IsMutableStruct(p.Type)
                 ? Copier(p.Type) : null).ToImmutableArray();
         var typeArgDefaults = TypeArgDefaultArgs(method).ToList();
-        if (typeArgDefaults.Count == 0)
+        var multiReturn = IsMultiReturnMethod(method);
+        if (typeArgDefaults.Count == 0 && !multiReturn)
             return new IlMethodGroup(TypeRef(method.ContainingType), N(method), copyTypes);
         var parameters = method.Parameters.Select((_, i) => $"__tcs_a{i}").ToImmutableArray();
         IlExpr[] args = [.. parameters.Select((p, i) => copyTypes[i] != null
             ? CopyIfMutableStruct(method.Parameters[i].Type, new IlVar(p)) : (IlExpr)new IlVar(p)),
             .. typeArgDefaults];
+        // delegate の呼び出し側は multi-return を知らないので 1 つの値にして返す
+        IlExpr groupCall = new IlCall($"{TypeRef(method.ContainingType)}.{N(method)}", [.. args]);
         return new IlClosure(parameters, null,
-            new IlCall($"{TypeRef(method.ContainingType)}.{N(method)}", [.. args]), []);
+            multiReturn ? PackTuple(method, groupCall) : groupCall, []);
     }
 
     private IlExpr? BuildObjectCreation(SemanticModel model,
