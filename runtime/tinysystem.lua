@@ -873,6 +873,12 @@ function TinySystem.dv(d)
   return d
 end
 
+-- `new T()` の型引数。class を入れた型引数は作り方を持たない (既定値は null)
+function TinySystem.nt(d)
+  if d == nil then error("new T() of a class type argument is not supported") end
+  return TinySystem.dv(d)
+end
+
 -- enum を入れた型引数の記述子 (名前の表ごとに 1 つ)。生成コードは __tcs_etd global 経由
 local enumDescriptors = {}
 function TinySystem.etd(spec)
@@ -1019,12 +1025,17 @@ function TinySystem.fstr(v) return tcs_rt.fstr(v) end
 -- bool は .NET と同じ True / False
 function TinySystem.bstr(b) return b and "True" or "False" end
 
--- T? と object と型引数の文字列化 (null → "")。table の値はサブセット外 (TCS1001 UnsupportedToString)
+-- T? と object と型引数の文字列化 (null → "")。class の値は ToString の override を呼ぶ。
+-- 他の table の値はサブセット外 (TCS1001 UnsupportedToString)
 function TinySystem.nstr(v)
   if v == nil then return "" end
   if math.type(v) == "float" then return TinySystem.fstr(v) end
   if type(v) == "boolean" then return TinySystem.bstr(v) end
-  if type(v) == "table" then error("ToString of this value is not supported") end
+  if type(v) == "table" then
+    local mt = getmetatable(v)
+    if mt and mt.ToString then return mt.ToString(v) or "" end
+    error("ToString of this value is not supported")
+  end
   return tostring(v)
 end
 
