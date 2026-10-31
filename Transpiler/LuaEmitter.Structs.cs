@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -15,30 +16,56 @@ public partial class LuaEmitter
         SetSource(structDecl);
         var symbol = model.GetDeclaredSymbol(structDecl);
         var name = TypeName(symbol!);
-        BeginStructType(name, symbol);
+        var info = BeginStructType(name, symbol);
+        var statics = EmitStructStaticPreZero(model, name, info, structDecl.Members);
         EmitStructNew(name, symbol);
         EmitStructCopyFunction(name, symbol);
 
-        var ctor = structDecl.Members.OfType<ConstructorDeclarationSyntax>()
-            .FirstOrDefault(c => !c.Modifiers.Any(SyntaxKind.StaticKeyword)
-                && c.ParameterList.Parameters.Count > 0);
-        if (ctor != null)
-            EmitStructCtor(model, name, structDecl, ctor);
+        EmitExplicitStructCtors(model, name, structDecl);
         EmitStructEquality(name, symbol);
 
         EmitStructMembers(model, name, structDecl.Members);
+        DeferStaticFieldInitializers(model, name, info, statics);
         _currentType = null;
     }
 
     // struct の値を構成する member の名前と宣言型が instance shape。`new` が
     // 生成する field 集合そのもので、変更は既存の値と食い違う = restart 境界。
     // 型は Lua の default 値では区別できない (string / int[] はどちらも nil)
-    private void BeginStructType(string name, INamedTypeSymbol? symbol)
+    private EmittedTypeInfo BeginStructType(string name, INamedTypeSymbol? symbol)
     {
         var info = BeginType(name, "struct", symbol);
         info.InstanceShape = string.Join("\n", ValueMembers(symbol).Select(m =>
             m.Name + ":" + m.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
         AppendLine();
+        return info;
+    }
+
+    // static field と static auto property は class と同じく型の table に pre-zero し、
+    // initializer は全型の定義の後に実行する。const は使用箇所で値に畳むので持たない
+    private List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)> EmitStructStaticPreZero(
+        SemanticModel model, string name, EmittedTypeInfo info,
+        IEnumerable<MemberDeclarationSyntax> members)
+    {
+        var statics = new List<(string Name, ExpressionSyntax? Init, ITypeSymbol? Type)>();
+        foreach (var member in members)
+        {
+            if (!member.Modifiers.Any(SyntaxKind.StaticKeyword)) continue;
+            switch (member)
+            {
+                case FieldDeclarationSyntax field:
+                    var fieldType = model.GetTypeInfo(field.Declaration.Type).Type;
+                    foreach (var v in field.Declaration.Variables)
+                        statics.Add((v.Identifier.ValueText, v.Initializer?.Value, fieldType));
+                    break;
+                case PropertyDeclarationSyntax prop when IsAutoProperty(prop):
+                    statics.Add((prop.Identifier.ValueText, prop.Initializer?.Value,
+                        model.GetTypeInfo(prop.Type).Type));
+                    break;
+            }
+        }
+        EmitStaticPreZero(name, info, statics);
+        return statics;
     }
 
     // record struct。struct の emit の上に positional primary ctor
@@ -50,7 +77,8 @@ public partial class LuaEmitter
         SetSource(rec);
         var symbol = model.GetDeclaredSymbol(rec);
         var name = TypeName(symbol!);
-        BeginStructType(name, symbol);
+        var info = BeginStructType(name, symbol);
+        var statics = EmitStructStaticPreZero(model, name, info, rec.Members);
         EmitStructNew(name, symbol);
 
         // positional primary ctor: zero → positional 代入 → initializer の順
@@ -73,10 +101,12 @@ public partial class LuaEmitter
             AppendLine();
         }
 
+        EmitExplicitStructCtors(model, name, rec);
         EmitStructCopyFunction(name, symbol);
         EmitStructEquality(name, symbol);
 
         EmitStructMembers(model, name, rec.Members);
+        DeferStaticFieldInitializers(model, name, info, statics);
         _currentType = null;
     }
 
@@ -115,23 +145,20 @@ public partial class LuaEmitter
         AppendLine();
     }
 
-    // instance member の emit。override (ToString 等) は診断済み (Shared facts)
-    // なので emit しない
+    // member の emit。override は ToString だけが診断を通る
     private void EmitStructMembers(SemanticModel model, string name,
         IEnumerable<MemberDeclarationSyntax> members)
     {
+        EmitOperators(model, name, [.. members.OfType<OperatorDeclarationSyntax>()]);
         foreach (var member in members)
         {
             switch (member)
             {
-                case MethodDeclarationSyntax method
-                    when !method.Modifiers.Any(SyntaxKind.StaticKeyword)
-                        && !method.Modifiers.Any(SyntaxKind.OverrideKeyword):
+                case MethodDeclarationSyntax method:
                     VisitMethod(model, name, method, explicitSelf: true);
                     break;
                 case PropertyDeclarationSyntax prop
-                    when !IsAutoProperty(prop) && prop.AccessorList != null
-                        && !prop.Modifiers.Any(SyntaxKind.StaticKeyword):
+                    when !IsAutoProperty(prop) && prop.AccessorList != null:
                     VisitCustomProperty(model, name, prop, explicitSelf: true);
                     break;
                 case PropertyDeclarationSyntax prop
@@ -149,6 +176,9 @@ public partial class LuaEmitter
     {
         foreach (var member in members)
         {
+            if (member.Modifiers.Any(SyntaxKind.StaticKeyword)
+                || member.Modifiers.Any(SyntaxKind.ConstKeyword))
+                continue;
             switch (member)
             {
                 case FieldDeclarationSyntax field:
@@ -168,18 +198,29 @@ public partial class LuaEmitter
     // 明示 ctor は zero 初期化 (S.new) の上で field initializer → 本文の順で
     // 実行する (C# の struct ctor 意味論)。`new S()` は ctor を通らない zero
     // 値なので、呼び出しは builder が S.ctor へ振り分ける
+    private void EmitExplicitStructCtors(SemanticModel model, string name,
+        TypeDeclarationSyntax structDecl)
+    {
+        foreach (var ctor in structDecl.Members.OfType<ConstructorDeclarationSyntax>()
+            .Where(c => !c.Modifiers.Any(SyntaxKind.StaticKeyword)
+                && c.ParameterList.Parameters.Count > 0))
+            EmitStructCtor(model, name, structDecl, ctor);
+    }
+
     private void EmitStructCtor(SemanticModel model, string name,
-        StructDeclarationSyntax structDecl, ConstructorDeclarationSyntax ctor)
+        TypeDeclarationSyntax structDecl, ConstructorDeclarationSyntax ctor)
     {
         SetSource(ctor);
         var ctorParams = ctor.ParameterList.Parameters
             .Select(p => p.Identifier.ValueText).ToList();
         var hidden = TypeArgDefaultParams(model.GetDeclaredSymbol(structDecl));
-        _currentType?.DefinitionKeys.Add("ctor");
-        AppendLine($"function {name}.ctor({string.Join(", ", ctorParams.Concat(hidden))})");
+        var ctorName = LuaNaming.CtorName(model.GetDeclaredSymbol(ctor)!);
+        _currentType?.DefinitionKeys.Add(ctorName);
+        AppendLine($"function {name}.{ctorName}({string.Join(", ", ctorParams.Concat(hidden))})");
         _indent++;
         BeginTraceFunction(model);
         EmitParameterDefaults(model, ctor.ParameterList);
+        EmitParameterEntryCopies(model, ctor, ctor.ParameterList);
         AppendLine($"local self = {name}.new({string.Join(", ", hidden)})");
         EmitMemberInitializers(model, structDecl.Members);
         if (ctor.Body != null && !TryEmitStatsViaIl(model, ctor.Body.Statements))
@@ -213,14 +254,23 @@ public partial class LuaEmitter
         AppendLine();
         // 型引数に入れたときの記述子 (IlStructDescriptor。可変な struct だけ)。hot reload で
         // 差し替わる関数を引くので closure
-        if (copierParams.Length == 0 && IsMutableStruct(symbol))
+        if (copierParams.Length == 0 && NeedsTypeArgDescriptor(symbol))
         {
             _currentType?.DefinitionKeys.Add("__tcs_td");
             AppendLine($"{name}.__tcs_td = {{__tcs_td = true, n = function() return {name}.new() end, " +
-                $"c = function(v) return {name}.__copy(v) end}}");
+                $"c = function(v) return {name}.__copy(v) end{DescriptorToString(name, symbol)}}}");
             AppendLine();
         }
     }
+
+    // 型引数に入れたとき、既定値の値では足りない struct: 可変 (copy の作り方が要る) か、
+    // ToString の override を持つ (型引数の値の文字列化が呼ぶ)
+    private static bool NeedsTypeArgDescriptor(ITypeSymbol? type) =>
+        IsMutableStruct(type) || (IsUserStruct(type) && TinyCsComplianceFacts.HasToStringOverride(type));
+
+    private static string DescriptorToString(string name, ITypeSymbol? type) =>
+        TinyCsComplianceFacts.HasToStringOverride(type)
+            ? $", s = function(v) return {name}.ToString(v) or \"\" end" : "";
 
     // 値を構成する member (positional prop の backing field 込み、
     // EqualityContract のような合成 property は field を持たないので除外される)
@@ -286,11 +336,34 @@ public partial class LuaEmitter
         && (!element.IsValueType || element is ITypeParameterSymbol
             || element.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T);
 
+    // 要素が null になりうる List (Lua は nil を読んだら長さと比べる)
+    private static bool HasNilListElements(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { TypeArguments: [var element] } list
+        && IsListType(list.OriginalDefinition.ToDisplayString())
+        && (!element.IsValueType || element is ITypeParameterSymbol
+            || element.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T);
+
+    // 要素を写す List の操作 (copy constructor、GetRange) に渡す、変更可能な struct 要素の型別 __copy
+    // (C backend は要素を値で写すので読まない)
+    private ImmutableArray<IlExpr> ListElementCopier(ITypeSymbol? listType) =>
+        (listType as INamedTypeSymbol)?.TypeArguments.FirstOrDefault() is { } elem
+        && IsMutableStruct(elem)
+            ? [new IlField(new IlVar(TypeName(elem)), "__copy")]
+            : [];
+
+    // List.Add の IL。型引数の要素の List は値型の List かもしれない (値型の List の生成コードは
+    // `n` を見ないので、null を入れるまで `n` を作らない runtime の List.Add を通す)
+    private static IlCall ListAdd(ITypeSymbol? listType, IlExpr recv, IEnumerable<IlExpr> args) =>
+        listType is INamedTypeSymbol { TypeArguments: [ITypeParameterSymbol] }
+            ? new IlCall("List.Add", [recv, .. args])
+            : new IlCall("table.insert", [recv, .. args], HasNilListElements(listType));
+
     internal static bool IsUserStruct(ITypeSymbol? type) =>
         type is { TypeKind: TypeKind.Struct, SpecialType: SpecialType.None }
         && type.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T
         && type.TypeKind != TypeKind.Enum
-        && type.Locations.Any(l => l.IsInSource);
+        // タプルの型の Locations は宣言ではなく構文の位置なので、OriginalDefinition で見る
+        && type.OriginalDefinition.Locations.Any(l => l.IsInSource);
 
     // default 値の IL: source 宣言の struct は zero 値の IlNewObj (backend が
     // 型付けできる)、型引数は呼び出し側が渡した既定値 (struct の記述子なら新しい zero 値。
@@ -310,9 +383,9 @@ public partial class LuaEmitter
     private IlExpr TypeArgDefaultValue(ITypeSymbol type) =>
         type is ITypeParameterSymbol parameter && TypeArgDefaultIl(parameter) is { } passed
             ? passed
-            : IsMutableStruct(type)
+            : NeedsTypeArgDescriptor(type)
                 ? new IlStructDescriptor(TypeName(type), [.. StructTypeArgDefaults(type)],
-                    StructCopiers(type))
+                    StructCopiers(type), TinyCsComplianceFacts.HasToStringOverride(type))
                 : type is { TypeKind: TypeKind.Enum } && EnumFormatSpec(type) is { } spec
                     ? new IlCall("__tcs_etd", [new IlLit(ModuleArtifactText.EscapeLuaString(spec))])
                     : DefaultIl(type);
@@ -415,8 +488,9 @@ public partial class LuaEmitter
     // IL の形で新しい値と判る値。T? の値なし (nil) と、新しい値の T? への変換も含む
     private static bool IsFreshStructIl(IlExpr built) => built switch
     {
-        IlNewObj or IlStructCopy or IlWith or IlLit { LuaText: "nil" }
-            or IlCall { Callee: "__tcs_dv" or "__tcs_tc" } => true,
+        IlNewObj or IlStructCopy or IlWith or IlTable or IlLit { LuaText: "nil" }
+            or IlCall { Callee: "__tcs_dv" or "__tcs_nt" or "__tcs_tc" } => true,
+        IlCall call when call.Callee.StartsWith("__tcs_tuple", StringComparison.Ordinal) => true,
         IlNullableWrap wrap => IsFreshStructIl(wrap.E),
         IlParen paren => IsFreshStructIl(paren.E),
         _ => false,
@@ -430,7 +504,7 @@ public partial class LuaEmitter
     private static bool IsFreshStructValue(ExpressionSyntax src) => src switch
     {
         ParenthesizedExpressionSyntax paren => IsFreshStructValue(paren.Expression),
-        BaseObjectCreationExpressionSyntax or WithExpressionSyntax
+        BaseObjectCreationExpressionSyntax or WithExpressionSyntax or TupleExpressionSyntax
             or AssignmentExpressionSyntax or SwitchExpressionSyntax => true,
         _ => false,
     };

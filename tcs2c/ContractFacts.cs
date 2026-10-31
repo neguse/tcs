@@ -10,7 +10,11 @@ internal sealed record MethodFact(
     bool IsStatic,
     CType ReturnType,
     IReadOnlyList<ParameterFact> Parameters,
-    IlMethodInfo Metadata);
+    IlMethodInfo Metadata)
+{
+    /// <summary>out parameter。C の signature では Parameters の後ろに `T *` で並ぶ。</summary>
+    public IReadOnlyList<ParameterFact> OutParameters { get; init; } = [];
+}
 
 internal sealed record FieldFact(
     string ClassName,
@@ -69,10 +73,16 @@ internal sealed class ContractFacts
 
             RegisterMethods(cls.Name, cls.Methods);
         }
-        // struct の instance member も同じ表に載せる (型名で引く)
+        // struct の member も同じ表に載せる (型名で引く)
         foreach (var st in _structs.Values)
+        {
             if (!st.Methods.IsDefault)
                 RegisterMethods(st.Name, st.Methods);
+            foreach (var field in st.StaticFields.IsDefault ? [] : st.StaticFields)
+                if (!_fields.TryAdd((st.Name, field.Name), new FieldFact(st.Name, field.Name,
+                        MapType(field.Type), true, field.Init, field)))
+                    throw new Tcs2cException($"duplicate field: {st.Name}.{field.Name}");
+        }
     }
 
     private void RegisterMethods(string owner,
@@ -88,8 +98,12 @@ internal sealed class ContractFacts
                     $"{owner}.{method.Name}");
             var parameters = ParameterFacts(method.Parameters, method.ParameterTypes,
                 method.ParameterDefaults);
+            var outs = method.OutParameters.IsDefault ? [] : method.OutParameters;
             var fact = new MethodFact(owner, method.Name, method.IsStatic,
-                MapType(method.ReturnType), parameters, method);
+                MapType(method.ReturnType), [.. parameters.Where(p => !outs.Contains(p.Name))], method)
+            {
+                OutParameters = [.. parameters.Where(p => outs.Contains(p.Name))],
+            };
             if (!_methods.TryAdd((owner, method.Name), fact))
                 throw new Tcs2cException($"method overloads are not supported: " +
                     $"{owner}.{method.Name}");
@@ -204,6 +218,19 @@ internal sealed class ContractFacts
                     $"Dictionary key type not supported: {displayName}");
             return CType.Dict(key, MapType(inner[(comma + 1)..]));
         }
+
+        const string genericSet = "System.Collections.Generic.HashSet<";
+        if (text.StartsWith(genericSet, StringComparison.Ordinal) && text.EndsWith('>'))
+        {
+            var element = MapType(text[genericSet.Length..^1]);
+            if (element.Kind is not (CTypeKind.I32 or CTypeKind.String or CTypeKind.Ref))
+                throw new Tcs2cException($"HashSet element type not supported: {displayName}");
+            return CType.HashSet(element);
+        }
+
+        const string genericQueue = "System.Collections.Generic.Queue<";
+        if (text.StartsWith(genericQueue, StringComparison.Ordinal) && text.EndsWith('>'))
+            return CType.Queue(MapType(text[genericQueue.Length..^1]));
 
         const string genericList = "System.Collections.Generic.List<";
         if (text.StartsWith(genericList, StringComparison.Ordinal)

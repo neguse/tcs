@@ -490,7 +490,8 @@ public partial class LuaEmitter
                 return new IlIndex(obj, DictKey(model, receiverType,
                         eb.ArgumentList.Arguments[0].Expression, index),
                     IsListType(typeDef) || receiverType is IArrayTypeSymbol,
-                    HasNilableElements(receiverType), HasBoolElements(receiverType));
+                    HasNilableElements(receiverType), HasBoolElements(receiverType),
+                    HasNilListElements(receiverType));
             }
             case ConditionalAccessExpressionSyntax nested:
             {
@@ -562,10 +563,14 @@ public partial class LuaEmitter
         var member = mb.Name.Identifier.ValueText;
         var typeDef = receiverType?.OriginalDefinition.ToDisplayString() ?? "";
 
+        if (member == "Count" && IsQueueType(typeDef))
+            return new IlCall("TcsQueue.Count", [obj]);
+        if (member == "Count" && IsHashSetType(typeDef))
+            return new IlCall("TcsHashSet.Count", [obj]);
         if (member == "Count" && (IsListType(typeDef) || IsDictType(typeDef)
                 || IsDictCollectionType(typeDef)))
             return IsDictType(typeDef)
-                ? new IlCall("Dict.Count", [obj]) : new IlLen(obj);
+                ? new IlCall("Dict.Count", [obj]) : new IlLen(obj, HasNilListElements(receiverType));
         if (member == "Keys" && IsDictType(typeDef))
             return DictKeys(receiverType, obj);
         if (member == "Values" && IsDictType(typeDef))
@@ -588,12 +593,15 @@ public partial class LuaEmitter
     {
         var methodName = mb.Name.Identifier.ValueText;
         var args = new List<IlExpr>();
+        var callee = model.GetSymbolInfo(inv).Symbol as IMethodSymbol;
+        var argExprs = inv.ArgumentList.Arguments.Select(a => a.Expression).ToList();
+        var conditional = mb.Ancestors().OfType<ConditionalAccessExpressionSyntax>().FirstOrDefault();
         foreach (var a in inv.ArgumentList.Arguments)
         {
             if (!a.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
             var built = BuildExpr(model, a.Expression);
             if (built == null) return null;
-            args.Add(WrapStructCopy(model, a.Expression, built));
+            args.Add(WrapArgumentCopy(model, callee, argExprs, args.Count, conditional?.Expression, built));
         }
         var argArr = WithOmittedDefaults(model, inv, [.. args]);
         var typeDef = receiverType?.OriginalDefinition.ToDisplayString() ?? "";
@@ -626,23 +634,31 @@ public partial class LuaEmitter
             switch (methodName)
             {
                 case "Add":
-                    return new IlCall("table.insert", [obj, .. argArr]);
+                    return ListAdd(receiverType, obj, argArr);
                 case "Remove":
                     return new IlCall("List.Remove", [obj, .. WithStructElementOps(
                         receiverType, methodName, argArr)]);
                 case "RemoveAt":
                     return new IlCall("table.remove",
                         [obj, new IlBin(IlBinOp.AddNum, argArr[0],
-                            new IlLit("1"))]);
+                            new IlLit("1"))], HasNilListElements(receiverType));
                 case "Clear":
                     return BuildListClear(obj);
                 case "Contains" or "IndexOf":
                     return new IlCall($"List.{methodName}", [obj, .. WithStructElementOps(
                         receiverType, methodName, argArr)]);
-                case "FindIndex" or "RemoveAll":
+                case "FindIndex" or "RemoveAll" or "Insert":
                     return new IlCall($"List.{methodName}", [obj, .. argArr]);
+                case "GetRange":
+                    return new IlCall("List.GetRange", [obj, .. argArr, ..
+                        ListElementCopier(receiverType)]);
             }
         }
+
+        if (IsQueueType(typeDef))
+            return BuildQueueCall(receiverType, obj, methodName, argArr);
+        if (IsHashSetType(typeDef))
+            return new IlCall($"TcsHashSet.{methodName}", [obj, .. argArr]);
 
         if (IsDictType(typeDef))
         {

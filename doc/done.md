@@ -2667,3 +2667,109 @@
 - tcs の既存のテストを `RuneCount` / `RuneSubstring` / `Utf8Bytes` に書き換える。`IndexOf` と添字の動作を見ていたテストは消す。fuzz の生成器も同じ
 - 検証: `DifferentialTests.UnsupportedApi_BothBackendsStopWithDiagnostic` (Lua / C の診断)、`TinyCsComplianceAnalyzerTests.Utf16StringApis_ReportUnsupportedApiWithReplacement` (analyzer)
 - 残課題: lub の `cs-lib`、`samples`、`tests/cs` の使用は lub 側の作業
+
+### 一覧に無い BCL の型を既定で止める ✓ (2026-10-31)
+- `TinyCsComplianceFacts` の TCS1002 を、止める namespace と型を列挙する形から、support-matrix の一覧にある型だけを通す形に変えた。`System.*` / `Microsoft.*` の型は member を使う地点に加えて型を書く地点でも止まる。`Enum` の static member も止まる
+- 修正前は `HashSet` や `Convert` などが診断なしで通り、実行時に nil で落ちていた
+- 検証: `dotnet test` の全通過。追加した `UnlistedBclType_IsUnsupportedApi`、`UnlistedBclTypeMention_ReportsUnsupportedApi`、`UnsupportedApi_BothBackendsStopWithDiagnostic` は修正前に fail
+- 判断: 属性の中は Lua / C に出ないので対象外。`IEnumerable<T>` などの N/A の型は書くのを許し member を止める。`StringComparison.Ordinal` のように overload の引数にしか使えない enum の member も型の一覧に無いので止まり、1 文に TCS1002 が 2 つ出ることがある
+- 残課題: なし
+
+### List に null を入れられるようにする ✓ (2026-10-31)
+- List の要素の null を C# と同じ結果にした。Lua は要素が null になりうる List (参照型 / `T?` / 型引数 / object) の長さを field `n` に持ち、添字の範囲は nil か false を読んだときだけ長さと比べる。`foreach` は長さまで数える numeric for にした (ipairs は nil で止まる)。C は `string.Join` の null の要素を空文字列にし、比較なしの Sort の null を最小にした。List の null の TCS1003 を外した
+- 値型の要素の List は null を持たないので `n` を持たず、生成コードは `#list` のまま。host が返す素の table も `n` が無いので List として読める
+- 検証: `DifferentialTests.ListNull` (Lua / C 通常 + GC stress の stdout が CoreCLR の stdout と一致)。Lua の前後の実測は PR に書いた
+- 判断: 全 List に `n` を持たせる案は値型の Add が 21〜52% 遅くなり、参照型で `n` を null を入れるまで作らない案は `n` が無い table の field 読みが遅く Add が 77% 遅くなった。値型は `n` を持たず、参照型は Add で `n` を進める形にした
+- 残課題: `List<int>.RemoveAt(Count)` は Lua の `table.remove` が末尾の次の位置を受け付けるので fault にならない (修正前から)
+
+### List.Insert と List.GetRange ✓ (2026-10-31)
+- `List<T>.Insert(int, T)` と `List<T>.GetRange(int, int)` を Lua / C に足した。範囲外は fault。GetRange は新しい List に写し、変更可能な struct の要素は copy する
+- 検証: `DifferentialTests.ListInsertGetRange` (Lua / C 通常 + GC stress の stdout が CoreCLR の stdout と一致)、範囲外の fault parity
+- 判断: `InsertRange` / `RemoveRange` / `Slice` は依頼の範囲外なので入れない
+- 残課題: なし
+
+### Queue\<T\> ✓ (2026-10-31)
+- `new Queue<T>()`、`Enqueue`、`Dequeue`、`Peek`、`Count`、`Clear`、`Contains`、`foreach` を Lua / C に足した。Lua は先頭と末尾の添字で O(1)、C は連続 buffer と先頭の添字
+- 検証: `DifferentialTests.Queue` (Lua / C 通常 + GC stress の stdout が CoreCLR の stdout と一致)、`AssertParityLib` でフレーム境界の GC を跨ぐ
+- 判断: `foreach` は今の要素の写しを反復する (Dictionary の `Keys` / `Values` と同じ)。`TryDequeue` と容量つきの constructor は入れない
+- 残課題: なし
+
+### HashSet\<T\> ✓ (2026-10-31)
+- `new HashSet<T>()`、initializer、`Add`、`Remove`、`Contains`、`Count`、`Clear`、`foreach` を Lua / C に足した。.NET の HashSet と同じく slot に要素を持つので、列挙の順も 3 経路で同じになる
+- 検証: `DifferentialTests.HashSet` (Lua / C 通常 + GC stress の stdout が CoreCLR の stdout と一致)、`AssertParityLib` でフレーム境界の GC を跨ぐ (class の要素は昇格で address が変わる)
+- 判断: 値で比べる要素と float は TCS1001 で止める。C の TcsDict は key が i32 / string / host handle だけで、class の同一性と列挙の順を持たないので使わない。集合演算と `new HashSet<T>(source)` は入れない
+- 残課題: なし
+
+### struct の演算子と static member ✓ (2026-10-31)
+- struct / record struct に二項 `+ - * / %` と単項 `-` の演算子 (class と同じ範囲)、static field、static auto property、static method、custom な static property を入れた。Lua は型の table に class と同じ形で置き、C は class の static と同じ置き場と初期化の規則に乗せる
+- IL 契約は `IlStructInfo.StaticFields` を足した。`Fields` は instance のままなので layout と等価と copy は変わらない
+- hot reload は struct の型 table を置き換えるので、残る static の値を移し直し、layout が変わった struct の static は再直列化する
+- `Box<int>.Of(1)` の受け手 (型引数を書いた型) は Lua の経路が受け付けていなかったので、class と struct の両方で通した
+- 検証: `DifferentialTests.StructOperators` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout。`HotReloadTests` / `HotReloadRestartTests` に struct の static を足した
+- 判断: `==` / 比較系 / 変換演算子は class と同じくサブセットの外。Main を struct に置く entry は C backend が class だけを探すので対象外のまま
+- 残課題: なし
+
+### 複数の constructor ✓ (2026-10-31)
+- class / struct / record struct に constructor を複数書けるようにした。Lua は `LuaNaming.CtorName` の名前 (`C.new__int`、`S.ctor__float__float`) の関数を constructor ごとに作り、C は `tcs_new_` / `tcs_init_` / `tcs_ctor_S_` を constructor ごとに作る
+- IL 契約は `IlClassInfo.Ctor` / `IlStructInfo.Ctor` を `Ctors` にし、`IlCtorInfo.Name` と `IlNewObj.Ctor` で宣言と呼び出しを結ぶ
+- 引数のある explicit constructor を持つ record struct は Lua で関数が出ていなかったので、struct と同じ経路で出すようにした
+- 検証: `DifferentialTests.MultipleConstructors` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout
+- 判断: `: this(...)` は入れない (今回の範囲に無い)。TCS1001 `ThisConstructorInitializer` のまま
+- 残課題: なし
+
+### ToString の override ✓ (2026-10-31)
+- class / record / struct / record struct に `override string ToString()` を書けるようにした。`x.ToString()` は instance method の呼び出しで、連結 / 補間 / `Console.WriteLine` は直接呼びに写す (null の値と ToString が返した null は空文字列、struct は copy の上で呼ぶ)
+- 型引数の値は Lua で class の metatable と struct の記述子 (`s`) から引く。C は閉じた型で静的に解決する
+- Equals / GetHashCode の override は struct でも `OverrideMember` にした (`StructMember(MethodDeclaration)` だと何が悪いか読めない)
+- 検証: `DifferentialTests.ToStringOverride` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout
+- Lua の `new T()` は型の無い global `T.new()` を呼んで落ちていたので、struct の型引数は隠れ引数の既定値から作るようにした。class の型引数は作り方を持たないので fault のまま (C は閉じた型で動く)
+- 判断: `string.Join` の要素は runtime が文字列にするので止めたまま。`S?` の連結 / 補間 / `Console.WriteLine` は StructBoxing のまま (`?.ToString()` は書ける)
+- 残課題: なし
+
+### Lua の可変 struct の引数の copy の省略 ✓ (2026-10-31)
+- 引数の copy を、呼ばれた側の書き換えを隠す役は呼ばれた側の入口の copy に移し、呼び出しの間に変わらない場所 (lambda が捕捉しない local / parameter で後の引数と受け手に現れないもの) を渡す呼び出し側は copy を省く。C に渡す IL は copy 地点を残す
+- 検証: `DifferentialTests.StructArgumentCopy` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout。`IncrementalSessionTests.BodyEdit_ThatStartsWritingStructParameter_KeepsCallerValue`
+- 判断: 省略の判断を呼び出し側が呼ばれた側の本文を見て決める形は採らない。呼ばれた側の本文だけの hot reload で判断が古くなる。同じ理由で readonly でない instance member の呼び出しは本文を見ずに書き換えとみなす
+- 残課題: なし
+
+### ref / in の診断 ✓ (2026-10-31)
+- `in` の parameter は `expression: InvocationExpression` で止まっていたので TCS1001 `InParameter` にした。ref の戻り値と ref local は `RefType`、host の method への `ref` / `in` 引数は `RefArgument` / `InArgument`
+- 検証: `DifferentialTests.RefIn` (Lua と C)、`MultiReturnTests.HostRefAndInArguments_ReportUnsupportedSyntax`、analyzer の `InAndRefReturnAndRefLocal_ReportUnsupportedSyntax`
+- 残課題: なし
+
+### 自作メソッドの out (`out var` / `out _`) ✓ (2026-10-31)
+- 自作メソッドの宣言に `out` を書ける。呼び出しに渡せるのは `out var` / `out T x` / `out _` だけで、前もって宣言した変数、field、配列の要素、out parameter は TCS1001 (`OutArgumentNotDeclaration`)
+- Lua は `return 戻り値, out...` の multi-return で、条件の位置の呼び出しは IIFE を作らず文に下ろす。C は signature の末尾の `T *` で、本体は普通の local に書き、return の位置で呼び出し側の stack の一時変数へ書く
+- 検証: `dotnet test tcs2c.Tests --filter "FullyQualifiedName~OutParameters"` の Lua、C、GC stress が一致し、期待値は CoreCLR の実行結果。`dotnet test Transpiler.Tests --filter "FullyQualifiedName~MultiReturn"`、`dotnet test TinyCs.Analyzers.Tests --filter "FullyQualifiedName~Out"` が通過
+- 判断: delegate / lambda / constructor の out は呼び出しの形が決まらないので TCS1001 のまま
+- 残課題: なし
+
+### タプル ✓ (2026-10-31)
+- 戻り値、分解 (入れ子、`foreach`、`(a, b) = (b, a)`、field と配列の要素への代入)、変数と field への保持、`List<(int, int)>`、配列、`T?` を使える。比較、パターン、要素の型が違うタプルへの変換、8 要素以上、`ValueTuple` の型名は TCS1001
+- `TinySystem/ValueTuple.cs` を library として user のコードと一緒にコンパイルすると、タプルの構文は Roslyn がこの宣言に結び付くので、struct の copy、既定値、List の等価はそのまま動く。C は `IlSpecialization` がタプルの構文を閉じた struct に置き換える。.NET はこのファイルを読まず BCL の ValueTuple を使う
+- Lua は戻り値の宣言がタプルの method を multi-return にし、保持する位置だけ table に詰める
+- 検証: `dotnet test tcs2c.Tests --filter "FullyQualifiedName~Tuples"` の Lua、C、GC stress が一致し、期待値は CoreCLR の実行結果。`dotnet test Transpiler.Tests --filter "FullyQualifiedName~TupleTests"`、`dotnet test TinyCs.Analyzers.Tests --filter "FullyQualifiedName~Tuple"` が通過
+- 判断: 分解の左辺の custom property は TCS1001 のまま (setter を呼ぶ経路が要る)。library は使う tree だけを emit する (タプルだけの program に Linq を入れない)
+- 残課題: なし
+
+### delegate の同一性と合成を TCS1001 で止める ✓ (2026-10-31)
+- delegate どうしの `==` / `!=` は `DelegateEquality`、`+` / `-` / `+=` / `-=` は `DelegateCombine` の TCS1001。`Equals` は既に TCS1002 で止まる。null との比較、呼び出し、代入は残す
+- 検証: `DifferentialTests.DelegateOperations` が修正前に 8 件 fail、修正後は全通過。残す形の期待値は CoreCLR の stdout。analyzer の parity にも足した
+- 判断: `== null` は値の有無だけで全経路の結果が同じなので止めない
+- 残課題: なし
+
+### 入れ子の型を扱う ✓ (2026-10-31)
+- class / struct / record / record struct / enum / interface の中の型を、外側の型の名前を `_` でつないだ独立の型 (`Outer_Inner`) にする。Lua と C で同じ名前。generic でない型の中の generic な型も、C は閉じた copy を同じ外側の型に置く
+- generic な型の中の型は TCS1001 `NestedTypeInGenericType`
+- C の struct の typedef の順は、field の型名を写した名前で比べる (修飾名の struct の依存を見落としていた)。本文編集の差し替えは method を直接持つ class だけにする (class の中の struct の method を外側の class の同名 method に当てていた)
+- 検証: `DifferentialTests.NestedTypes` は Lua / C / C (GC stress) の stdout と、同じ program の CoreCLR の stdout が一致する。`NestedTypeTests` で名前、本文編集、module の登録、診断を確かめる
+- 判断: generic な型の中の型は外側の型引数を持つので、Lua の型消去と C の閉じた copy のどちらにも単純には写らない。実装は需要を見てから
+- 残課題: なし
+
+### class の interface の検査 ✓ (2026-10-31)
+- class / record class への `is I`、`as I`、型 switch を判定する。Lua は class table の `__interfaces` (名前の集合) を `__tcs_implements` で引き、C は既存の型 id の switch を使う
+- 型 switch の designation の local は宣言の型にする。C で object / interface の入力から宣言の型の member を引ける
+- 参照型でない入力 (struct、`T?`、`class` 制約の無い `T`)、generic な interface、metadata と `--ref` の interface は TCS1001 `InterfaceTypeTest` のまま
+- 検証: `DifferentialTests.InterfaceTypeTest` は Lua / C / C (GC stress) の stdout と、同じ program の CoreCLR の stdout が一致する。止める形は両 backend の診断を確かめる。module mode は `InterfaceTests` で確かめる
+- 判断: generic な interface は Lua が型引数を消すので、`I<int>` と `I<string>` を区別する名前を別に決める必要がある。需要を見てから
+- 残課題: `as` は interface だけで、class の `as` は TCS1001 のまま

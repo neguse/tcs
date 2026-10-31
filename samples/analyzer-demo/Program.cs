@@ -4,7 +4,7 @@ using System.IO;
 public struct Vec2
 {
     public int X;
-    public static int Twice(Vec2 v) { return v.X * 2; }
+    public int this[int i] { get { return X; } }
 }
 
 public class Demo
@@ -23,9 +23,9 @@ public class Demo
         }
     }
 
-    public static List<string?> Values()
+    public static Dictionary<string, string?> Values()
     {
-        return new List<string?> { null };
+        return new Dictionary<string, string?> { ["a"] = null };
     }
 
     public static bool MatchesPair(int[] values)
