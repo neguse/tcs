@@ -602,6 +602,14 @@ public static partial class TinyCsComplianceFacts
         if (TryGetUnsupportedToString(node, model, out syntaxName))
             return true;
 
+        if (node is RecordDeclarationSyntax record
+            && model.GetDeclaredSymbol(record) is INamedTypeSymbol recordType
+            && HasUtf8BytesField(recordType))
+        {
+            syntaxName = "Utf8BytesInRecord";
+            return true;
+        }
+
         if (IsByteNarrowing(node, model))
         {
             syntaxName = "ByteNarrowing";
