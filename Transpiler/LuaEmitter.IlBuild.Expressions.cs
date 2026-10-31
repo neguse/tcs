@@ -740,7 +740,7 @@ public partial class LuaEmitter
             return new IlVar(TypeRef(namedType));
         if (ConstLiteral(symbol) is { } constLit)
             return LitFromConst(constLit, symbol);
-        // Rune.Value: utf8.codes の値は codepoint 整数そのもの
+        // Rune.Value: EnumerateRunes の値は codepoint 整数そのもの
         if (IsRuneValue(symbol))
             return BuildExpr(model, ma.Expression);
 
@@ -930,7 +930,7 @@ public partial class LuaEmitter
             && PassesTypeArgDefaults(genericCtor.ContainingType.OriginalDefinition))
             args.AddRange(TypeArgDefaultArgs(genericCtor));
         if (TinyCsComplianceFacts.IsUtf8BytesType(typeSymbol))
-            return new IlCall("TinySystem.Utf8.New", [.. args]);
+            return new IlCall(args.Count == 0 ? "TinySystem.Utf8.Default" : "TinySystem.Utf8.New", [.. args]);
         var ctor = IsUserStruct(typeSymbol) && hasCtorArgs
             ? (IlExpr)new IlCall($"{TypeName(typeSymbol)}.ctor", [.. args])
             : new IlNewObj(newName, [.. args]);

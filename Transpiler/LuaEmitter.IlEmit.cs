@@ -125,7 +125,7 @@ public partial class LuaEmitter
             case IlForeachRunes feRunes:
             {
                 var label = PushContinueLabel();
-                AppendLine($"for _, {feRunes.Var} in utf8.codes({RenderIl(feRunes.Str)}) do");
+                AppendLine($"for _, {feRunes.Var} in {LuaLocalRenamer.Utf8ModuleGlobal}.codes({RenderIl(feRunes.Str)}) do");
                 _indent++;
                 EmitLoopBody(feRunes.Body, label);
                 _indent--;
@@ -410,6 +410,8 @@ public partial class LuaEmitter
             IlLit { LuaText: not "nil" } lit => $"__tcs_arr({RenderIl(na.Length)}, {lit.LuaText})",
             // 型引数の要素: 受け取った既定値 (struct の記述子なら要素ごとに zero 値、nil なら空)
             IlVar or IlField => $"__tcs_arr({RenderIl(na.Length)}, {RenderIl(na.Default)})",
+            // Utf8Bytes: 既定値は不変で共有できる
+            IlCall { Callee: "TinySystem.Utf8.Default" } => $"__tcs_arr({RenderIl(na.Length)}, {RenderIl(na.Default)})",
             _ => "{}",
         },
         IlStructDescriptor descriptor => RenderStructDescriptor(descriptor),

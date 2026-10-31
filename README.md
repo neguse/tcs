@@ -107,7 +107,7 @@ CLI 生成 Lua はデフォルトで TinySystem runtime prelude を埋め込む�
 
 float の文字列化 (連結・補間 (書式つきも)・ToString・Console.WriteLine) と string の順序 (Sort / OrderBy / Min / Max) は global の `tcs_rt` を呼ぶ (.NET の `float.ToString()` と同じ文字列にし、Lua の `<` は locale で変わるので .NET の ordinal と同じ順序にするため)。host は `runtime/lua/tcs_rt_lua.c` と `runtime/fmt/f2s.c` を build して VM に登録する (`luaL_requiref(L, "tcs_rt", luaopen_tcs_rt, 1)`)。`deps/lua/lua` / `lua32` は登録済み。
 
-`TinySystem.Text` (`RuneCount` / `RuneSubstring` / `Utf8Bytes`) は global の `tcs_utf8` を呼ぶ (tcs2c と同じ実装で、.NET と同じ結果にするため)。host は `runtime/lua/tcs_utf8_lua.c` と `runtime/utf8/*.c` を build して VM に登録する (`luaL_requiref(L, "tcs_utf8", luaopen_tcs_utf8, 1)`)。`deps/lua/lua` / `lua32` は登録済み。
+`TinySystem.Text` (`RuneCount` / `RuneSubstring` / `Utf8Bytes`) と `EnumerateRunes` は global の `tcs_utf8` を呼ぶ (tcs2c と同じ実装で、.NET と同じ結果にするため)。host は `runtime/lua/tcs_utf8_lua.c` と `runtime/utf8/*.c` を build して VM に登録する (`luaL_requiref(L, "tcs_utf8", luaopen_tcs_utf8, 1)`)。`deps/lua/lua` / `lua32` は登録済み。
 
 ```bash
 dotnet run --project Transpiler -- samples/hello.cs -o out.lua --no-runtime

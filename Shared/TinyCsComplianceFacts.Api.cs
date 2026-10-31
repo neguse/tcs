@@ -215,6 +215,16 @@ public static partial class TinyCsComplianceFacts
             return true;
         }
 
+        // List の要素の等価は .NET が field の比較、Lua が table の同一性で、Utf8Bytes では揃わない
+        if (targetSymbol is IMethodSymbol { Name: "Contains" or "IndexOf" or "Remove" }
+            && IsListType(containingType)
+            && containingType.TypeArguments.Length == 1
+            && IsUtf8BytesType(containingType.TypeArguments[0]))
+        {
+            apiName = FormatApiName(targetSymbol, containingType, typeName);
+            return true;
+        }
+
         if (IsPartiallySupportedApi(targetSymbol, containingType))
         {
             if (IsSupportedApiMember(targetSymbol, containingType,

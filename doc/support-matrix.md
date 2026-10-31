@@ -114,7 +114,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `bool` (Boolean) | **Y** | boolean | 文字列化 (`ToString()`・連結・補間・`Console.WriteLine`・`string.Join` の要素、`bool?` と object に入れた値も) は .NET と同じ `True` / `False` (`__tcs_bstr`) |
 | `decimal` (Decimal) | **-** | | |
 | `char` (Char) | **Y** | 整数 code unit (byte)。literal は ASCII のみ (非 ASCII は TCS1001 `NonAsciiCharLiteral`、string literal で書く)。`(char)x` の x が 0〜255 の外なら Lua / C とも同じ文言で fault し、`char.ConvertFromUtf32` を案内する (.NET は UTF-16 の code unit を作る)。cast を通らずに範囲を出た値 (`c++`) は文字列化の地点で fault する。算術 / 比較 / switch / pattern は int と同じ、文字列化 (連結・補間・`ToString`・`WriteLine`) は 1 byte の string。`Char.*` は §15b |
-| `byte` (Byte) | **P** | `Utf8Bytes` の添字 `u[i]` の結果を受ける型で、i32 と同じ表現。`byte` の `++` と `(byte)x` は 0〜255 に丸めない (Lua / C とも。.NET は丸める) ので、整数として読むだけにする | |
+| `byte` (Byte) | **P** | `Utf8Bytes` の添字 `u[i]` の結果を受ける型で、i32 と同じ表現。Lua / C は 0〜255 に丸めないので、丸めが起きる `(byte)x` (範囲内の定数は可) と `byte` への `++` / `--` / 複合代入は TCS1001 `ByteNarrowing` で止める | |
 | `sbyte` (SByte) | **-** | | |
 | `short` (Int16) | **-** | | |
 | `ushort` (UInt16) | **-** | | |
@@ -637,7 +637,7 @@ using(宣言)  virtual  volatile  yield
 | `(int)ch` / `(char)n` (char ↔ int) | **Y** | `(int)ch` は恒等 (char は整数)、`(int)'a'` は定数畳み込み。`(char)n` は `__tcs_char(n)` で範囲を検査する (byte と範囲内の定数からは恒等) | T |
 | `foreach (char c in s)` | **N/A** | TCS1002。`foreach (var r in s.EnumerateRunes())` か `Utf8Bytes` の走査 (§20b) | |
 | `.Contains(char)` / `.StartsWith(char)` / `.EndsWith(char)` / `.Replace(char, char)` / `.Split(char)` | **Y** | char 引数を `string.char` で 1 文字 string にして同名 runtime へ | T+R |
-| `.EnumerateRunes()` | **Y** | `foreach` の collection 位置限定: `for _, r in utf8.codes(s)`。`r.Value` (`System.Text.Rune`) は codepoint 整数そのもの。`r` の文字列化 (`ToString`・連結・補間・`WriteLine`) は `Char.ConvertFromUtf32(r)` | T+R |
+| `.EnumerateRunes()` | **Y** | `foreach` の collection 位置限定: `for _, r in tcs_utf8.codes(s)`。壊れた並びは `Encoding.UTF8` と同じ位置で U+FFFD として読み続ける (3 経路で同じ)。`r.Value` (`System.Text.Rune`) は codepoint 整数そのもの。`r` の文字列化 (`ToString`・連結・補間・`WriteLine`) は `Char.ConvertFromUtf32(r)` | T+R |
 
 `Trim()` と引数なしの `Split()` の空白は .NET の `char.IsWhiteSpace` と同じ Unicode の集合で、3 経路で結果が同じ (`runtime/utf8` の `tcs_utf8_is_white_space`)。
 
@@ -875,13 +875,14 @@ C の正本は `runtime/utf8` で、Lua は `tcs_utf8` module (host が登録す
 |---------|:----:|------|
 | `s.RuneCount()` | **Y** | 文字数。文字列の長さに比例する時間 |
 | `s.RuneSubstring(start, count)` | **Y** | `start` 文字目から `count` 文字の string。文字列の長さに比例する時間 |
-| `new Utf8Bytes(s)` | **Y** | UTF-8 の byte 列の view (class)。.NET はここで `byte[]` に 1 度だけ変換し、Lua / C は文字列をそのまま指す |
+| `new Utf8Bytes(s)` | **Y** | UTF-8 の byte 列の view (`readonly struct`)。`default(Utf8Bytes)` と未初期化の field は長さ 0 の view で、`ToString()` は `""`、`Slice(0, 0)` は可、`u[i]` は範囲外の fault。.NET はここで `byte[]` に 1 度だけ変換し、Lua / C は文字列をそのまま指す |
 | `u.Length` | **Y** | byte 数 |
 | `u[i]` | **Y** | byte。O(1) |
-| `u.Slice(start, count)` | **Y** | byte を複製しない view。view の object は新しく作る |
+| `u.Slice(start, count)` | **Y** | byte を複製しない view。Lua は view の table を新しく作り、C と .NET は値 |
 | `u.ToString()` | **Y** | byte 列の string。文字の途中で切った slice の壊れた並びは U+FFFD になる (.NET の `Encoding.UTF8` と同じ位置で同じ個数) |
 
-`Runes.RuneCount(s)` の static の形と `?.` も同じ。`Utf8Bytes` の連結・補間・`Console.WriteLine` は TCS1001 `UnsupportedToString` (`ToString()` を書く)。method group は TCS1001 `TextApiMethodGroup`。
+`Runes.RuneCount(s)` の static の形と `s?.RuneCount()` も同じ。`Utf8Bytes?` は user の struct の `T?` と同じで、`n == null`、`n?.Length`、`n?[i]`、`n?.Slice(a, b)`、`n?.ToString()`、`n.Value` が使える。`u == null` と `u?.Length` は C# の compile error (CS0019 / CS0023)。
+`object` への変換は TCS1001 `StructBoxing`。連結・補間・`Console.WriteLine` は TCS1001 (`ToString()` を書く)。`List<Utf8Bytes>` の `Contains` / `IndexOf` / `Remove` は TCS1002 (要素の等価が揃わない)。method group は TCS1001 `TextApiMethodGroup`。Dictionary の key は TCS1001 (struct と同じ)。
 
 ## 21. System.IO
 

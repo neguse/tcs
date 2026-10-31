@@ -418,6 +418,11 @@ internal sealed partial class CEmitter
     private CType TypeOfUtf8Op(IlCall call)
     {
         var name = call.Callee["Utf8.".Length..];
+        if (name == "Default")
+        {
+            RequireArity(call.Callee, call.Args.Length, 0);
+            return CType.Utf8Bytes;
+        }
         var (receiver, result, ints) = name switch
         {
             "RuneCount" => (CType.String, CType.I32, 0),
@@ -436,18 +441,52 @@ internal sealed partial class CEmitter
 
     private string RenderUtf8Op(IlCall call, CType type)
     {
-        var (fn, receiver) = call.Callee["Utf8.".Length..] switch
+        var name = call.Callee["Utf8.".Length..];
+        var bytes = CType.Utf8Bytes.CName;
+        (string Text, string Start, string Length) fields =
+            (Names.Field("Text"), Names.Field("Start"), Names.Field("Length"));
+        switch (name)
         {
-            "RuneCount" => ("tcs_string_rune_count", CType.String),
-            "RuneSubstring" => ("tcs_string_rune_substring", CType.String),
-            "New" => ("tcs_utf8_bytes_new", CType.String),
-            "At" => ("tcs_utf8_bytes_at", CType.Utf8Bytes),
-            "Slice" => ("tcs_utf8_bytes_slice", CType.Utf8Bytes),
-            _ => ("tcs_utf8_bytes_to_string", CType.Utf8Bytes),
-        };
-        return RenderOrderedCall(fn, type,
-            [(receiver, RenderExpr(call.Args[0])),
-             .. call.Args.Skip(1).Select(arg => (CType.I32, RenderExpr(arg)))]);
+            case "Default":
+                return $"(({bytes}){{ 0 }})";
+            case "RuneCount":
+                return $"tcs_string_rune_count({RenderExpr(call.Args[0])})";
+            case "RuneSubstring":
+                return RenderOrderedCall("tcs_string_rune_substring", type,
+                    [(CType.String, RenderExpr(call.Args[0])),
+                     (CType.I32, RenderExpr(call.Args[1])), (CType.I32, RenderExpr(call.Args[2]))]);
+            case "New":
+            {
+                var text = Temp("utf8_text");
+                return $"({{ TcsString *{text} = {RenderExpr(call.Args[0])}; " +
+                    $"int32_t {text}_length = tcs_utf8_bytes_text_length({text}); " +
+                    $"({bytes}){{ .{fields.Text} = {text}, .{fields.Start} = 0, .{fields.Length} = {text}_length }}; }})";
+            }
+        }
+        // receiver と引数はこの順に 1 度だけ評価する
+        var u = Temp("utf8");
+        var head = $"{bytes} {u} = {RenderExpr(call.Args[0])}; ";
+        var view = $"{u}.{fields.Text}, {u}.{fields.Start}, {u}.{fields.Length}";
+        switch (name)
+        {
+            case "At":
+            {
+                var index = Temp("utf8_index");
+                return $"({{ {head}int32_t {index} = {RenderExpr(call.Args[1])}; " +
+                    $"tcs_utf8_bytes_at({view}, {index}); }})";
+            }
+            case "Slice":
+            {
+                var start = Temp("utf8_start");
+                var count = Temp("utf8_count");
+                return $"({{ {head}int32_t {start} = {RenderExpr(call.Args[1])}; " +
+                    $"int32_t {count} = {RenderExpr(call.Args[2])}; " +
+                    $"tcs_utf8_bytes_check_slice({u}.{fields.Length}, {start}, {count}); " +
+                    $"({bytes}){{ .{fields.Text} = {u}.{fields.Text}, .{fields.Start} = {u}.{fields.Start} + {start}, .{fields.Length} = {count} }}; }})";
+            }
+            default:
+                return $"({{ {head}tcs_utf8_bytes_to_string({view}); }})";
+        }
     }
 
     // ---- Random (TinySystem.Random: instance + Shared。Lua 5.5 の
