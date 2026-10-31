@@ -2666,3 +2666,9 @@
 - Lua の `new T()` は型の無い global `T.new()` を呼んで落ちていたので、struct の型引数は隠れ引数の既定値から作るようにした。class の型引数は作り方を持たないので fault のまま (C は閉じた型で動く)
 - 判断: `string.Join` の要素は runtime が文字列にするので止めたまま。`S?` の連結 / 補間 / `Console.WriteLine` は StructBoxing のまま (`?.ToString()` は書ける)
 - 残課題: なし
+
+### Lua の可変 struct の引数の copy の省略 ✓ (2026-10-31)
+- 引数の copy を、呼ばれた側の書き換えを隠す役は呼ばれた側の入口の copy に移し、呼び出しの間に変わらない場所 (lambda が捕捉しない local / parameter で後の引数と受け手に現れないもの) を渡す呼び出し側は copy を省く。C に渡す IL は copy 地点を残す
+- 検証: `DifferentialTests.StructArgumentCopy` (C 通常 + GC stress + Lua) の期待値は同じ program を CoreCLR で実行した stdout。`IncrementalSessionTests.BodyEdit_ThatStartsWritingStructParameter_KeepsCallerValue`
+- 判断: 省略の判断を呼び出し側が呼ばれた側の本文を見て決める形は採らない。呼ばれた側の本文だけの hot reload で判断が古くなる。同じ理由で readonly でない instance member の呼び出しは本文を見ずに書き換えとみなす
+- 残課題: なし
