@@ -215,9 +215,9 @@ internal sealed partial class CEmitter
     private CType TypeOfLength(IlLen length)
     {
         var type = TypeOf(length.E);
-        return type.Kind is CTypeKind.Array or CTypeKind.List or CTypeKind.String
+        return type.Kind is CTypeKind.Array or CTypeKind.List
             ? CType.I32
-            : throw new Tcs2cException("length receiver is not an array/List/string");
+            : throw new Tcs2cException("length receiver is not an array/List");
     }
 
     private string RenderLength(IlLen length)
@@ -227,8 +227,7 @@ internal sealed partial class CEmitter
         {
             CTypeKind.Array => "tcs_array_length",
             CTypeKind.List => "tcs_list_length",
-            CTypeKind.String => "tcs_string_length",
-            _ => throw new Tcs2cException("length receiver is not an array/List/string"),
+            _ => throw new Tcs2cException("length receiver is not an array/List"),
         };
         return $"{helper}({RenderExpr(length.E)})";
     }

@@ -2653,3 +2653,9 @@
 - 検証: `dotnet test tcs2c.Tests --filter "FullyQualifiedName~TrimAndSplit"`。修正前は 2 件 fail、修正後は U+0000〜U+3100 の全文字で Lua / C / .NET が一致
 - 判断: `char.IsWhiteSpace(char)` は整数 code unit の ASCII 判定のまま (§13b)
 - 残課題: なし
+
+### string の Length / Substring / IndexOf / 添字 / foreach を TCS1002 で止める ✓ (2026-10-31)
+- 文字列を UTF-8 と定めたので、.NET と結果が揃わない位置の API を止める。診断に置き換え先を書く。Lua と C の対応する実装は消す
+- tcs の既存のテストを `RuneCount` / `RuneSubstring` / `Utf8Bytes` に書き換える。`IndexOf` と添字の動作を見ていたテストは消す。fuzz の生成器も同じ
+- 検証: `DifferentialTests.UnsupportedApi_BothBackendsStopWithDiagnostic` (Lua / C の診断)、`TinyCsComplianceAnalyzerTests.Utf16StringApis_ReportUnsupportedApiWithReplacement` (analyzer)
+- 残課題: lub の `cs-lib`、`samples`、`tests/cs` の使用は lub 側の作業
