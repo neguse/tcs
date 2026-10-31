@@ -119,7 +119,8 @@ public class TupleTests
         ]);
 
         Assert.Equal(["TinySystem/ValueTuple.cs", "A.cs", "B.cs"], session.Artifacts.Select(a => a.ModuleId));
-        var lua = string.Join("", session.Artifacts.Select(a => a.Lua));
+        // module の chunk は別々に読み込まれ、prelude の local を chunk ごとに持つ
+        var lua = string.Join("", session.Artifacts.Select(a => $"do\n{a.Lua}\nend\n"));
         Assert.Equal("a2a", TestHelper.RunLua($"{lua}\nprint(B.Run())").Trim());
     }
 }
