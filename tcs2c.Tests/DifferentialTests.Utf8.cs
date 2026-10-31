@@ -258,6 +258,37 @@ public partial class DifferentialTests
                 Assert.Throws<InvalidOperationException>(run).Message);
     }
 
+    [CTheory]
+    [InlineData("record R(Utf8Bytes U);", "Utf8BytesInRecord")]
+    [InlineData("record struct R(Utf8Bytes U);", "Utf8BytesInRecord")]
+    [InlineData("record R { public Utf8Bytes? U; }", "Utf8BytesInRecord")]
+    [InlineData("struct W { public Utf8Bytes U; } record R(W V);", "Utf8BytesInRecord")]
+    public void Utf8Bytes_InRecord_BothBackendsStop(string declaration, string diagnostic)
+    {
+        var program = "using TinySystem.Text;\n" + declaration
+            + "\nclass P { static void Main() { } }";
+        foreach (var run in new Func<string>[]
+                 {
+                     () => Backends.RunLua([program], "P"),
+                     () => Backends.EmitC([program], "P"),
+                 })
+            Assert.Contains($"error TCS1001: unsupported syntax: {diagnostic}",
+                Assert.Throws<InvalidOperationException>(run).Message);
+    }
+
+    [CFact]
+    public void Utf8Bytes_InStructInList_EqualitySearchStops()
+    {
+        var program = """
+            using System.Collections.Generic;
+            using TinySystem.Text;
+            struct W { public Utf8Bytes U; }
+            class P { static void Main() { var l = new List<W>(); l.Contains(default); } }
+            """;
+        Assert.Contains("error TCS1002",
+            Assert.Throws<InvalidOperationException>(() => Backends.RunLua([program], "P")).Message);
+    }
+
     [CFact]
     public void Byte_ReadingAndInRangeConstants_Agree()
     {

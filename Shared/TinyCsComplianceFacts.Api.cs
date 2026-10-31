@@ -228,7 +228,7 @@ public static partial class TinyCsComplianceFacts
         if (targetSymbol is IMethodSymbol { Name: "Contains" or "IndexOf" or "Remove" }
             && IsListType(containingType)
             && containingType.TypeArguments.Length == 1
-            && IsUtf8BytesType(containingType.TypeArguments[0]))
+            && ContainsUtf8Bytes(containingType.TypeArguments[0]))
         {
             apiName = FormatApiName(targetSymbol, containingType, typeName);
             return true;
@@ -261,6 +261,22 @@ public static partial class TinyCsComplianceFacts
 
     public static bool IsUtf8BytesType(ITypeSymbol? type) =>
         type is INamedTypeSymbol { Name: "Utf8Bytes" } named && IsTextApiType(named);
+
+    // 値として Utf8Bytes を中に持つ型。等価は .NET が byte[] の参照、Lua が table の同一性で揃わない
+    private static bool ContainsUtf8Bytes(ITypeSymbol? type) => type switch
+    {
+        _ when IsUtf8BytesType(type) => true,
+        INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable =>
+            ContainsUtf8Bytes(nullable.TypeArguments[0]),
+        INamedTypeSymbol { IsTupleType: true } tuple =>
+            tuple.TupleElements.Any(e => ContainsUtf8Bytes(e.Type)),
+        INamedTypeSymbol { IsValueType: true, DeclaringSyntaxReferences.Length: > 0 } value =>
+            HasUtf8BytesField(value),
+        _ => false,
+    };
+
+    private static bool HasUtf8BytesField(INamedTypeSymbol type) =>
+        type.GetMembers().OfType<IFieldSymbol>().Any(f => !f.IsStatic && ContainsUtf8Bytes(f.Type));
 
     public static bool IsTextApiMember(ISymbol symbol) => IsTextApiType(symbol.ContainingType);
 
