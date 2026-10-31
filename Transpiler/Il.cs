@@ -53,6 +53,9 @@ public sealed record IlUn(IlUnOp Op, IlExpr E) : IlExpr;
 
 public sealed record IlParen(IlExpr E) : IlExpr;
 
+/// <summary>return の複数の値 (Lua の multi-return: `return a, b`)。Lua backend の emit だけが作る。</summary>
+public sealed record IlValues(ImmutableArray<IlExpr> Items) : IlExpr;
+
 /// <summary>条件式。現行出力互換の IIFE で render される。</summary>
 public sealed record IlTernary(IlExpr Cond, IlExpr T, IlExpr F) : IlExpr;
 
@@ -92,7 +95,7 @@ public readonly record struct IlTableEntry(
     IlExpr? Key, IlExpr Value, string? NameKey = null);
 
 /// <summary>class 型 test: T またはその派生 (il-spec §9)。</summary>
-public sealed record IlIsType(IlExpr E, string TypeRef) : IlExpr;
+public sealed record IlIsType(IlExpr E, string TypeRef, bool IsInterface = false) : IlExpr;
 
 /// <summary>構造型 (List / 配列 / Dictionary) の型 test。TargetType は
 /// IlRefCast と同じ型表記。Lua の値は構造型の tag を持たないので、実行時型を

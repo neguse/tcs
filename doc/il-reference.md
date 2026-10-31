@@ -71,7 +71,7 @@ assembly 参照で直接消費する。
 | IlTable(entries, elemType?) | List/Dict/option table リテラル。entry = 配列項 / [k]=v / name=v。elemType は配列/List の要素型 metadata | {…} |
 | IlNewArray(elemType, length, default) | 固定長配列生成 (§11)。default は要素の default 値 (値型は IL、struct は IlNewObj の zero 値、参照型は null)。C は zero 初期化、Lua は値型のとき `__tcs_arr(n, default)` で n 個詰める | __tcs_arr(n, d) / {} |
 | IlStructCopy(e, typeName) | 値型の copy 地点 (§10)。型別 copy 関数で struct-in-struct を再帰 copy。C backend は素の値代入で良い | typeName..".\_\_copy(e)" |
-| IlIsType(e, typeRef) | class 型 test (T またはその派生、null 偽 §9) | \_\_tcs_is(e, T) |
+| IlIsType(e, typeRef, isInterface) | class 型 test (T またはその派生、null 偽 §9)。isInterface なら実装の test | \_\_tcs_is(e, T) / \_\_tcs_implements(e, "I") |
 | IlIsLuaType(e, luaType) | プリミティブ型 test | type(e) == "…" |
 | IlIife(stats) | 式位置の逐次実行 (switch 式・?. 等の lowering 産物) | (function() … end)() |
 | IlClosure(params, body/exprBody, patternLocals) | closure。capture は変数単位 (§7) | function(…) … end |
@@ -91,7 +91,7 @@ assembly 参照で直接消費する。
 | IlBlock(stats) | 文列 (scope。IlIf 等の arm が持つ) |
 | IlLocal(name, init?, type?) | 変数導入 (identity は §7)。type は宣言型の display 文字列 (var も推論型、is-pattern / out var の前宣言も symbol 型)。init が nil literal / closure / 派生型のときは backend は type を優先する |
 | IlAssign(target, value) | place への store (§10) |
-| IlMultiAssign(targets, values, declare) | 多重代入 (分解 / out 引数 multi-return) |
+| IlMultiAssign(targets, values, declare) | 多重代入 (分解 / out 引数 multi-return)。自作メソッドの out の呼び出しは `targets` = [戻り値 (void なら無し), out...]、`values` = [out を除いた引数の call] で、out の順は `IlMethodInfo.OutParameters` の順 |
 | IlBreakScope(body) | break スコープ: 本文内のループに束縛されない IlBreak がここを抜ける (switch 文の早期 break)。continue は外側ループ束縛のまま。C は block + goto label | repeat ... until true |
 | IlComment(text) | 出力に残す注記 (lock の診断 marker 等)。意味論なし | text |
 | IlCallStat(call) | 呼び出し文。call が `table.insert(t, v)` (List.Add) で t が変数/field 連鎖なら、Lua backend は `t[#t + 1] = v` へ落とす (v が呼び出しを含むときは `local __tcs_v = v` に先に束縛して評価順を保つ。#24。IlReturn / closure exprBody の同形も同じ) |
