@@ -2569,3 +2569,10 @@
 - 検証: PowerShell で一度も実行していない (この環境に pwsh が無く、CI にも PowerShell の step が無い)。`bash run-tests.sh` は通るが、ps1 は通らない
 - 判断: `run-tests.ps1` の scratch root に空の `Directory.Build.props` を置く案は入れない。bash 版と同じく、自分専用の場所に移すことで足りる
 - 残課題: PowerShell での実行
+
+### 自作メソッドの out (`out var` / `out _`) ✓ (2026-10-31)
+- 自作メソッドの宣言に `out` を書ける。呼び出しに渡せるのは `out var` / `out T x` / `out _` だけで、前もって宣言した変数、field、配列の要素、out parameter は TCS1001 (`OutArgumentNotDeclaration`)
+- Lua は `return 戻り値, out...` の multi-return で、条件の位置の呼び出しは IIFE を作らず文に下ろす。C は signature の末尾の `T *` で、本体は普通の local に書き、return の位置で呼び出し側の stack の一時変数へ書く
+- 検証: `dotnet test tcs2c.Tests --filter "FullyQualifiedName~OutParameters"` の Lua、C、GC stress が一致し、期待値は CoreCLR の実行結果。`dotnet test Transpiler.Tests --filter "FullyQualifiedName~MultiReturn"`、`dotnet test TinyCs.Analyzers.Tests --filter "FullyQualifiedName~Out"` が通過
+- 判断: delegate / lambda / constructor の out は呼び出しの形が決まらないので TCS1001 のまま
+- 残課題: なし
