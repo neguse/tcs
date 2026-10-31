@@ -49,8 +49,7 @@ public partial class TinyCsComplianceAnalyzerTests
     [Fact]
     public async Task StructDeclaration_InstanceMembersClean_StaticReports()
     {
-        // instance member (method/property/ctor) は許可、
-        // static member は引き続き拒否
+        // method / property / ctor は許可、indexer は拒否
         var clean = await AnalyzeAsync("""
             public struct Vec2
             {
@@ -62,34 +61,34 @@ public partial class TinyCsComplianceAnalyzerTests
             """);
         Assert.Empty(clean);
 
-        var withStatic = await AnalyzeAsync("""
+        var withIndexer = await AnalyzeAsync("""
             public struct Vec2
             {
                 public int X;
-                public static int Make() { return 1; }
+                public int this[int i] { get { return X; } }
             }
             """);
-        var diagnostic = Assert.Single(withStatic);
+        var diagnostic = Assert.Single(withIndexer);
         Assert.Equal(TinyCsDiagnosticIds.UnsupportedSyntax, diagnostic.Id);
         Assert.Contains("StructMember", diagnostic.GetMessage());
     }
 
     [Fact]
-    public async Task RecordStruct_IsClean_StaticMemberReports()
+    public async Task RecordStruct_IsClean_IndexerReports()
     {
-        // record struct は対応済み。static member は struct と同じ規則
+        // record struct は対応済み。member は struct と同じ規則
         var clean = await AnalyzeAsync("""
             public readonly record struct Vec2(int X, int Y);
             """);
         Assert.Empty(clean);
 
-        var withStatic = await AnalyzeAsync("""
+        var withIndexer = await AnalyzeAsync("""
             public record struct Vec2(int X, int Y)
             {
-                public static int Make() { return 1; }
+                public int this[int i] { get { return X; } }
             }
             """);
-        var diagnostic = Assert.Single(withStatic);
+        var diagnostic = Assert.Single(withIndexer);
         Assert.Equal(TinyCsDiagnosticIds.UnsupportedSyntax, diagnostic.Id);
         Assert.Contains("StructMember", diagnostic.GetMessage());
     }
@@ -756,7 +755,7 @@ public partial class TinyCsComplianceAnalyzerTests
     }
 
     [Fact]
-    public async Task OutRefParameters_ReportUnsupportedSyntax()
+    public async Task RefParameter_ReportsUnsupportedSyntax_OutParameterDoesNot()
     {
         var diagnostics = await AnalyzeAsync("""
             public class Parser
@@ -778,11 +777,95 @@ public partial class TinyCsComplianceAnalyzerTests
             .Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax)
             .ToArray();
 
-        Assert.Equal(2, syntaxDiagnostics.Length);
-        Assert.Contains(syntaxDiagnostics,
-            d => d.GetMessage().Contains("OutParameter"));
-        Assert.Contains(syntaxDiagnostics,
-            d => d.GetMessage().Contains("RefParameter"));
+        Assert.Single(syntaxDiagnostics);
+        Assert.Contains("RefParameter", syntaxDiagnostics[0].GetMessage());
+    }
+
+    [Fact]
+    public async Task Tuples_OnlyUnsupportedUsesReport()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            using System.Collections.Generic;
+            public class P
+            {
+                (int x, string y) held = (1, "a");
+                static (int, int) Two() { return (1, 2); }
+                public static void Run()
+                {
+                    var (a, b) = Two();
+                    (a, b) = (b, a);
+                    var t = (a, b);
+                    t.Item1 = t.Item2;
+                    var list = new List<(int, int)>();
+                    list.Add(t);
+                    foreach (var (c, d) in list) a = c + d;
+                }
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Id is TinyCsDiagnosticIds.UnsupportedSyntax
+            or TinyCsDiagnosticIds.UnsupportedApi));
+    }
+
+    [Theory]
+    [InlineData("var t = (1, 2); var e = t == (1, 2);", "TupleEquality")]
+    [InlineData("var t = (1, 2); var e = t is (1, 2);", "TuplePattern")]
+    [InlineData("var t = (1, 2); (float, float) f = t;", "TupleConversion")]
+    [InlineData("var t = (1, 2, 3, 4, 5, 6, 7, 8);", "TupleArity")]
+    [InlineData("var t = new System.ValueTuple<int, int>(1, 2);", "ValueTupleName")]
+    public async Task Tuples_UnsupportedUses_Report(string body, string name)
+    {
+        var diagnostics = await AnalyzeAsync($$"""
+            public class P { public static void Run() { {{body}} } }
+            """);
+
+        Assert.Contains(diagnostics, d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax
+            && d.GetMessage().Contains(name));
+    }
+
+    [Fact]
+    public async Task OutArgumentNotDeclaration_ReportsUnsupportedSyntax()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            public class Parser
+            {
+                static bool Try(out int value) { value = 0; return false; }
+                public static void Run()
+                {
+                    int value;
+                    Try(out value);
+                    Try(out var other);
+                    Try(out _);
+                }
+            }
+            """);
+
+        var syntaxDiagnostics = diagnostics
+            .Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax)
+            .ToArray();
+
+        Assert.Single(syntaxDiagnostics);
+        Assert.Contains("OutArgumentNotDeclaration", syntaxDiagnostics[0].GetMessage());
+    }
+
+    [Fact]
+    public async Task InAndRefReturnAndRefLocal_ReportUnsupportedSyntax()
+    {
+        var diagnostics = await AnalyzeAsync("""
+            public struct V { public float X; }
+            public class C
+            {
+                public static float A(in V v) { return v.X; }
+                public static ref V B(V[] a) { return ref a[0]; }
+                public static void D() { var v = new V(); ref V r = ref v; }
+            }
+            """);
+
+        var messages = diagnostics
+            .Where(d => d.Id == TinyCsDiagnosticIds.UnsupportedSyntax)
+            .Select(d => d.GetMessage()).ToArray();
+        Assert.Single(messages, m => m.Contains("'InParameter'"));
+        Assert.Equal(2, messages.Count(m => m.Contains("'RefType'")));
     }
 
     // transpiler check 側 ApiSignatureComplianceTests と同じケースで
