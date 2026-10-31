@@ -101,6 +101,20 @@ public static class LuaNaming
         return sb.ToString();
     }
 
+    /// <summary>user の型の constructor の Lua / IL 名。class は `new`、struct は `ctor`
+    /// (struct の `new` は ctor を通らない zero 値)。constructor が複数ある型は、引数のある
+    /// ものに method の overload と同じ規則で parameter の型を付ける
+    /// (`new__int__float`)。宣言と呼び出しの両方がこの名前を使う。</summary>
+    public static string CtorName(IMethodSymbol ctor)
+    {
+        var m = ctor.OriginalDefinition;
+        var name = m.ContainingType.TypeKind == TypeKind.Struct ? "ctor" : "new";
+        var explicitCtors = m.ContainingType.InstanceConstructors.Count(c =>
+            c.DeclaringSyntaxReferences.Any(r => r.GetSyntax() is ConstructorDeclarationSyntax));
+        if (explicitCtors < 2 || m.Parameters.Length == 0) return name;
+        return name + string.Concat(m.Parameters.Select(p => "__" + TypeToken(p.Type)));
+    }
+
     /// <summary>instance method が実装する interface の method (宣言の型の interface から)。</summary>
     public static IEnumerable<IMethodSymbol> ImplementedInterfaceMethods(IMethodSymbol method)
     {
@@ -135,12 +149,22 @@ public static class LuaNaming
         return sb.ToString().TrimEnd('_');
     }
 
-    /// <summary>source に宣言された型の Lua global 名。namespace の中の型は
-    /// namespace 修飾名を `_` で結合し (`Game.Gfx.Color` → `Game_Gfx_Color`)、
-    /// namespace に属さない型は simple 名。</summary>
+    private static bool IsTupleOriginal(this INamedTypeSymbol type) =>
+        type is { Name: "ValueTuple", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
+
+    /// <summary>source に宣言された型の Lua global 名。入れ子の型は外側の型の名前を、
+    /// namespace の中の型は namespace 修飾名を `_` で結合し (`Outer.Inner` → `Outer_Inner`、
+    /// `Game.Gfx.Color` → `Game_Gfx_Color`)、どちらでもない型は simple 名。</summary>
     public static string TypeGlobalName(INamedTypeSymbol type)
     {
-        var parts = new List<string> { type.Name };
+        // System.ValueTuple は型引数の数ごとに別の型で、Lua の global も分ける
+        var parts = new List<string>
+        {
+            type.OriginalDefinition.IsTupleOriginal()
+                ? $"ValueTuple{type.Arity}" : type.Name,
+        };
+        for (var outer = type.ContainingType; outer != null; outer = outer.ContainingType)
+            parts.Add(outer.Name);
         // ToDisplayString は keyword の namespace を `@event` と逃がすので Name をつなぐ
         for (var ns = type.ContainingNamespace; ns is { IsGlobalNamespace: false };
             ns = ns.ContainingNamespace)

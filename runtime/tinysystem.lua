@@ -1076,6 +1076,14 @@ function TinySystem.instanceof(x, T)
   return false
 end
 
+-- class の interface の検査。class table の __interfaces は実装する interface の名前の集合。
+-- 生成コードは __tcs_implements global 経由でこちらを使う。
+function TinySystem.implements(x, name)
+  local mt = getmetatable(x)
+  local set = mt and mt.__interfaces
+  return set ~= nil and set[name] == true
+end
+
 -- TryGetValue の lowering 先 (il-spec §13)。(found, value or default) を返す
 function Dict.TryGet(dict, key, default)
   local v = dict[key]
@@ -1090,6 +1098,12 @@ end
 function TinySystem.dv(d)
   if type(d) == "table" and d.__tcs_td then return d.n() end
   return d
+end
+
+-- `new T()` の型引数。class を入れた型引数は作り方を持たない (既定値は null)
+function TinySystem.nt(d)
+  if d == nil then error("new T() of a class type argument is not supported") end
+  return TinySystem.dv(d)
 end
 
 -- enum を入れた型引数の記述子 (名前の表ごとに 1 つ)。生成コードは __tcs_etd global 経由
@@ -1162,7 +1176,7 @@ end
 -- static method group の wrapper (module mode の __tcs_mg global の実体)。
 -- struct parameter を copy してから呼ぶ。
 -- c は parameter ごとの copy 関数 (不要なら false)。
--- 同じ関数には同じ wrapper を返す (delegate の ==)
+-- 同じ関数には同じ wrapper を返す
 local mg_cache = setmetatable({}, { __mode = "k" })
 function TinySystem.mg(f, c1, c2, ...)
   local w = mg_cache[f]
@@ -1237,13 +1251,31 @@ function TinySystem.fstr(v) return tcs_rt.fstr(v) end
 
 -- bool は .NET と同じ True / False
 function TinySystem.bstr(b) return b and "True" or "False" end
+-- 生成コードは __tcs_tupleN global 経由 (multi-return のタプルを保持するときの struct の table)
+function TinySystem.tuple2(v1, v2) return {Item1 = v1, Item2 = v2} end
+function TinySystem.tuple3(v1, v2, v3) return {Item1 = v1, Item2 = v2, Item3 = v3} end
+function TinySystem.tuple4(v1, v2, v3, v4) return {Item1 = v1, Item2 = v2, Item3 = v3, Item4 = v4} end
+function TinySystem.tuple5(v1, v2, v3, v4, v5)
+  return {Item1 = v1, Item2 = v2, Item3 = v3, Item4 = v4, Item5 = v5}
+end
+function TinySystem.tuple6(v1, v2, v3, v4, v5, v6)
+  return {Item1 = v1, Item2 = v2, Item3 = v3, Item4 = v4, Item5 = v5, Item6 = v6}
+end
+function TinySystem.tuple7(v1, v2, v3, v4, v5, v6, v7)
+  return {Item1 = v1, Item2 = v2, Item3 = v3, Item4 = v4, Item5 = v5, Item6 = v6, Item7 = v7}
+end
 
--- T? と object と型引数の文字列化 (null → "")。table の値はサブセット外 (TCS1001 UnsupportedToString)
+-- T? と object と型引数の文字列化 (null → "")。class の値は ToString の override を呼ぶ。
+-- 他の table の値はサブセット外 (TCS1001 UnsupportedToString)
 function TinySystem.nstr(v)
   if v == nil then return "" end
   if math.type(v) == "float" then return TinySystem.fstr(v) end
   if type(v) == "boolean" then return TinySystem.bstr(v) end
-  if type(v) == "table" then error("ToString of this value is not supported") end
+  if type(v) == "table" then
+    local mt = getmetatable(v)
+    if mt and mt.ToString then return mt.ToString(v) or "" end
+    error("ToString of this value is not supported")
+  end
   return tostring(v)
 end
 
