@@ -228,6 +228,110 @@ public partial class DifferentialTests
         Assert.Contains(expected, ex.Message);
     }
 
+    [Theory]
+    [InlineData("int x = 5; byte b = (byte)x;")]
+    [InlineData("int x = 5; byte? b = (byte?)x;")]
+    [InlineData("byte b = unchecked((byte)300);")]
+    [InlineData("byte b = unchecked((byte)-1);")]
+    [InlineData("byte b = (byte)1.5f;")]
+    [InlineData("byte b = 1; b++;")]
+    [InlineData("byte b = 1; b--;")]
+    [InlineData("byte b = 1; ++b;")]
+    [InlineData("byte b = 1; --b;")]
+    [InlineData("byte b = 1; b += 1;")]
+    [InlineData("byte b = 1; b -= 1;")]
+    [InlineData("byte b = 1; b *= 2;")]
+    [InlineData("byte b = 1; b <<= 1;")]
+    [InlineData("byte? b = 1; b++;")]
+    [InlineData("var f = new ByteField(); f.B++;")]
+    [InlineData("var f = new ByteField(); f.B += 1;")]
+    [InlineData("var a = new byte[1]; a[0]++;")]
+    public void ByteNarrowing_BothBackendsStop(string statement)
+    {
+        var program = ByteProgram(statement);
+        foreach (var run in new Func<string>[]
+                 {
+                     () => Backends.RunLua([program], "P"),
+                     () => Backends.EmitC([program], "P"),
+                 })
+            Assert.Contains("error TCS1001: unsupported syntax: ByteNarrowing",
+                Assert.Throws<InvalidOperationException>(run).Message);
+    }
+
+    [CFact]
+    public void Byte_ReadingAndInRangeConstants_Agree()
+    {
+        var output = Backends.AssertAllPathsAgree(ByteProgram("""
+            const int K = 7;
+            byte a = 200;
+            byte b = (byte)201;
+            byte c = (byte)K;
+            byte d = (byte)'a';
+            byte e = new Utf8Bytes("é")[1];
+            var f = new ByteField();
+            f.B = e;
+            e = new Utf8Bytes("é")[0];
+            int sum = a + b;
+            Console.WriteLine(a + ":" + b + ":" + c + ":" + d + ":" + e + ":" + f.B + ":" + sum);
+            """), "P");
+        Assert.Equal("200:201:7:97:195:169:401", output);
+    }
+
+    private static string ByteProgram(string body) => $$"""
+        using System;
+        using TinySystem.Text;
+        public class ByteField { public byte B; }
+        public class P
+        {
+            public static void Main()
+            {
+                {{body}}
+            }
+        }
+        """;
+
+    // 壊れた列の EnumerateRunes: program の中の string は (char) の 1 byte の連結でだけ壊れる (.NET では別の文字になる) ので、
+    // 同じ byte 列の Encoding.UTF8 の結果を期待値にする
+    [CTheory]
+    [InlineData(0xF0, 0x9F)]
+    [InlineData(0xF0, 0x9F, 0x98)]
+    [InlineData(0x80)]
+    [InlineData(0xBF, 0x80, 0x41)]
+    [InlineData(0xC0, 0x80)]
+    [InlineData(0xC1, 0x41)]
+    [InlineData(0xE0, 0x80, 0x80)]
+    [InlineData(0xE9, 0x41)]
+    [InlineData(0xED, 0xA0, 0x80)]
+    [InlineData(0xF0, 0x80, 0x80, 0x80)]
+    [InlineData(0xF4, 0x90, 0x80, 0x80)]
+    [InlineData(0xF5, 0x41)]
+    [InlineData(0xFF)]
+    [InlineData(0x41, 0xE6, 0x97, 0xA5, 0xE6, 0x97, 0x42)]
+    [InlineData(0xEF, 0xBF, 0xBD)]
+    public void EnumerateRunes_BrokenBytes_ReadsLikeEncodingUtf8(params int[] bytes)
+    {
+        var concat = string.Concat(bytes.Select(b => $" + (char)Id({b})"));
+        var output = Backends.AssertParity($$"""
+            using System;
+            using TinySystem.Text;
+            public class P
+            {
+                static int Id(int x) { return x; }
+                public static void Main()
+                {
+                    string s = ""{{concat}};
+                    string runes = "";
+                    int count = 0;
+                    foreach (var r in s.EnumerateRunes()) { runes += r.Value + ","; count++; }
+                    Console.WriteLine(runes + count + ":" + s.RuneCount());
+                }
+            }
+            """, "P");
+        var text = Encoding.UTF8.GetString([.. bytes.Select(b => (byte)b)]);
+        var expected = text.EnumerateRunes().Select(r => r.Value).ToList();
+        Assert.Equal(string.Concat(expected.Select(v => v + ",")) + expected.Count + ":" + expected.Count, output);
+    }
+
     // lib 形のフレーム境界 GC を越えて、Utf8Bytes が持つ文字列が生き残る
     [CFact]
     public void Utf8Bytes_SurvivesFrameBoundaryGc()
@@ -292,6 +396,11 @@ public partial class DifferentialTests
                 tcs_utf8_scrub(s, n, out);
                 for (i = 0; i < length; i++) hash = (hash ^ out[i]) * 16777619u;
                 hash = (hash ^ (uint32_t)tcs_utf8_rune_count(s, n)) * 16777619u;
+                for (i = 0; i < n;) {
+                    uint32_t rune;
+                    i += tcs_utf8_decode(s + i, n - i, &rune);
+                    hash = (hash ^ rune) * 16777619u;
+                }
             }
             int main(void)
             {
@@ -328,6 +437,7 @@ public partial class DifferentialTests
             var text = Encoding.UTF8.GetString(s, 0, n);
             foreach (var b in Encoding.UTF8.GetBytes(text)) hash = unchecked((hash ^ b) * 16777619u);
             hash = unchecked((hash ^ (uint)text.EnumerateRunes().Count()) * 16777619u);
+            foreach (var rune in text.EnumerateRunes()) hash = unchecked((hash ^ (uint)rune.Value) * 16777619u);
         }
         for (var a = 0; a < 256; a++)
         {

@@ -114,7 +114,7 @@ TinyC# の実装判断は「C# 14 の全機能対応」ではなく、次の bas
 | `bool` (Boolean) | **Y** | boolean | 文字列化 (`ToString()`・連結・補間・`Console.WriteLine`・`string.Join` の要素、`bool?` と object に入れた値も) は .NET と同じ `True` / `False` (`__tcs_bstr`) |
 | `decimal` (Decimal) | **-** | | |
 | `char` (Char) | **Y** | 整数 code unit (byte)。literal は ASCII のみ (非 ASCII は TCS1001 `NonAsciiCharLiteral`、string literal で書く)。`(char)x` の x が 0〜255 の外なら Lua / C とも同じ文言で fault し、`char.ConvertFromUtf32` を案内する (.NET は UTF-16 の code unit を作る)。cast を通らずに範囲を出た値 (`c++`) は文字列化の地点で fault する。算術 / 比較 / switch / pattern は int と同じ、文字列化 (連結・補間・`ToString`・`WriteLine`) は 1 byte の string。`Char.*` は §15b |
-| `byte` (Byte) | **P** | `Utf8Bytes` の添字 `u[i]` の結果を受ける型で、i32 と同じ表現。`byte` の `++` と `(byte)x` は 0〜255 に丸めない (Lua / C とも。.NET は丸める) ので、整数として読むだけにする | |
+| `byte` (Byte) | **P** | `Utf8Bytes` の添字 `u[i]` の結果を受ける型で、i32 と同じ表現。Lua / C は 0〜255 に丸めないので、丸めが起きる `(byte)x` (範囲内の定数は可) と `byte` への `++` / `--` / 複合代入は TCS1001 `ByteNarrowing` で止める | |
 | `sbyte` (SByte) | **-** | | |
 | `short` (Int16) | **-** | | |
 | `ushort` (UInt16) | **-** | | |
@@ -635,7 +635,7 @@ using(宣言)  virtual  volatile  yield
 | `(int)ch` / `(char)n` (char ↔ int) | **Y** | `(int)ch` は恒等 (char は整数)、`(int)'a'` は定数畳み込み。`(char)n` は `__tcs_char(n)` で範囲を検査する (byte と範囲内の定数からは恒等) | T |
 | `foreach (char c in s)` | **Y** | `for i = 1, #s do local c = string.byte(s, i)` (byte 単位。codepoint は `EnumerateRunes`) | T |
 | `.IndexOf(char)` / `.Contains(char)` / `.StartsWith(char)` / `.EndsWith(char)` / `.Replace(char, char)` / `.Split(char)` | **Y** | char 引数を `string.char` で 1 文字 string にして同名 runtime へ | T+R |
-| `.EnumerateRunes()` | **Y** | `foreach` の collection 位置限定: `for _, r in utf8.codes(s)`。`r.Value` (`System.Text.Rune`) は codepoint 整数そのもの。`r` の文字列化 (`ToString`・連結・補間・`WriteLine`) は `Char.ConvertFromUtf32(r)` | T+R |
+| `.EnumerateRunes()` | **Y** | `foreach` の collection 位置限定: `for _, r in tcs_utf8.codes(s)`。壊れた並びは `Encoding.UTF8` と同じ位置で U+FFFD として読み続ける (3 経路で同じ)。`r.Value` (`System.Text.Rune`) は codepoint 整数そのもの。`r` の文字列化 (`ToString`・連結・補間・`WriteLine`) は `Char.ConvertFromUtf32(r)` | T+R |
 
 引数なし`Split()`のwhitespace判定はLua `%s`によるbyte/locale単位であり、
 .NETのUnicode `Char.IsWhiteSpace`とは一致しない。これはUTF-8 byte列を使う既知制約に含む。

@@ -125,7 +125,7 @@ public partial class LuaEmitter
             case IlForeachRunes feRunes:
             {
                 var label = PushContinueLabel();
-                AppendLine($"for _, {feRunes.Var} in utf8.codes({RenderIl(feRunes.Str)}) do");
+                AppendLine($"for _, {feRunes.Var} in {LuaLocalRenamer.Utf8ModuleGlobal}.codes({RenderIl(feRunes.Str)}) do");
                 _indent++;
                 EmitLoopBody(feRunes.Body, label);
                 _indent--;

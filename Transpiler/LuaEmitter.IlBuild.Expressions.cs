@@ -746,7 +746,7 @@ public partial class LuaEmitter
             return new IlVar(TypeRef(namedType));
         if (ConstLiteral(symbol) is { } constLit)
             return LitFromConst(constLit, symbol);
-        // Rune.Value: utf8.codes の値は codepoint 整数そのもの
+        // Rune.Value: EnumerateRunes の値は codepoint 整数そのもの
         if (IsRuneValue(symbol))
             return BuildExpr(model, ma.Expression);
 

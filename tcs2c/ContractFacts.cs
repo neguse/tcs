@@ -224,7 +224,7 @@ internal sealed class ContractFacts
             "object" or "System.Object" => CType.Object,
             // char は整数 code unit (il-spec §3)
             "char" or "System.Char" => CType.I32,
-            // Utf8Bytes の添字の結果
+            // Utf8Bytes の添字の結果。丸めが起きる式は TCS1001 ByteNarrowing で止まる
             "byte" or "System.Byte" => CType.I32,
             // enum は整数定数 (Lua と同じ。tostring も整数表記)
             _ when _enums.ContainsKey(text) => CType.I32,
