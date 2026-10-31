@@ -109,8 +109,6 @@ internal sealed partial class CEmitter
                     $"unknown KeyValuePair member: {field.Name}"),
             };
         }
-        if (receiver.Kind == CTypeKind.Utf8Bytes)
-            return $"tcs_utf8_bytes_length({RenderExpr(field.Recv)})";
         if (receiver.Kind == CTypeKind.StructVal)
             return $"{RenderStructPlace(field.Recv)}.{Names.Field(field.Name)}";
         if (receiver.Kind != CTypeKind.Ref)
@@ -133,7 +131,6 @@ internal sealed partial class CEmitter
                 _ => throw new Tcs2cException(
                     $"unknown KeyValuePair member: {field.Name}"),
             };
-        if (receiver.Kind == CTypeKind.Utf8Bytes) return CType.I32;
         if (receiver.Kind == CTypeKind.StructVal)
             return _facts.StructField(receiver.Name!, field.Name);
         if (receiver.Kind != CTypeKind.Ref)

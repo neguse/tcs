@@ -874,13 +874,14 @@ C の正本は `runtime/utf8` で、Lua は `tcs_utf8` module (host が登録す
 |---------|:----:|------|
 | `s.RuneCount()` | **Y** | 文字数。文字列の長さに比例する時間 |
 | `s.RuneSubstring(start, count)` | **Y** | `start` 文字目から `count` 文字の string。文字列の長さに比例する時間 |
-| `new Utf8Bytes(s)` | **Y** | UTF-8 の byte 列の view (class)。.NET はここで `byte[]` に 1 度だけ変換し、Lua / C は文字列をそのまま指す |
+| `new Utf8Bytes(s)` | **Y** | UTF-8 の byte 列の view (`readonly struct`)。`default(Utf8Bytes)` と未初期化の field は長さ 0 の view で、`ToString()` は `""`、`Slice(0, 0)` は可、`u[i]` は範囲外の fault。.NET はここで `byte[]` に 1 度だけ変換し、Lua / C は文字列をそのまま指す |
 | `u.Length` | **Y** | byte 数 |
 | `u[i]` | **Y** | byte。O(1) |
-| `u.Slice(start, count)` | **Y** | byte を複製しない view。view の object は新しく作る |
+| `u.Slice(start, count)` | **Y** | byte を複製しない view。Lua は view の table を新しく作り、C と .NET は値 |
 | `u.ToString()` | **Y** | byte 列の string。文字の途中で切った slice の壊れた並びは U+FFFD になる (.NET の `Encoding.UTF8` と同じ位置で同じ個数) |
 
-`Runes.RuneCount(s)` の static の形と `?.` も同じ。`Utf8Bytes` の連結・補間・`Console.WriteLine` は TCS1001 `UnsupportedToString` (`ToString()` を書く)。method group は TCS1001 `TextApiMethodGroup`。
+`Runes.RuneCount(s)` の static の形と `s?.RuneCount()` も同じ。`Utf8Bytes?` は user の struct の `T?` と同じで、`n == null`、`n?.Length`、`n?[i]`、`n?.Slice(a, b)`、`n?.ToString()`、`n.Value` が使える。`u == null` と `u?.Length` は C# の compile error (CS0019 / CS0023)。
+`object` への変換は TCS1001 `StructBoxing`。連結・補間・`Console.WriteLine` は TCS1001 (`ToString()` を書く)。`List<Utf8Bytes>` の `Contains` / `IndexOf` / `Remove` は TCS1002 (要素の等価が揃わない)。method group は TCS1001 `TextApiMethodGroup`。Dictionary の key は TCS1001 (struct と同じ)。
 
 ## 21. System.IO
 

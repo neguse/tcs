@@ -43,8 +43,9 @@ public static class Runes
 }
 
 /// <summary>string の UTF-8 の byte 列の読み取り専用の view。添字は O(1)、Slice は byte を複製しない。
-/// .NET は作るときに 1 度だけ byte[] に変換し、tcs2c と Lua は文字列をそのまま指す。</summary>
-public sealed class Utf8Bytes
+/// .NET は作るときに 1 度だけ byte[] に変換し、tcs2c と Lua は文字列をそのまま指す。
+/// <c>default</c> は長さ 0 の view。</summary>
+public readonly struct Utf8Bytes
 {
     private readonly byte[] _bytes;
     private readonly int _start;
@@ -54,6 +55,7 @@ public sealed class Utf8Bytes
     public Utf8Bytes(string s)
     {
         _bytes = Encoding.UTF8.GetBytes(s);
+        _start = 0;
         Length = _bytes.Length;
     }
 
@@ -77,5 +79,6 @@ public sealed class Utf8Bytes
     }
 
     /// <summary>byte 列の string。文字の途中で切った slice の壊れた並びは U+FFFD になる。</summary>
-    public override string ToString() => Encoding.UTF8.GetString(_bytes, _start, Length);
+    public override string ToString() =>
+        Length == 0 ? "" : Encoding.UTF8.GetString(_bytes, _start, Length);
 }

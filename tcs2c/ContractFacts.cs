@@ -232,7 +232,7 @@ internal sealed class ContractFacts
             "TinySystem.Random" => CType.Random,
             "Random" when !_classes.ContainsKey("Random") => CType.Random,
             "TinySystem.Text.Utf8Bytes" => CType.Utf8Bytes,
-            "Utf8Bytes" when !_classes.ContainsKey("Utf8Bytes") => CType.Utf8Bytes,
+            "Utf8Bytes" when !_classes.ContainsKey("Utf8Bytes") && !_structs.ContainsKey("Utf8Bytes") => CType.Utf8Bytes,
             _ when _classes.ContainsKey(text) => CType.Ref(text),
             _ when _structs.ContainsKey(text) => CType.Struct(text),
             _ => throw new Tcs2cException($"unsupported IL type: {displayName}"),

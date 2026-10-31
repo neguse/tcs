@@ -279,67 +279,38 @@ internal sealed partial class CEmitter
             return tcs_string_new(s->data + from, to - from);
         }
 
-        /* TinySystem.Text.Utf8Bytes: text の [start, start + length) を指す。文字列の byte は複製しない */
-        typedef struct TcsUtf8Bytes {
-            TcsString *text;
-            int32_t start;
-            int32_t length;
-        } TcsUtf8Bytes;
-        static const uint32_t tcs_layout_utf8_bytes_offsets[] = { offsetof(TcsUtf8Bytes, text) };
-        static const TcsLayout tcs_layout_utf8_bytes =
-            { sizeof(TcsUtf8Bytes), 1, tcs_layout_utf8_bytes_offsets };
-
-        static TcsUtf8Bytes *
-        tcs_utf8_bytes_view(TcsString *text, int32_t start, int32_t length)
-        {
-            TcsUtf8Bytes *u = tcs_new_object(&tcs_layout_utf8_bytes);
-            u->text = text;
-            u->start = start;
-            u->length = length;
-            return u;
-        }
-
-        static TcsUtf8Bytes *
-        tcs_utf8_bytes_new(TcsString *s)
+        /* TinySystem.Text.Utf8Bytes: 文字列 text の [start, start + length) を指す値。既定値は text が NULL で長さ 0 */
+        static int32_t
+        tcs_utf8_bytes_text_length(TcsString *s)
         {
             tcs_nonnull(s);
             if (s->length > INT32_MAX) tcs_fault("string-length-overflow");
-            return tcs_utf8_bytes_view(s, 0, (int32_t)s->length);
+            return (int32_t)s->length;
         }
 
         static int32_t
-        tcs_utf8_bytes_length(TcsUtf8Bytes *u)
+        tcs_utf8_bytes_at(TcsString *text, int32_t start, int32_t length, int32_t index)
         {
-            tcs_nonnull(u);
-            return u->length;
+            if (index < 0 || index >= length) tcs_fault("utf8-bytes-index");
+            return text->data[start + index];
         }
 
-        static int32_t
-        tcs_utf8_bytes_at(TcsUtf8Bytes *u, int32_t index)
+        static void
+        tcs_utf8_bytes_check_slice(int32_t length, int32_t start, int32_t count)
         {
-            tcs_nonnull(u);
-            if (index < 0 || index >= u->length) tcs_fault("utf8-bytes-index");
-            return u->text->data[u->start + index];
-        }
-
-        static TcsUtf8Bytes *
-        tcs_utf8_bytes_slice(TcsUtf8Bytes *u, int32_t start, int32_t count)
-        {
-            tcs_nonnull(u);
-            if (start < 0 || count < 0 || start > u->length || count > u->length - start)
+            if (start < 0 || count < 0 || start > length || count > length - start)
                 tcs_fault("Utf8Bytes.Slice: range is out of the bytes");
-            return tcs_utf8_bytes_view(u->text, u->start + start, count);
         }
 
         static TcsString *
-        tcs_utf8_bytes_to_string(TcsUtf8Bytes *u)
+        tcs_utf8_bytes_to_string(TcsString *text, int32_t start, int32_t length)
         {
             const unsigned char *data;
             TcsString *result;
-            tcs_nonnull(u);
-            data = u->text->data + u->start;
-            result = tcs_string_new(NULL, tcs_utf8_scrub_length(data, (size_t)u->length));
-            tcs_utf8_scrub(data, (size_t)u->length, result->data);
+            if (length == 0) return tcs_string_new(NULL, 0);
+            data = text->data + start;
+            result = tcs_string_new(NULL, tcs_utf8_scrub_length(data, (size_t)length));
+            tcs_utf8_scrub(data, (size_t)length, result->data);
             return result;
         }
 

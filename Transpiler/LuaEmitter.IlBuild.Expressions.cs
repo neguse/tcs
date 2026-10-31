@@ -938,7 +938,7 @@ public partial class LuaEmitter
             && PassesTypeArgDefaults(genericCtor.ContainingType.OriginalDefinition))
             args.AddRange(TypeArgDefaultArgs(genericCtor));
         if (TinyCsComplianceFacts.IsUtf8BytesType(typeSymbol))
-            return new IlCall("TinySystem.Utf8.New", [.. args]);
+            return new IlCall(args.Count == 0 ? "TinySystem.Utf8.Default" : "TinySystem.Utf8.New", [.. args]);
         var ctor = IsUserStruct(typeSymbol) && hasCtorArgs
             ? (IlExpr)new IlCall($"{TypeName(typeSymbol)}.ctor", [.. args])
             : new IlNewObj(newName, [.. args]);

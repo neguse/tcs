@@ -138,6 +138,11 @@ internal sealed partial class CEmitter
             && IsAncestorOrSame(declaring, c.Name)
             && c.Methods.Any(m => m.Name == method));
 
+    // TinySystem.Text.Utf8Bytes は user の struct と同じ C の値にする (GC の layout、T?、List の要素、既定値がそのまま使える)
+    private static readonly IlStructInfo Utf8BytesStruct = new(CType.Utf8BytesStruct,
+        [new IlFieldInfo("Text", "string", false), new IlFieldInfo("Start", "int", false),
+         new IlFieldInfo("Length", "int", false)], "0");
+
     private static IlExportResult Normalize(IlExportResult program)
     {
         var classes = program.Classes.ToList();
@@ -147,7 +152,11 @@ internal sealed partial class CEmitter
                 [new IlMethodInfo("Main", true, [], topLevel,
                     "void", [])]));
         }
-        return program with { Classes = [.. classes] };
+        return program with
+        {
+            Classes = [.. classes],
+            Structs = [Utf8BytesStruct, .. program.Structs.IsDefault ? [] : program.Structs],
+        };
     }
 
     public string Emit(string? requestedEntry, bool lib = false)
@@ -242,8 +251,7 @@ internal sealed partial class CEmitter
     {
         CTypeKind.I32 or CTypeKind.F32 or CTypeKind.Bool or CTypeKind.String
             or CTypeKind.Ref or CTypeKind.StructVal or CTypeKind.Closure
-            or CTypeKind.Nullable or CTypeKind.Random or CTypeKind.Utf8Bytes
-            or CTypeKind.Object => true,
+            or CTypeKind.Nullable or CTypeKind.Random or CTypeKind.Object => true,
         CTypeKind.Dict => type.Key is not null && type.Element is not null
             && IsStorageType(type.Element),
         CTypeKind.Array or CTypeKind.List => type.Element is not null
