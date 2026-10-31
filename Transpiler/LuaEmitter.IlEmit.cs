@@ -427,7 +427,7 @@ public partial class LuaEmitter
         IlInvoke inv =>
             $"{RenderIl(inv.Recv)}:{inv.Method}({string.Join(", ", inv.Args.Select(RenderIl))})",
         IlNewObj obj =>
-            $"{obj.TypeName}.new({string.Join(", ", obj.Args.Select(RenderIl))})",
+            $"{obj.TypeName}.{obj.Ctor}({string.Join(", ", obj.Args.Select(RenderIl))})",
         IlTable table => RenderIlTable(table),
         // 値型要素は default を n 個詰める (要素読み / Length が C# と一致)。
         // 参照型 (null) は Lua table に穴を作れないので空 table
@@ -451,6 +451,7 @@ public partial class LuaEmitter
             : $"({RenderIl(convert.Value)} * 1.0)",
         IlNumericConvert convert => RenderIl(convert.Value),
         IlRefCast refCast => RenderIl(refCast.Value),
+        IlIsType { IsInterface: true } isType => $"__tcs_implements({RenderIl(isType.E)}, {EscapeLuaString(isType.TypeRef)})",
         IlIsType isType => $"__tcs_is({RenderIl(isType.E)}, {isType.TypeRef})",
         // Lua 出力の builder は作らない (StructuralTypeTests)。IlExport の IL を
         // 描く経路 (hot reload の field 初期化子) では実行時 error にする
@@ -477,6 +478,7 @@ public partial class LuaEmitter
             _ => $"__tcs_nnot({RenderIl(liftedUn.E)})",
         },
         IlIsLuaType isLua => $"type({RenderIl(isLua.E)}) == \"{isLua.LuaType}\"",
+        IlValues values => string.Join(", ", values.Items.Select(RenderIl)),
         IlIife iife => $"(function() {RenderIlStatsInline(iife.Stats)} end)()",
         IlClosure closure => RenderIlClosure(closure),
         IlMethodGroup group => RenderIlMethodGroup(group),
@@ -490,7 +492,9 @@ public partial class LuaEmitter
             ? $"{descriptor.TypeName}.__tcs_td"
             : $"{{__tcs_td = true, n = function() return {descriptor.TypeName}.new(" +
                 $"{string.Join(", ", descriptor.NewArgs.Select(RenderIl))}) end, " +
-                $"c = function(v) return {descriptor.TypeName}.__copy(v{descriptor.Copiers}) end}}";
+                $"c = function(v) return {descriptor.TypeName}.__copy(v{descriptor.Copiers}) end" +
+                (descriptor.HasToString
+                    ? $", s = function(v) return {descriptor.TypeName}.ToString(v) or \"\" end" : "") + "}";
 
     private static string RenderIlMethodGroup(IlMethodGroup group)
     {

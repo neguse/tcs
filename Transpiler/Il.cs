@@ -55,6 +55,9 @@ public sealed record IlUn(IlUnOp Op, IlExpr E) : IlExpr;
 
 public sealed record IlParen(IlExpr E) : IlExpr;
 
+/// <summary>return の複数の値 (Lua の multi-return: `return a, b`)。Lua backend の emit だけが作る。</summary>
+public sealed record IlValues(ImmutableArray<IlExpr> Items) : IlExpr;
+
 /// <summary>条件式。現行出力互換の IIFE で render される。</summary>
 public sealed record IlTernary(IlExpr Cond, IlExpr T, IlExpr F) : IlExpr;
 
@@ -71,8 +74,8 @@ public sealed record IlDynCall(IlExpr Callee, ImmutableArray<IlExpr> Args) : IlE
 public sealed record IlInvoke(IlExpr Recv, string Method, ImmutableArray<IlExpr> Args)
     : IlExpr;
 
-/// <summary>クラス生成: TypeName.new(args)。</summary>
-public sealed record IlNewObj(string TypeName, ImmutableArray<IlExpr> Args) : IlExpr;
+/// <summary>クラス生成: TypeName.Ctor(args)。Ctor は constructor の名前 (LuaNaming.CtorName)。</summary>
+public sealed record IlNewObj(string TypeName, ImmutableArray<IlExpr> Args, string Ctor = "new") : IlExpr;
 
 /// <summary>table 構築 (List / Dict リテラル / ref-type option table)。
 /// Key があれば [k]=v、NameKey があれば name=v、どちらも無ければ配列項。
@@ -97,7 +100,7 @@ public readonly record struct IlTableEntry(
     IlExpr? Key, IlExpr Value, string? NameKey = null);
 
 /// <summary>class 型 test: T またはその派生 (il-spec §9)。</summary>
-public sealed record IlIsType(IlExpr E, string TypeRef) : IlExpr;
+public sealed record IlIsType(IlExpr E, string TypeRef, bool IsInterface = false) : IlExpr;
 
 /// <summary>構造型 (List / 配列 / Dictionary) の型 test。TargetType は
 /// IlRefCast と同じ型表記。Lua の値は構造型の tag を持たないので、実行時型を
@@ -171,9 +174,10 @@ public sealed record IlLiftedUn(IlUnOp Op, IlExpr E) : IlExpr;
 public sealed record IlCast(IlExpr E, string TypeRef) : IlExpr;
 
 /// <summary>struct を入れた型引数の既定値として渡す、zero 値と copy の作り方 (Lua の型消去用)。
+/// HasToString は ToString の override を文字列化に使う。
 /// 引数も copier も無い struct は型の table の `__tcs_td`。</summary>
 public sealed record IlStructDescriptor(string TypeName, ImmutableArray<IlExpr> NewArgs,
-    string Copiers) : IlExpr;
+    string Copiers, bool HasToString = false) : IlExpr;
 
 /// <summary>record with 式 (shallow copy + 上書き)。Src が IlStructCopy なら copy 済み
 /// (struct の with)。</summary>

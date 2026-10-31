@@ -161,7 +161,9 @@ internal sealed partial class CEmitter
             type = CType.F32;
             return true;
         }
-        if (field.Recv is IlVar receiver && _classes.TryGetValue(receiver.Name, out var cls))
+        if (field.Recv is IlVar receiver
+            && (_classes.TryGetValue(receiver.Name, out var cls)
+                || StructStaticOwners.TryGetValue(receiver.Name, out cls)))
         {
             var metadata = cls.Fields.FirstOrDefault(f => f.Name == field.Name && f.IsStatic);
             if (metadata is not null)
@@ -674,7 +676,7 @@ internal sealed partial class CEmitter
     private CType? TryTypeOfClosureCallee(IlDynCall call)
     {
         if (call.Callee is IlField { Recv: IlVar receiver } member
-            && _classes.ContainsKey(receiver.Name) && TryResolve(receiver.Name) is null)
+            && IsStaticMemberOwner(receiver.Name) && TryResolve(receiver.Name) is null)
         {
             // 型修飾: closure 型の static field なら closure 呼び、それ以外は
             // static method 呼び
@@ -725,7 +727,7 @@ internal sealed partial class CEmitter
     private MethodFact ParseDynCallee(IlExpr callee)
     {
         if (callee is not IlField { Recv: IlVar receiver } field
-            || !_classes.ContainsKey(receiver.Name))
+            || !IsStaticMemberOwner(receiver.Name))
             throw new Tcs2cException("only type-qualified static IlDynCall is supported");
         var fact = _facts.Method(receiver.Name, field.Name);
         if (!fact.IsStatic)
@@ -752,6 +754,7 @@ internal sealed partial class CEmitter
         IReadOnlyList<IlExpr> args, string? function = null)
     {
         args = CompleteArguments(fact.Parameters, args, $"{fact.ClassName}.{fact.Name}");
+        var outArguments = TakeOutArguments();
         var values = new List<(CType Type, string Value)>();
         if (receiver is not null)
         {
@@ -764,13 +767,14 @@ internal sealed partial class CEmitter
              RenderCoerced(arg, fact.Parameters[i].Type))));
         return RenderOrderedCall(
             function ?? Names.Method(fact.ClassName, fact.Name),
-            fact.ReturnType, values);
+            fact.ReturnType, values, outArguments);
     }
 
     private string RenderOrderedCall(string function, CType returnType,
-        IReadOnlyList<(CType Type, string Value)> values)
+        IReadOnlyList<(CType Type, string Value)> values,
+        IReadOnlyList<string>? outArguments = null)
     {
-        if (values.Count == 0) return $"{function}()";
+        if (values.Count == 0 && outArguments is not { Count: > 0 }) return $"{function}()";
         var declarations = new StringBuilder();
         var arguments = new List<string>();
         foreach (var (type, value) in values)
@@ -781,6 +785,7 @@ internal sealed partial class CEmitter
             arguments.Add(temp);
         }
         _ = returnType;
+        if (outArguments != null) arguments.AddRange(outArguments);
         return $"({{ {declarations}{function}({string.Join(", ", arguments)}); }})";
     }
 
