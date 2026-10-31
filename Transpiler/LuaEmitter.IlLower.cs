@@ -106,7 +106,7 @@ public partial class LuaEmitter
     {
         IlTernary => true,
         IlIife i when IsMultiReturnCallIife(i) => true,
-        IlNullableGetOrDefault g => !IsCallFree(g.Default) || Needs(g.E) || Needs(g.Default),
+        IlNullableGetOrDefault g => !CannotFault(g.Default) || Needs(g.E) || Needs(g.Default),
         _ => Children(e).Any(Needs),
     };
 
@@ -163,7 +163,7 @@ public partial class LuaEmitter
                     v => new IlAssign(new IlVar(tmp), v))]))], null));
                 return new IlVar(tmp);
             }
-            case IlNullableGetOrDefault g when !IsCallFree(g.Default) || Needs(g.Default):
+            case IlNullableGetOrDefault g when !CannotFault(g.Default) || Needs(g.Default):
             {
                 var tmp = NewLowerTemp();
                 pre.Add(new IlLocal(tmp, Lower(g.E, pre)));

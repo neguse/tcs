@@ -374,7 +374,7 @@ public partial class LuaEmitter
         IlBin { Op: IlBinOp.Shl } shl => $"__tcs_shl({RenderIl(shl.L)}, {RenderIl(shl.R)})",
         IlBin { Op: IlBinOp.Shr } shr => $"__tcs_shr({RenderIl(shr.L)}, {RenderIl(shr.R)})",
         IlBin bin => $"{RenderIl(bin.L)} {RenderIlOp(bin.Op)} {RenderIl(bin.R)}",
-        IlUn { Op: IlUnOp.Neg } un => $"-{RenderIl(un.E)}",
+        IlUn { Op: IlUnOp.Neg } un => NegateText(RenderIl(un.E)),
         IlUn { Op: IlUnOp.Not } un => $"not {RenderIl(un.E)}",
         IlUn un => $"~{RenderIl(un.E)}",
         IlParen p => $"({RenderIl(p.E)})",
@@ -435,8 +435,8 @@ public partial class LuaEmitter
         IlNullableWrap wrap => RenderIl(wrap.E),
         IlNullableHasValue has => $"({RenderIl(has.E)} ~= nil)",
         IlNullableValue val => $"__tcs_nval({RenderIl(val.E)})",
-        // ?? の右辺は左が nil のときだけ評価 (呼び出しを含めば IIFE で遅延)
-        IlNullableGetOrDefault gd => IsCallFree(gd.Default)
+        // ?? の右辺は左が nil のときだけ評価 (評価が fault し得れば IIFE で遅延)
+        IlNullableGetOrDefault gd => CannotFault(gd.Default)
             ? $"__tcs_nget({RenderIl(gd.E)}, {RenderIl(gd.Default)})"
             : $"(function() local __tcs_v = {RenderIl(gd.E)}; " +
               $"if __tcs_v ~= nil then return __tcs_v end return {RenderIl(gd.Default)} end)()",
@@ -444,6 +444,7 @@ public partial class LuaEmitter
         IlLiftedUn liftedUn => liftedUn.Op switch
         {
             IlUnOp.Neg => $"__tcs_nlift1({RenderIl(liftedUn.E)}, __tcs_op_neg)",
+            IlUnOp.ToFloat => $"__tcs_nlift1({RenderIl(liftedUn.E)}, __tcs_op_tofloat)",
             IlUnOp.BitNot => $"__tcs_nlift1({RenderIl(liftedUn.E)}, __tcs_op_bnot)",
             _ => $"__tcs_nnot({RenderIl(liftedUn.E)})",
         },
@@ -526,6 +527,10 @@ public partial class LuaEmitter
         _ => throw new InvalidOperationException($"not a lifted arithmetic op: {op}"),
     };
 
+    // `--` は Lua では行コメントになるので、`-` で始まるオペランドは括弧で包む
+    private static string NegateText(string operand) =>
+        operand.StartsWith('-') ? $"-({operand})" : $"-{operand}";
+
     private string RenderIlWith(IlWith with)
     {
         var assigns = with.Overrides.Select(o => $"__tcs_copy.{o.Name} = {RenderIl(o.Value)}; ");
@@ -603,6 +608,15 @@ public partial class LuaEmitter
         IlTable tbl => tbl.Entries.All(
             en => (en.Key == null || IsCallFree(en.Key)) && IsCallFree(en.Value)),
         IlCall c => IsPureCallee(c.Callee) && c.Args.All(IsCallFree),
+        _ => false,
+    };
+
+    // 評価しても fault せず値も変えない式 (呼び出しが無くても field 参照や除算は fault する)
+    private static bool CannotFault(IlExpr e) => e switch
+    {
+        IlLit or IlVar => true,
+        IlParen p => CannotFault(p.E),
+        IlNullableWrap w => CannotFault(w.E),
         _ => false,
     };
 

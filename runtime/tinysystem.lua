@@ -320,6 +320,13 @@ function Char.IsLetterOrDigit(c) return Char.IsLetter(c) or Char.IsDigit(c) end
 function Char.IsWhiteSpace(c) return c == 32 or (c >= 9 and c <= 13) end
 function Char.ToUpper(c) if Char.IsLower(c) then return c - 32 end return c end
 function Char.ToLower(c) if Char.IsUpper(c) then return c + 32 end return c end
+-- codepoint の UTF-8 文字列 (Rune の文字列化も同じ)。範囲外は CoreCLR の ArgumentOutOfRangeException に当たる fault
+function Char.ConvertFromUtf32(c)
+  if c < 0 or c > 0x10FFFF or (c >= 0xD800 and c <= 0xDFFF) then
+    error("char.ConvertFromUtf32: not a Unicode scalar value")
+  end
+  return utf8.char(c)
+end
 
 -- String operations
 local String = {}
@@ -393,8 +400,11 @@ function String.EndsWith(str, suffix)
   return string.sub(str, -#suffix) == suffix
 end
 
+-- 1 本の "^%s*(.-)%s*$" は内側の空白の連続の長さの 2 乗の時間がかかるので、前と後ろを別に探す
 function String.Trim(str)
-  return string.match(str, "^%s*(.-)%s*$")
+  local first = string.find(str, "%S")
+  if not first then return "" end
+  return string.match(str, ".*%S", first)
 end
 
 function String.Substring(str, start, length)
@@ -463,11 +473,16 @@ function String.FormatEnum(v, spec)
   return tostring(v)
 end
 
--- 補間の float の書式 G / E (il-spec §13)。spec は書式の文字と省略できる精度 ("G"、"E2" など)。
--- tcs_rt (runtime/lua/tcs_rt_lua.c) が .NET の float.ToString(format) と同じ文字列を作る。float? の null は空文字列
+-- 補間の数値の標準書式 (il-spec §13)。spec は書式の文字と省略できる精度 ("G"、"E2" など)。
+-- tcs_rt (runtime/lua/tcs_rt_lua.c) が .NET の ToString(format) と同じ文字列を作る。T? の null は空文字列
 function String.FormatFloat(v, spec)
   if v == nil then return "" end
   return tcs_rt.ffmt(v, spec)
+end
+
+function String.FormatInt(v, spec)
+  if v == nil then return "" end
+  return tcs_rt.ifmt(v, spec)
 end
 
 function String.Split(str, ...)
@@ -709,9 +724,9 @@ local random_auto = 0
 function Random.new(seed)
   if seed == nil then
     random_auto = random_auto + 1
-    -- 起動ごと・instance ごとに異なる seed (32bit Lua でも整数に収まる形)
+    -- 起動ごと・instance ごとに異なる seed。os.clock は 2^31 で畳み、CPU 時間が長くなっても 32bit Lua の整数に収める
     local t = math.tointeger(os.time()) or 0
-    local c = math.tointeger(math.floor(os.clock() * 1000000)) or 0
+    local c = math.tointeger(math.floor(os.clock() * 1000000 % 2147483648)) or 0
     seed = (t ~ c ~ (random_auto * 0x9E3779B1)) & M32
   end
   return setmetatable({ s = seedstate(seed, 0) }, Random)
@@ -904,6 +919,12 @@ function TinySystem.shr(a, n)
   return ~((~a) >> n)
 end
 
+-- (char)x: char は 1 byte の code unit (生成コードは __tcs_char global 経由)
+function TinySystem.char(x)
+  if x < 0 or x > 255 then error("(char) cast: value is not in 0-255; use char.ConvertFromUtf32 for a codepoint") end
+  return x
+end
+
 -- (int)f: 0 方向 truncation (生成コードは __tcs_trunc global 経由)
 function TinySystem.trunc(x)
   local i = math.tointeger(x)
@@ -987,6 +1008,7 @@ TinySystem.nops = {
   gt = function(a, b) return a > b end,
   ge = function(a, b) return a >= b end,
   neg = function(a) return -a end,
+  tofloat = function(a) return a * 1.0 end,
   bnot = function(a) return ~a end,
 }
 
