@@ -23,22 +23,23 @@ module / class / record class / enum / interface / method / field。
 - property・indexer・event・ループ構文・パターン・式位置の制御フロー・
   文字列補間は IL に存在しない（構築時 lowering 済み。examples 決定 1-2）
 - enum は i32 定数の集合。実行時表現は i32
-- interface は型検査の痕跡のみで実行時表現を持たない。interface を対象と
-  する type test / cast はサブセット外（診断 → T223。実行時に interface を
-  発見する表現が無いため。実行時表現の付与は需要駆動で再検討）
+- 入れ子の型は外側の型と独立した型で、名前に外側の型の名前を `_` でつなぐ（`Outer_Inner`）
+- interface は値を作らない型。class / record class は実装する interface の一覧を実行時に持ち、
+  interface を対象とする type test（IlIsType）はこの一覧で判定する。
+  一覧に載るのは source で宣言した generic でない interface で、入力は参照型に限る（それ以外は診断）
 - エントリポイントは static Main 相当の単一 method
 
 ## 3. 型
 
 `i32` / `f32` / `bool` / `string` / `ref C`（class / record class）/
 `V`（struct / record struct、M5 で有効化）/ `T?`（Nullable、T は i32 /
-f32 / bool / enum / V）/ `T[]` / `List<T>` / `Dictionary<K,V>` /
+f32 / bool / enum / V）/ `T[]` / `List<T>` / `Queue<T>` / `HashSet<T>` / `Dictionary<K,V>` /
 関数型（closure）/ enum (= i32) / char (= i32 の code unit。string は
 UTF-8 byte 列なので `s[i]` は byte 値、文字列化は `string.char(c)` で 1
 byte。literal は ASCII のみ、T251)。
 
 - 型引数は消去済み。IL ノードはすべて単型（examples 決定 3）
-- null は ref・string・List・Dict・関数型の値。i32 / f32 / bool / V は
+- null は ref・string・List・Queue・HashSet・Dict・関数型の値。i32 / f32 / bool / V は
   非 null
 - `T?` は「値なし」を持つ独立した型（T244）。IL は Lua の nil 方言を使わず
   明示ノードで操作する: `IlNullableWrap` (T → T?)、`IlNullableHasValue`、
@@ -56,8 +57,8 @@ byte。literal は ASCII のみ、T251)。
   意味論の規範は C# §12.4.8 で、dotnet differential がそれを検証する。
   文字列化 (`__tcs_nstr`) は値なしを空文字列にする (C# の
   `string.Concat(null)` / 補間と同じ)。backend 表現は dev = nil または値、
-  release = `{ bool has; T v; }`。collection 要素の値なしは TCS1003 のまま
-  (Lua table に nil を置けない)
+  release = `{ bool has; T v; }`。配列と Dictionary の値の値なしは TCS1003 のまま
+  (Lua table に nil を置けない)。List の要素は値なしを持てる (付録 A)
 - double / long はサブセット外（M4 で診断化。il-design §4）
 
 ## 4. 評価モデル
@@ -119,16 +120,16 @@ goto は無い。例外機構は無い — try / throw はサブセット外（T
 - class インスタンスは identity を持つ heap 値。フィールドは place (§10)
 - new: 全フィールドを default 値（i32=0, f32=0.0, bool=false,
   ref/string/List/Dict/関数型=null）で初期化した後、constructor 本体を実行
-- type test（`is T`、T は class に限る — §2）: 実行時型が T またはその派生
-  なら真。null は常に偽（現行バグ T222 はこの規範で修正）
+- type test（`is T`、T は class か interface — §2）: 実行時型が T またはその派生、
+  T を実装する class なら真。null は常に偽（現行バグ T222 はこの規範で修正）
 - cast: Roslyn が安全と検査済みの位置では無検査。明示 cast の失敗は fault
 - class / record class の継承は無い（q.md Q15。基底 class、virtual /
   abstract / override / sealed / protected / new による隠蔽、base は build を
   止める TCS1001）。多態は interface の実装と type test で書く
 - class の参照比較（operator 定義が無い `==`）は identity 比較
 
-## 10. place と値型（struct / record struct。field + instance member +
-ctor。static member / operator / override はサブセット外、T246 で契約完成）
+## 10. place と値型（struct / record struct。field + member + static + operator +
+ctor。override は ToString だけ、T246 で契約完成）
 
 place = 格納場所。変数、フィールド path、配列/List 要素 path の 3 種。
 
@@ -143,7 +144,8 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
   1 には field / property / object / collection / 配列の initializer、
   `with` の上書き値、分解の成分、foreach の反復変数、out への書き出し、
   `??=` の右辺を含む。2 には property setter の `value`、`base(...)` の引数、
-  `?.` 経由の呼び出しの引数、class の user operator の operand (複合代入を含む) を含む。3 には式本体 (`=>`) の lambda / method / property / accessor / operator の値を含む (void の本体は式文なので含まない)
+  `?.` 経由の呼び出しの引数、user operator の operand (複合代入を含む) を含む。3 には式本体 (`=>`) の lambda / method / property / accessor / operator の値を含む (void の本体は式文なので含まない)
+- 引数の copy は観測できなければ省いてよい。Lua は可変 struct の parameter を、書き換える本文か lambda が捕捉する本文なら入口で copy し、呼び出し側は lambda が捕捉しない local / parameter で後の引数と受け手に現れないものの copy を省く (呼び出しの間に変わらない場所)。field / 配列の要素 / static を渡すときは呼び出し側で copy する。generic な struct と型引数の parameter、delegate 経由の呼び出し、host の method、record struct の positional ctor は対象外。readonly でない instance member の呼び出しは書き換えとみなす。C は値渡しなので IL の copy 地点をそのまま読む
 - 式位置の代入 (`F(a[i] = v)`) の値は代入した値の copy で、格納先とは
   独立した値（受けた側の変更は格納先に残らない）。custom property への代入は
   setter に copy を渡し、setter が `value` を変えても式の値は変わらない
@@ -162,8 +164,9 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
   `S.__copy` 参照を付け、要素を値で写す backend は読まなくてよい）
 - static method の method group (IlMethodGroup) の struct parameter も、lambda と同じく受ける側で copy する。
   readonly struct と `T?` の parameter は copy しない。
-  Lua は copy する wrapper を関数ごとに 1 つ作って返す (同じ method の delegate は `==` で等しい)。
+  Lua は copy する wrapper を関数ごとに 1 つ作って返す。
   C は値渡しの thunk で、copy は要らない
+- out parameter は呼び出しごとの新しい変数で、呼び出しの正常な完了で値が渡る。自作メソッドの受け手は `out var` / `out _` だけなので (TCS1001)、out を別名で観測する手段は無く、Lua は multi-return (`return v, out...`)、C はポインタで写す
 - struct 配列の要素は互いに独立した place。連続メモリ配置は backend 表現の
   自由であり IL の意味論ではない
 - struct の instance member は静的ディスパッチの自由関数
@@ -172,9 +175,12 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
   その場に残る。rvalue (property / List indexer / 呼び出し結果) は copy を
   渡し、変異は捨てられる (C# と同じ)。backend は place のアドレス渡し
   (C: `Tcs_S *self`) で copy を省いてよい
-- explicit ctor は `IlCall("S.ctor", args)`: zero 値 → field initializer →
+- explicit ctor は `IlCall("S.ctor", args)` (複数あれば `S.ctor__float` の形): zero 値 → field initializer →
   本文の順。`new S()` は ctor を通らない zero 値 (IlNewObj、initializer も
   走らない)。record struct の positional ctor は宣言順の代入
+- タプルは struct (`Item1` からの field)。IL に専用の型は無い。代入や引数渡しなどの copy 地点も struct と同じで、literal の要素と分解の成分は要素ごとに copy 地点になる。
+  分解は左辺の受け手と添字、右辺、左から順の代入の順に評価する (`(a[0], a[0]) = (1, 2)` は 2 が残る)。
+  Lua backend は戻り値の宣言がタプルの method を multi-return にし、値として保持する位置で table に詰める (観測等価の変形)。型引数 T の値、delegate の戻り値、out を持つ method の戻り値、property の値は 1 つの table のまま
 - 値等価は memberwise (ネスト struct は推移的)。record struct の `==` / `!=`
   は `IlCall("S.op_Equality", [a, b])`、plain struct も List.Contains /
   IndexOf / Remove (C# の EqualityComparer<T>.Default) で同じ等価を使う
@@ -187,9 +193,9 @@ place = 格納場所。変数、フィールド path、配列/List 要素 path �
 
 - `T[]`: 固定長、**0-based**。範囲外 index は fault。`new T[n]` は
   default 値で初期化
-- List / Dict: IL は runtime 型として扱い、メンバー呼び出しは intrinsic
+- List / Queue / HashSet / Dict: IL は runtime 型として扱い、メンバー呼び出しは intrinsic
   call (§13)。意味論の規範は TinySystem dotnet facade（T209 で System 委譲
-  実装済み）+ `known-differences.json`。null 保存制約は TCS1003 の診断が守る
+  実装済み）+ `known-differences.json`。List の要素は null を持てる。配列と Dictionary の null 保存制約は TCS1003 の診断が守る
 - string: **不変の octet 列**。Length・index・IndexOf 等はバイト単位。
   source literal は UTF-8 符号化で octet 列へ写す。孤立 surrogate を含む
   literal はこの写像が存在しないためサブセット外（診断）。octet 列は
@@ -224,7 +230,7 @@ fault = 決定的に検出される実行時異常。発生した fault はプ�
 
 ## 13. intrinsic
 
-- TinySystem runtime 表面（Math / String / List / Dict / Random / Console）
+- TinySystem runtime 表面（Math / String / List / Queue / HashSet / Dict / Random / Console）
   の member 集合が intrinsic 集合。member 一覧は support-matrix Part II が正。
   LINQ (TinySystem.Linq) は intrinsic ではなく、`TinySystem/Linq.cs` を user のコードと同じく IL にする
 - 意味論の規範 = TinySystem dotnet facade + known-differences.json。
@@ -305,7 +311,8 @@ rename 注釈（`[RenamedFrom]` 相当）/ ユーザーフック（`OnReload` �
 - f32 リテラルは bit 値を正確に表す表記（16 進浮動小数リテラル等）で出力
   （10 進経由の二重丸め禁止 — §6）
 - 値型の copy helper（M5 v1 実装済み。連続表現への最適化は perf 実測駆動）
-- List / 配列 / string の添字の範囲外の検出 (§12)。Lua の table は範囲外の key を nil で読み、範囲外の key にも書けるので、要素の読み書きごとに範囲を見る。要素は nil を持たない (TCS1003) ので、範囲内の key は必ず値を持つ。要素が nil になりうる配列 (参照型 / T? / 型引数の要素の `new T[n]`) は穴を持つので検査しない
+- List / 配列 / string の添字の範囲外の検出 (§12)。Lua の table は範囲外の key を nil で読み、範囲外の key にも書けるので、要素の読み書きごとに範囲を見る。値型の要素は nil を持たないので、範囲内の key は必ず値を持つ。要素が null になりうる List (参照型 / T? / 型引数 / object) は nil か false を読んだときだけ長さと比べる。要素が nil になりうる配列 (参照型 / T? / 型引数の要素の `new T[n]`) は穴を持つので検査しない
+- List の長さ。null を入れた List は `#` で測れないので長さを field `n` に持ち、`IlLen` / `IlCall("table.insert")` / `IlCall("table.remove")` / `IlTable` の `NilElements` が立つ地点はこれを読み書きする。`n` が無い table は nil を持たない (host が返す素の table も)
 - 型引数の既定値 (`default(T)`、generic な型の initializer の無い field) は、呼び出し側が型引数ごとの既定値を隠れ引数で渡す (Lua は型を消す)。generic method は自分の型引数、generic な class / record / struct は `new` (struct は zero 値の `new` と `ctor`) と static member が型の型引数を受け、instance は `new` が self に持つ。generic method の method group は既定値を足して呼ぶ closure にする。generic struct の `__copy` は型引数の値を写す関数も受け、copy 地点が型引数の struct の `__copy` を渡す。C backend は型を特殊化するので持たない
 - `LUA_32BITS` ビルドでの実行（M4）
 

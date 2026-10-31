@@ -10,24 +10,41 @@ function List.new(init)
   return init or {}
 end
 
+-- 要素が null になりうる List の Add。長さを field `n` に持つ (# は nil の穴で測れない)。
+-- `n` が無い table は nil を持たない (host の table、型引数の要素の Add を通っただけの List)
+function List.AddCounted(list, item)
+  local n = (list.n or #list) + 1
+  list[n] = item
+  list.n = n
+end
+
+-- 型引数の要素の List の Add。値型の List は `n` を持たないので、null を入れるまで作らない
 function List.Add(list, item)
-  table.insert(list, item)
+  local n = list.n
+  if n == nil and item ~= nil then
+    list[#list + 1] = item
+  else
+    n = (n or #list) + 1
+    list[n] = item
+    list.n = n
+  end
 end
 
 -- Contains / IndexOf / Remove の等価 (EqualityComparer<T>.Default)。eq は
 -- struct 要素の値等価 (型別 op_Equality)、省略時は raw == に加えて NaN 同士を
 -- 等しいとみなす (float.Equals)。1-indexed の位置か nil
 local function findItem(list, item, eq)
+  local n = list.n or #list
   if eq then
-    for i = 1, #list do
+    for i = 1, n do
       if eq(list[i], item) then return i end
     end
   elseif item == item then
-    for i = 1, #list do
+    for i = 1, n do
       if list[i] == item then return i end
     end
   else
-    for i = 1, #list do
+    for i = 1, n do
       local v = list[i]
       if v ~= v then return i end
     end
@@ -35,28 +52,60 @@ local function findItem(list, item, eq)
   return nil
 end
 
+-- 1-indexed の位置を消して後ろを詰める。table.remove は null の入った列の長さを測れない
+local function removeSlot(list, i, n)
+  if i < n then table.move(list, i + 1, n, i) end
+  list[n] = nil
+  if list.n then list.n = n - 1 end
+end
+
 function List.Remove(list, item, eq)
   local i = findItem(list, item, eq)
   if i == nil then return false end
-  table.remove(list, i)
+  removeSlot(list, i, list.n or #list)
   return true
 end
 
-function List.RemoveAt(list, index)
-  table.remove(list, index + 1) -- 0-indexed to 1-indexed
+function List.RemoveSlot(list, i)
+  local n = list.n or #list
+  if i < 1 or i > n then error("Index was out of range.") end
+  removeSlot(list, i, n)
 end
 
 function List.Count(list)
-  return #list
+  return list.n or #list
 end
 
 -- copy constructor `new List<T>(source)`。copy は変更可能な struct 要素の型別 __copy
 function List.Copy(list, copy)
-  local result = {}
+  local result = {n = list.n}
   if copy then
-    for i = 1, #list do result[i] = copy(list[i]) end
+    for i = 1, list.n or #list do result[i] = copy(list[i]) end
   else
-    for i = 1, #list do result[i] = list[i] end
+    table.move(list, 1, list.n or #list, 1, result)
+  end
+  return result
+end
+
+function List.Insert(list, index, item)
+  local n = list.n or #list
+  if index < 0 or index > n then error("Index must be within the bounds of the List.") end
+  table.move(list, index + 1, n, index + 2)
+  list[index + 1] = item
+  if list.n or item == nil then list.n = n + 1 end
+end
+
+-- 新しい List に写す。copy は変更可能な struct 要素の型別 __copy
+function List.GetRange(list, index, count, copy)
+  local n = list.n or #list
+  if index < 0 or count < 0 or count > n - index then
+    error("Offset and length were out of bounds for the List.")
+  end
+  local result = {n = list.n and count}
+  if copy then
+    for i = 1, count do result[i] = copy(list[index + i]) end
+  else
+    table.move(list, index + 1, index + count, 1, result)
   end
   return result
 end
@@ -66,7 +115,7 @@ function List.Contains(list, item, eq)
 end
 
 function List.FindIndex(list, match)
-  for i = 1, #list do
+  for i = 1, list.n or #list do
     if match(list[i]) then return i - 1 end
   end
   return -1
@@ -76,19 +125,21 @@ end
 -- .NET の List<T>.RemoveAll と同じ手順。述語が list を変えても同じ結果になるよう、長さは毎回読む
 function List.RemoveAll(list, match)
   local free = 1
-  while free <= #list and not match(list[free]) do free = free + 1 end
-  if free > #list then return 0 end
+  while free <= List.Count(list) and not match(list[free]) do free = free + 1 end
+  if free > List.Count(list) then return 0 end
   local current = free + 1
-  while current <= #list do
-    while current <= #list and match(list[current]) do current = current + 1 end
-    if current <= #list then
+  while current <= List.Count(list) do
+    while current <= List.Count(list) and match(list[current]) do current = current + 1 end
+    if current <= List.Count(list) then
       list[free] = list[current]
       free = free + 1
       current = current + 1
     end
   end
-  local n = #list
+  local n = List.Count(list)
+  if n < free then return n - free + 1 end
   for i = n, free, -1 do list[i] = nil end
+  if list.n then list.n = free - 1 end
   return n - free + 1
 end
 
@@ -98,8 +149,6 @@ function List.IndexOf(list, item, eq)
   return i - 1 -- 0-indexed
 end
 
--- List.Sort は .NET の List<T>.Sort と同じ introsort (dotnet/runtime の ArraySortHelper<T>) で、同値の要素の並びと比較の呼び出し列まで同じ。
--- cmp は 3 方向の比較で、区間は t[lo] から n 個
 local function swapIfGreater(t, cmp, i, j)
   if cmp(t[i], t[j]) > 0 then t[i], t[j] = t[j], t[i] end
 end
@@ -212,10 +261,29 @@ local function numberCompare(a, b)
 end
 
 function List.Sort(list, comparison)
-  local n = #list
+  local n = list.n or #list
   if comparison then
     introspectiveSort(list, comparison, 1, n)
-  elseif type(list[1]) == "string" then
+    return
+  end
+  -- 比較なしの順序で null は最小 (.NET の既定の comparer)。残りを並べてから後ろへ置く
+  if list.n then
+    local rest, m = {}, 0
+    for i = 1, n do
+      local v = list[i]
+      if v ~= nil then
+        m = m + 1
+        rest[m] = v
+      end
+    end
+    if m < n then
+      List.Sort(rest)
+      for i = 1, n - m do list[i] = nil end
+      table.move(rest, 1, m, n - m + 1, list)
+      return
+    end
+  end
+  if type(list[1]) == "string" then
     tcs_rt.sort_strings(list)
   else
     -- .NET の SortUtils.MoveNansToFront と同じく、NaN を先頭に寄せてから残りを並べる。
@@ -308,6 +376,135 @@ function Dict.FloatKeys(dict)
   return keys
 end
 
+-- Queue<T>: 先頭と末尾の添字 (h / t) で Enqueue / Dequeue とも O(1)。空になると添字を戻す
+local TcsQueue = {}
+TinySystem.TcsQueue = TcsQueue
+
+function TcsQueue.new()
+  return {h = 1, t = 0}
+end
+
+function TcsQueue.Enqueue(queue, item)
+  local t = queue.t + 1
+  queue[t] = item
+  queue.t = t
+end
+
+local function queueEmpty() error("Queue empty.") end
+
+function TcsQueue.Dequeue(queue)
+  local h, t = queue.h, queue.t
+  if h > t then queueEmpty() end
+  local item = queue[h]
+  queue[h] = nil
+  if h == t then
+    queue.h, queue.t = 1, 0
+  else
+    queue.h = h + 1
+  end
+  return item
+end
+
+function TcsQueue.Peek(queue)
+  if queue.h > queue.t then queueEmpty() end
+  return queue[queue.h]
+end
+
+function TcsQueue.Count(queue)
+  return queue.t - queue.h + 1
+end
+
+function TcsQueue.Clear(queue)
+  for i = queue.h, queue.t do queue[i] = nil end
+  queue.h, queue.t = 1, 0
+end
+
+-- 等価は List の検索と同じ (EqualityComparer<T>.Default。eq は struct 要素の op_Equality)
+function TcsQueue.Contains(queue, item, eq)
+  for i = queue.h, queue.t do
+    local v = queue[i]
+    if eq and eq(v, item) or not eq and (v == item or item ~= item and v ~= v) then return true end
+  end
+  return false
+end
+
+-- foreach が反復する今の要素の写し
+function TcsQueue.ToList(queue)
+  local list = table.move(queue, queue.h, queue.t, 1, {})
+  list.n = queue.t - queue.h + 1
+  return list
+end
+
+-- HashSet<T>: 要素 → slot の表 (map) と slot ごとの要素 (items)。列挙の順は .NET の HashSet と同じで、
+-- slot の順。Remove した slot は free の鎖 (nexts) に積み、次の Add が最後に空いた slot から使う
+local TcsHashSet = {}
+TinySystem.TcsHashSet = TcsHashSet
+
+-- Lua の table は nil を key にできないので null はこの key に置く
+local NULL_KEY = {}
+
+function TcsHashSet.new()
+  return {map = {}, items = {}, nexts = {}, top = 0, free = 0, freeCount = 0}
+end
+
+function TcsHashSet.Add(set, item)
+  local key = item
+  if key == nil then key = NULL_KEY end
+  if set.map[key] then return false end
+  local slot = set.free
+  if slot ~= 0 then
+    set.free = set.nexts[slot]
+    set.nexts[slot] = nil
+    set.freeCount = set.freeCount - 1
+  else
+    slot = set.top + 1
+    set.top = slot
+  end
+  set.items[slot] = item
+  set.map[key] = slot
+  return true
+end
+
+function TcsHashSet.Remove(set, item)
+  local key = item
+  if key == nil then key = NULL_KEY end
+  local slot = set.map[key]
+  if slot == nil then return false end
+  set.map[key] = nil
+  set.items[slot] = nil
+  set.nexts[slot] = set.free
+  set.free = slot
+  set.freeCount = set.freeCount + 1
+  return true
+end
+
+function TcsHashSet.Contains(set, item)
+  if item == nil then item = NULL_KEY end
+  return set.map[item] ~= nil
+end
+
+function TcsHashSet.Count(set)
+  return set.top - set.freeCount
+end
+
+function TcsHashSet.Clear(set)
+  set.map, set.items, set.nexts = {}, {}, {}
+  set.top, set.free, set.freeCount = 0, 0, 0
+end
+
+-- foreach が反復する今の要素の写し
+function TcsHashSet.ToList(set)
+  local list, n = {}, 0
+  for slot = 1, set.top do
+    if set.nexts[slot] == nil then
+      n = n + 1
+      list[n] = set.items[slot]
+    end
+  end
+  list.n = n
+  return list
+end
+
 -- Char (整数 code unit、ASCII の判定 / 変換。C backend も同じ表)
 local Char = {}
 TinySystem.Char = Char
@@ -345,7 +542,7 @@ end
 -- enum の要素の Join。要素は String.FormatEnum (Enum.ToString と同じ member 名)
 function String.JoinEnum(sep, values, spec)
   local parts = {}
-  for i = 1, #values do parts[i] = String.FormatEnum(values[i], spec) end
+  for i = 1, values.n or #values do parts[i] = String.FormatEnum(values[i], spec) end
   return String.Join(sep, parts)
 end
 
@@ -353,9 +550,11 @@ end
 function String.Join(sep, values, ...)
   if type(values) == "table" and select("#", ...) == 0 then
     local parts = {}
-    for i = 1, #values do
+    for i = 1, values.n or #values do
       local v = values[i]
-      if math.type(v) == "float" then
+      if v == nil then
+        v = ""
+      elseif math.type(v) == "float" then
         v = TinySystem.fstr(v)
       elseif type(v) == "boolean" then
         v = TinySystem.bstr(v)
@@ -817,7 +1016,8 @@ function TinySystem.irem(a, b)
 end
 
 -- List / 配列 / string の添字 (il-spec §12)。生成コードは __tcs_get / __tcs_set / __tcs_byte の
--- global 経由でこちらを使う。要素は nil を持たない (TCS1003) ので、範囲内の key は必ず値を持つ
+-- global 経由でこちらを使う。値型の要素は nil を持たないので、範囲内の key は必ず値を持つ。
+-- 要素が null になりうる List は __tcs_lget / __tcs_lset / __tcs_lchk で長さと比べる
 local function outOfRange() error("Index was out of range.") end
 
 function TinySystem.get(t, i)
@@ -828,6 +1028,25 @@ end
 
 function TinySystem.set(t, i, v)
   if t[i + 1] == nil then outOfRange() end
+  t[i + 1] = v
+end
+
+function TinySystem.count(t)
+  return t.n or #t
+end
+
+function TinySystem.lchk(t, i)
+  if i < 0 or i >= (t.n or #t) then outOfRange() end
+end
+
+function TinySystem.lget(t, i)
+  local v = t[i + 1]
+  if not v then TinySystem.lchk(t, i) end
+  return v
+end
+
+function TinySystem.lset(t, i, v)
+  if t[i + 1] == nil then TinySystem.lchk(t, i) end
   t[i + 1] = v
 end
 
@@ -884,6 +1103,14 @@ function TinySystem.instanceof(x, T)
   return false
 end
 
+-- class の interface の検査。class table の __interfaces は実装する interface の名前の集合。
+-- 生成コードは __tcs_implements global 経由でこちらを使う。
+function TinySystem.implements(x, name)
+  local mt = getmetatable(x)
+  local set = mt and mt.__interfaces
+  return set ~= nil and set[name] == true
+end
+
 -- TryGetValue の lowering 先 (il-spec §13)。(found, value or default) を返す
 function Dict.TryGet(dict, key, default)
   local v = dict[key]
@@ -898,6 +1125,12 @@ end
 function TinySystem.dv(d)
   if type(d) == "table" and d.__tcs_td then return d.n() end
   return d
+end
+
+-- `new T()` の型引数。class を入れた型引数は作り方を持たない (既定値は null)
+function TinySystem.nt(d)
+  if d == nil then error("new T() of a class type argument is not supported") end
+  return TinySystem.dv(d)
 end
 
 -- enum を入れた型引数の記述子 (名前の表ごとに 1 つ)。生成コードは __tcs_etd global 経由
@@ -970,7 +1203,7 @@ end
 -- static method group の wrapper (module mode の __tcs_mg global の実体)。
 -- struct parameter を copy してから呼ぶ。
 -- c は parameter ごとの copy 関数 (不要なら false)。
--- 同じ関数には同じ wrapper を返す (delegate の ==)
+-- 同じ関数には同じ wrapper を返す
 local mg_cache = setmetatable({}, { __mode = "k" })
 function TinySystem.mg(f, c1, c2, ...)
   local w = mg_cache[f]
@@ -1045,13 +1278,31 @@ function TinySystem.fstr(v) return tcs_rt.fstr(v) end
 
 -- bool は .NET と同じ True / False
 function TinySystem.bstr(b) return b and "True" or "False" end
+-- 生成コードは __tcs_tupleN global 経由 (multi-return のタプルを保持するときの struct の table)
+function TinySystem.tuple2(v1, v2) return {Item1 = v1, Item2 = v2} end
+function TinySystem.tuple3(v1, v2, v3) return {Item1 = v1, Item2 = v2, Item3 = v3} end
+function TinySystem.tuple4(v1, v2, v3, v4) return {Item1 = v1, Item2 = v2, Item3 = v3, Item4 = v4} end
+function TinySystem.tuple5(v1, v2, v3, v4, v5)
+  return {Item1 = v1, Item2 = v2, Item3 = v3, Item4 = v4, Item5 = v5}
+end
+function TinySystem.tuple6(v1, v2, v3, v4, v5, v6)
+  return {Item1 = v1, Item2 = v2, Item3 = v3, Item4 = v4, Item5 = v5, Item6 = v6}
+end
+function TinySystem.tuple7(v1, v2, v3, v4, v5, v6, v7)
+  return {Item1 = v1, Item2 = v2, Item3 = v3, Item4 = v4, Item5 = v5, Item6 = v6, Item7 = v7}
+end
 
--- T? と object と型引数の文字列化 (null → "")。table の値はサブセット外 (TCS1001 UnsupportedToString)
+-- T? と object と型引数の文字列化 (null → "")。class の値は ToString の override を呼ぶ。
+-- 他の table の値はサブセット外 (TCS1001 UnsupportedToString)
 function TinySystem.nstr(v)
   if v == nil then return "" end
   if math.type(v) == "float" then return TinySystem.fstr(v) end
   if type(v) == "boolean" then return TinySystem.bstr(v) end
-  if type(v) == "table" then error("ToString of this value is not supported") end
+  if type(v) == "table" then
+    local mt = getmetatable(v)
+    if mt and mt.ToString then return mt.ToString(v) or "" end
+    error("ToString of this value is not supported")
+  end
   return tostring(v)
 end
 

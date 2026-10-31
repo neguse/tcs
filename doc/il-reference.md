@@ -21,19 +21,22 @@ var result = TinyCs.IlExport.Export(csharpSources);
 //   .Methods: (Name, IsStatic, Parameters, Body, ReturnType, ParameterTypes)
 //     Body == null は IL 未対応 method (診断構文等)。backend は拒否してよい。
 //     custom property accessor は get_X/set_X 名でここに現れる (T224)
-//   .Ctor: explicit constructor (Parameters/ParameterTypes/Body)。null なら
-//     default 初期化のみ。Body は field default + initializer 適用後に実行
+//   .Ctors: explicit constructor (Name/Parameters/ParameterTypes/Body)。空なら
+//     default 初期化のみ。Body は field default + initializer 適用後に実行。
+//     Name は呼び出しの IlNewObj.Ctor / IlCall("S.Name") と同じ (`new`、`new__int`)
 //   .IsRecord: record class (T243)。positional parameter が Fields の先頭に
-//     並び (base へ渡すだけの parameter は C# 同様に合成しない)、Ctor は
+//     並び (base へ渡すだけの parameter は C# 同様に合成しない)、Ctors の 1 つは
 //     それらへの代入 + base 引数。==/!= は構造等価 (backend が field 比較を
 //     生成、型が違えば false)、with は IlWith (実行時型の shallow copy)
 // result.Structs: IlStructInfo[] — struct / record struct (il-spec §10)。
 //   Fields (auto property / record struct の positional parameter 込み、
 //   Init は explicit ctor 経由でのみ適用) / LayoutHash (migration metadata、
 //   struct 値は reload 時に owner 経由で再直列化 — il-design §6、HotReload.cs)
-//   / Methods (instance method + custom property accessor、呼び出しは
-//   IlCall("S.M", [receiver, args])) / Ctor (explicit または positional、
-//   IlCall("S.ctor", args)) / IsRecord (==/!= は IlCall("S.op_Equality"))
+//   / Methods (method + custom property accessor + operator、呼び出しは
+//   IlCall("S.M", [receiver, args])、IsStatic なら receiver なし) / StaticFields
+//   (static field と static auto property。読み書きは IlField(IlVar("S"), name))
+//   / Ctors (explicit または positional、IlCall("S.ctor", args)、複数なら `S.ctor__float` の形)
+//   / IsRecord (==/!= は IlCall("S.op_Equality"))
 // result.Enums: enum 名 (hot reload の added field default 判定)
 // result.EnumTypes: IlEnumInfo[] — enum の定数表 (Name / Members: (Lua 名,
 //   int 値))。IL 上の enum 参照は IlField(IlVar(enum 名), member 名) で、
@@ -64,11 +67,11 @@ assembly 参照で直接消費する。
 | IlCall(callee, args) | 解決済み callee 名の呼び出し。callee は "Class.Method" / intrinsic 名 (§13: print, Math.*, String.*, List.*, Dict.*, Char.*, table.*, string.format, string.byte / string.char (char ↔ 1 byte string), tostring, math.fmod, \_\_tcs_idiv, \_\_tcs_irem) | callee(args) |
 | IlDynCall(callee, args) | 式 callee の呼び出し (delegate 変数等) | callee(args) |
 | IlInvoke(recv, m, args) | インスタンスメソッド (仮想解決は実行時型 §9) | recv:m(args) |
-| IlNewObj(type, args) | class 生成 (§9: default 初期化→ctor) | Type.new(args) |
+| IlNewObj(type, args, ctor) | class 生成 (§9: default 初期化→ctor)。ctor は constructor の名前 (既定は `new`) | Type.ctor(args) |
 | IlTable(entries, elemType?) | List/Dict/option table リテラル。entry = 配列項 / [k]=v / name=v。elemType は配列/List の要素型 metadata | {…} |
 | IlNewArray(elemType, length, default) | 固定長配列生成 (§11)。default は要素の default 値 (値型は IL、struct は IlNewObj の zero 値、参照型は null)。C は zero 初期化、Lua は値型のとき `__tcs_arr(n, default)` で n 個詰める | __tcs_arr(n, d) / {} |
 | IlStructCopy(e, typeName) | 値型の copy 地点 (§10)。型別 copy 関数で struct-in-struct を再帰 copy。C backend は素の値代入で良い | typeName..".\_\_copy(e)" |
-| IlIsType(e, typeRef) | class 型 test (T またはその派生、null 偽 §9) | \_\_tcs_is(e, T) |
+| IlIsType(e, typeRef, isInterface) | class 型 test (T またはその派生、null 偽 §9)。isInterface なら実装の test | \_\_tcs_is(e, T) / \_\_tcs_implements(e, "I") |
 | IlIsLuaType(e, luaType) | プリミティブ型 test | type(e) == "…" |
 | IlIife(stats) | 式位置の逐次実行 (switch 式・?. 等の lowering 産物) | (function() … end)() |
 | IlClosure(params, body/exprBody, patternLocals) | closure。capture は変数単位 (§7) | function(…) … end |
@@ -88,7 +91,7 @@ assembly 参照で直接消費する。
 | IlBlock(stats) | 文列 (scope。IlIf 等の arm が持つ) |
 | IlLocal(name, init?, type?) | 変数導入 (identity は §7)。type は宣言型の display 文字列 (var も推論型、is-pattern / out var の前宣言も symbol 型)。init が nil literal / closure / 派生型のときは backend は type を優先する |
 | IlAssign(target, value) | place への store (§10) |
-| IlMultiAssign(targets, values, declare) | 多重代入 (分解 / out 引数 multi-return) |
+| IlMultiAssign(targets, values, declare) | 多重代入 (分解 / out 引数 multi-return)。自作メソッドの out の呼び出しは `targets` = [戻り値 (void なら無し), out...]、`values` = [out を除いた引数の call] で、out の順は `IlMethodInfo.OutParameters` の順 |
 | IlBreakScope(body) | break スコープ: 本文内のループに束縛されない IlBreak がここを抜ける (switch 文の早期 break)。continue は外側ループ束縛のまま。C は block + goto label | repeat ... until true |
 | IlComment(text) | 出力に残す注記 (lock の診断 marker 等)。意味論なし | text |
 | IlCallStat(call) | 呼び出し文。call が `table.insert(t, v)` (List.Add) で t が変数/field 連鎖なら、Lua backend は `t[#t + 1] = v` へ落とす (v が呼び出しを含むときは `local __tcs_v = v` に先に束縛して評価順を保つ。#24。IlReturn / closure exprBody の同形も同じ) |
