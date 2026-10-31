@@ -250,6 +250,7 @@ internal sealed partial class CEmitter
             {
                 var fact = _facts.Method(st.Name, member);
                 if (fact.IsStatic) return RenderMethodCall(fact, null, args);
+                var outArguments = TakeOutArguments();
                 var sb = new StringBuilder();
                 var receiver = Temp("recv");
                 var owner = Temp("owner");
@@ -273,6 +274,7 @@ internal sealed partial class CEmitter
                         $"{RenderCoerced(args[i + 1], fact.Parameters[i].Type)}; ");
                     rendered.Add(temp);
                 }
+                rendered.AddRange(outArguments);
                 sb.Append($"{Names.Method(st.Name, member)}({string.Join(", ", rendered)}); ");
                 return $"({{ {sb}}})";
             }

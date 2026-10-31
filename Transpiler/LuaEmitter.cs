@@ -35,7 +35,7 @@ public partial class LuaEmitter
     internal bool StructuralTypeTests { get; init; }
 
     internal bool IsReferenceOnlyType(ITypeSymbol? type) =>
-        type != null && type.DeclaringSyntaxReferences
+        type != null && type.OriginalDefinition.DeclaringSyntaxReferences
             .Any(r => ReferenceTrees.Contains(r.SyntaxTree));
 
     public void Visit(CSharpCompilation compilation, SemanticModel model,
@@ -119,6 +119,11 @@ public partial class LuaEmitter
                 ReportUnsupportedMember(member);
                 break;
         }
+
+        // 入れ子の型は外側の型の後に、独立した global の型として emit する
+        if (member is TypeDeclarationSyntax outer)
+            foreach (var nested in outer.Members.OfType<BaseTypeDeclarationSyntax>())
+                VisitMember(model, nested);
     }
 
     private void VisitGlobalStatement(SemanticModel model,
@@ -162,6 +167,7 @@ public partial class LuaEmitter
         var info = BeginType(name, "class", symbol);
         AppendLine($"{name}.__index = {name}");
         info.DefinitionKeys.Add("__index");
+        EmitImplementedInterfaces(name, info, symbol);
         if (baseClass != null)
         {
             var baseName = TypeName(baseClass);
@@ -238,6 +244,7 @@ public partial class LuaEmitter
                 case FieldDeclarationSyntax:
                 case PropertyDeclarationSyntax prop when IsAutoProperty(prop):
                 case ConstructorDeclarationSyntax:
+                case BaseTypeDeclarationSyntax:
                     break;
                 default:
                     ReportUnsupportedMember(member);
@@ -248,6 +255,20 @@ public partial class LuaEmitter
         EmitOperators(model, name, operators);
         DeferStaticFieldInitializers(model, name, info, staticFieldInits);
         _currentType = null;
+    }
+
+    // `is I` / `as I` が引く、実装する interface の名前の集合。検査できる interface だけを載せる
+    // (TinyCsComplianceFacts.IsInterfaceTypeTest が止めるものは載せない)
+    private void EmitImplementedInterfaces(string name, EmittedTypeInfo info, INamedTypeSymbol symbol)
+    {
+        var names = symbol.AllInterfaces
+            .Where(i => !i.IsGenericType && i.DeclaringSyntaxReferences.Length > 0
+                && !IsReferenceOnlyType(i))
+            .Select(i => $"[{EscapeLuaString(TypeName(i))}] = true")
+            .ToList();
+        if (names.Count == 0) return;
+        AppendLine($"{name}.__interfaces = {{{string.Join(", ", names)}}}");
+        info.DefinitionKeys.Add("__interfaces");
     }
 
     // static field の initializer は constructor / method / property /
@@ -525,7 +546,10 @@ public partial class LuaEmitter
         var declared = model.GetDeclaredSymbol(method);
         var methodName = declared != null ? N(declared) : method.Identifier.ValueText;
         var isStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword);
+        var hasOut = method.ParameterList.Parameters
+            .Any(p => p.Modifiers.Any(SyntaxKind.OutKeyword));
         var paramNames = method.ParameterList.Parameters
+            .Where(p => !p.Modifiers.Any(SyntaxKind.OutKeyword))
             .Select(p => p.Identifier.ValueText).ToList();
         if (declared != null) paramNames.AddRange(TypeArgDefaultParams(declared));
         var outerOnSelf = _typeArgDefaultsOnSelf;
@@ -542,7 +566,21 @@ public partial class LuaEmitter
         EmitParameterDefaults(model, method.ParameterList);
         EmitParameterEntryCopies(model, method, method.ParameterList);
 
-        if (method.Body != null)
+        if (hasOut)
+        {
+            if (BuildOutMethodBody(model, method) is { } outBody)
+            {
+                IlBodies++;
+                EmitIlBlock(outBody);
+            }
+            else
+            {
+                ReportUnsupportedBody(model, method.Body != null
+                    ? method.Body.Statements
+                    : [method.ExpressionBody!.Expression]);
+            }
+        }
+        else if (method.Body != null)
         {
             if (TryBuildIlBody(model, method) is { } ilBody)
             {
