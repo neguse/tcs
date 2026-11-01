@@ -47,9 +47,7 @@ public partial class LuaEmitter
         while (stack.Count > 0)
         {
             var scope = stack.Pop();
-            IEnumerable<INamespaceOrTypeSymbol> members = scope is INamespaceSymbol ns
-                ? ns.GetMembers() : scope.GetTypeMembers();
-            foreach (var member in members)
+            foreach (var member in NamespaceOrTypeMembers(scope))
             {
                 stack.Push(member);
                 if (member is INamedTypeSymbol type

@@ -35,8 +35,8 @@ public partial class LuaEmitter
 
         // positional parameter は Lua の local としては C# 名のまま、field
         // としては写像後の名前で持つ
-        var paramNames = rec.ParameterList?.Parameters
-            .Select(p => p.Identifier.ValueText).ToList() ?? [];
+        var paramNames = ToListOrEmpty(rec.ParameterList?.Parameters
+            .Select(p => p.Identifier.ValueText));
         var hidden = TypeArgDefaultParams(symbol);
         var ownFields = hidden.Concat(paramNames
             .Where(p => IsSynthesizedPositional(symbol, p)))

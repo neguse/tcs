@@ -10,6 +10,21 @@ namespace TinyCs;
 // 共有部だけを移した)。Lua 文字列を直接組み立てる経路はここに無い。
 public partial class LuaEmitter
 {
+    // null を空にする折り畳みを呼び出しの中に閉じる。.NET 10 の Mono wasm AOT は、例外 clause
+    // (try / finally、using、interface の enumerator の foreach) を持つ method で `x?.Y ?? z` や
+    // `c ? a : b` のような分岐の合流を経て local に入れた参照を GC の root に置かない
+    // (dotnet/runtime#130592、修正の dotnet/runtime#132306 は .NET 10 に未収録)。値が他から
+    // 参照されない新しい object (ToList の結果など) だと、後の GC でその local が壊れる (#385)。
+    // 呼び出しの戻り値をそのまま local に入れる形なら root に置かれる
+    private static List<T> ToListOrEmpty<T>(IEnumerable<T>? source) =>
+        source == null ? [] : [.. source];
+
+    private static string? DeclaredLocalTypeName(SemanticModel model, VariableDeclaratorSyntax variable) =>
+        (model.GetDeclaredSymbol(variable) as ILocalSymbol)?.Type.ToDisplayString();
+
+    private static IEnumerable<INamespaceOrTypeSymbol> NamespaceOrTypeMembers(INamespaceOrTypeSymbol scope) =>
+        scope is INamespaceSymbol ns ? ns.GetMembers() : scope.GetTypeMembers();
+
     private static void CollectTerminalBreaks(
         IReadOnlyList<StatementSyntax> statements,
         HashSet<StatementSyntax> sink)

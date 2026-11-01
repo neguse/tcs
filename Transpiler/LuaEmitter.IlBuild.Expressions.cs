@@ -77,7 +77,7 @@ public partial class LuaEmitter
                 return BuildMemberAccess(model, ma);
             case ObjectCreationExpressionSyntax creation:
                 return BuildObjectCreation(model, creation,
-                    creation.ArgumentList?.Arguments, creation.Initializer);
+                    creation.ArgumentList?.Arguments ?? default, creation.Initializer);
             case ImplicitObjectCreationExpressionSyntax implicitCreation:
                 return BuildObjectCreation(model, implicitCreation,
                     implicitCreation.ArgumentList.Arguments,
@@ -878,9 +878,14 @@ public partial class LuaEmitter
             multiReturn ? PackTuple(method, groupCall) : groupCall, []);
     }
 
+    // この method には try / finally を置かない (foreach の対象は struct の enumerator、
+    // `IEnumerable` と `??` で作る local も無い)。.NET 10 の Mono wasm AOT は、例外 clause を持つ
+    // method で `a ?? b` のような分岐の合流を経て local に入れた参照を GC の root に置かず、
+    // 再帰の BuildExpr の間の GC でその local が壊れる (dotnet/runtime#130592、修正は
+    // dotnet/runtime#132306 で .NET 10 には未収録)。playground の wasm だけで起きる (#385)
     private IlExpr? BuildObjectCreation(SemanticModel model,
         ExpressionSyntax creation,
-        IEnumerable<ArgumentSyntax>? argumentList,
+        SeparatedSyntaxList<ArgumentSyntax> argumentList,
         InitializerExpressionSyntax? initializer)
     {
         var typeSymbol = creation is ObjectCreationExpressionSyntax
@@ -897,8 +902,9 @@ public partial class LuaEmitter
             // copy constructor `new List<T>(source)` (source は List<T>、T[]、Dictionary の
             // Keys / Values)。変更可能な struct 要素なら型別 __copy を渡す (C backend は要素を
             // 値で写すので読まない)
-            if (argumentList?.ToList() is [var sourceArg])
+            if (argumentList.Count == 1)
             {
+                var sourceArg = argumentList[0];
                 var sourceType = model.GetTypeInfo(sourceArg.Expression).Type;
                 if (initializer != null || !sourceArg.RefKindKeyword.IsKind(SyntaxKind.None)
                     || !(sourceType is IArrayTypeSymbol
@@ -984,9 +990,10 @@ public partial class LuaEmitter
         if (typeSymbol is ITypeParameterSymbol typeArg && TypeArgDefaultIl(typeArg) is { } typeArgDefault)
             return new IlCall("__tcs_nt", [typeArgDefault]);
         var args = new List<IlExpr>();
-        var ctorArgs = argumentList?.Select(a => a.Expression).ToList() ?? [];
+        var ctorArgs = new List<ExpressionSyntax>(argumentList.Count);
+        foreach (var a in argumentList) ctorArgs.Add(a.Expression);
         var calledCtor = model.GetSymbolInfo(creation).Symbol as IMethodSymbol;
-        foreach (var a in argumentList ?? [])
+        foreach (var a in argumentList)
         {
             if (!a.RefKindKeyword.IsKind(SyntaxKind.None)) return null;
             var built = BuildExpr(model, a.Expression);
@@ -1007,8 +1014,8 @@ public partial class LuaEmitter
         var ctorSymbol = model.GetSymbolInfo(creation).Symbol as IMethodSymbol;
         // 省略した引数は宣言の既定値で埋める (C# は呼び出し側で決める。record / struct の ctor は
         // 既定値を埋める本文を持たない)
-        foreach (var parameter in ctorSymbol?.Parameters.Skip(args.Count) ?? [])
-            args.Add(OmittedDefault(model, parameter) ?? new IlLit("nil"));
+        for (var i = args.Count; ctorSymbol != null && i < ctorSymbol.Parameters.Length; i++)
+            args.Add(OmittedDefault(model, ctorSymbol.Parameters[i]) ?? new IlLit("nil"));
         // generic な型の new / ctor は型引数の既定値を受ける
         if (ctorSymbol is { ContainingType.TypeArguments.Length: > 0 } genericCtor
             && PassesTypeArgDefaults(genericCtor.ContainingType.OriginalDefinition))

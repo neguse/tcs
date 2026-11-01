@@ -167,9 +167,7 @@ public partial class LuaEmitter
             {
                 if (local.UsingKeyword.IsKind(SyntaxKind.UsingKeyword))
                     return false;
-                var declaredType = (model.GetDeclaredSymbol(
-                        local.Declaration.Variables[0]) as ILocalSymbol)
-                    ?.Type.ToDisplayString();
+                var declaredType = DeclaredLocalTypeName(model, local.Declaration.Variables[0]);
                 foreach (var v in local.Declaration.Variables)
                 {
                     IlExpr? init = null;
