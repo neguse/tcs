@@ -1,5 +1,7 @@
 # TinyC# (tcs)
 
+この repo は [neguse/lub](https://github.com/neguse/lub) の `tcs/` に移りました。開発、issue、PR は lub で行います。この repo は履歴を残すための archive です。
+
 C# サブセットのコンパイラ。ゲームスクリプティング向け。
 出力は tcs VM の bytecode (`tcs vm`、VM は `tcsvm/`。開発と hot reload の実行系) と C のソース (`tcs c`、`tcs2c/`。release の実行系) の 2 つ。
 
